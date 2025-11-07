@@ -1,6 +1,9 @@
 package com.tabtrack
 
 import android.app.Application
+import android.content.Context // 👈 NUEVO
+import androidx.multidex.MultiDex // 👈 NUEVO
+
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -40,5 +43,11 @@ class MainApplication : Application(), ReactApplication {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
     }
+  }
+
+  // 👇 AGREGADO: Requerido para MultiDex
+  override fun attachBaseContext(base: Context) {
+    super.attachBaseContext(base)
+    MultiDex.install(this)
   }
 }

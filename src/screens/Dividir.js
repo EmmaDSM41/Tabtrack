@@ -1,0 +1,906 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  SafeAreaView,
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  StatusBar,
+  ActivityIndicator,
+  useWindowDimensions,
+  PixelRatio,
+  Share,
+  Alert,
+} from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_BASE_URL = 'https://api.tab-track.com';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+
+const formatMoney = (n) =>
+  Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+
+const round2 = (v) => {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
+};
+
+export default function Dividir() {
+  const navigation = useNavigation();
+  const route = useRoute();
+
+  // responsive helpers
+  const { width, height } = useWindowDimensions();
+  const wp = (p) => (Number(p) / 100) * width;
+  const hp = (p) => (Number(p) / 100) * height;
+  const rf = (p) => {
+    const size = (Number(p) / 100) * width;
+    return Math.round(PixelRatio.roundToNearestPixel(size));
+  };
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  const token = route?.params?.token ?? null;
+  const incomingItems = route?.params?.items ?? null;
+  const incomingComensales = route?.params?.total_comensales ?? null;
+  const incomingTotalConsumo = route?.params?.total_consumo ?? null;
+
+  const allowPaymentsCheck = !!route?.params?.allowPaymentsCheck;
+
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState([]);
+  const [totalComensales, setTotalComensales] = useState(incomingComensales ?? null);
+
+  const [saleId, setSaleId] = useState(route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? null);
+  const [restauranteId, setRestauranteId] = useState(route?.params?.restauranteId ?? route?.params?.restaurante_id ?? null);
+  const [sucursalId, setSucursalId] = useState(route?.params?.sucursalId ?? route?.params?.sucursal_id ?? null);
+  const [mesaId, setMesaId] = useState(route?.params?.mesaId ?? route?.params?.mesa_id ?? null);
+  const [mesero, setMesero] = useState(route?.params?.mesero ?? route?.params?.waiter ?? null);
+  const [moneda, setMoneda] = useState(route?.params?.moneda ?? 'MXN');
+  const [externalTotalConsumo, setExternalTotalConsumo] = useState(incomingTotalConsumo ?? null);
+
+  const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
+
+  const [styledAlertVisible, setStyledAlertVisible] = useState(false);
+  const [styledAlertTitle, setStyledAlertTitle] = useState('');
+  const [styledAlertMessage, setStyledAlertMessage] = useState('');
+
+  const showStyledAlert = (title, message) => {
+    setStyledAlertTitle(title || 'Aviso');
+    setStyledAlertMessage(message || '');
+    setStyledAlertVisible(true);
+  };
+  const hideStyledAlert = () => setStyledAlertVisible(false);
+
+  const parsePrice = (v) => {
+    if (v === undefined || v === null) return 0;
+    if (typeof v === 'number') return v;
+    let s = String(v).trim();
+    if (!s) return 0;
+    s = s.replace(/[^0-9\.\-]/g, '');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const normalizeItem = (raw, fallbackId) => {
+    const name = raw?.nombre_item ?? raw?.nombre ?? raw?.name ?? raw?.product_name ?? raw?.title ?? '';
+    const qty = Number(raw?.cantidad ?? raw?.qty ?? raw?.quantity ?? 1) || 1;
+
+    let priceCandidate = null;
+    if (raw === null || raw === undefined) priceCandidate = 0;
+
+    if (priceCandidate === null) {
+      if (raw?.precio_item !== undefined) priceCandidate = raw.precio_item;
+      else if (raw?.precio !== undefined) priceCandidate = raw.precio;
+      else if (raw?.price !== undefined) priceCandidate = raw.price;
+    }
+
+    if (priceCandidate === null) {
+      if (raw?.lineTotal !== undefined) priceCandidate = raw.lineTotal;
+      else if (raw?.line_total !== undefined) priceCandidate = raw.line_total;
+      else if (raw?.line_total_price !== undefined) priceCandidate = raw.line_total_price;
+    }
+
+    if (priceCandidate === null) {
+      if (raw?.unitPrice !== undefined) priceCandidate = Number(raw.unitPrice) * qty;
+      else if (raw?.unit_price !== undefined) priceCandidate = Number(raw.unit_price) * qty;
+      else if (raw?.unitprice !== undefined) priceCandidate = Number(raw.unitprice) * qty;
+    }
+
+    if (priceCandidate === null) priceCandidate = 0;
+    const price = parsePrice(priceCandidate);
+    const id = raw?.id ?? raw?.codigo ?? raw?.codigo_item ?? fallbackId ?? String(Math.random()).slice(2, 9);
+
+    let locked = false;
+    let paidInfo = null;
+    try {
+      const low = (v) => (v === null || v === undefined) ? '' : String(v).toLowerCase();
+
+      if (raw?.pagado === true || raw?.paid === true || raw?.cobrado === true || raw?.is_paid === true || raw?.pago === true) {
+        locked = true; paidInfo = { reason: 'flag_boolean', rawFlag: true };
+      }
+
+      if (!locked) {
+        const possibilities = [raw?.pagado, raw?.paid, raw?.pago, raw?.estado_pago, raw?.estado];
+        for (const p of possibilities) {
+          if (p !== undefined && p !== null) {
+            const s = low(p);
+            if (s === 'true' || s === '1' || s.includes('pag') || s.includes('paid') || s.includes('cob')) {
+              locked = true;
+              paidInfo = { reason: 'flag_string', sample: String(p) };
+              break;
+            }
+          }
+        }
+      }
+
+      if (!locked && (Number(raw?.paid_amount || raw?.monto_pagado || raw?.monto_pago || 0) > 0 || Number(raw?.paid_qty || raw?.qty_paid || 0) > 0)) {
+        locked = true;
+        paidInfo = { reason: 'paid_amount_or_qty', paid_amount: raw?.paid_amount ?? raw?.monto_pagado ?? raw?.monto_pago ?? 0 };
+      }
+
+      if (!locked && (raw?.paid_at || raw?.fecha_pago || raw?.cobrado_at)) {
+        locked = true;
+        paidInfo = { reason: 'paid_date' };
+      }
+
+      if (!locked && raw?.status) {
+        const s = low(raw.status);
+        if (s.includes('paid') || s.includes('pag') || s.includes('cob')) {
+          locked = true;
+          paidInfo = { reason: 'status_field', status: raw.status };
+        }
+      }
+    } catch (err) {
+      console.warn('normalizeItem paid detection error', err);
+    }
+
+    return { id: String(id), name, price: +price.toFixed(2), qty, checked: false, locked: !!locked, paidInfo, raw };
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (route?.params) {
+      if (route.params.saleId) setSaleId(route.params.saleId);
+      if (route.params.sale_id) setSaleId(route.params.sale_id);
+      if (route.params.venta_id) setSaleId(route.params.venta_id);
+
+      if (route.params.restauranteId) setRestauranteId(route.params.restauranteId);
+      if (route.params.restaurante_id) setRestauranteId(route.params.restaurante_id);
+
+      if (route.params.sucursalId) setSucursalId(route.params.sucursalId);
+      if (route.params.sucursal_id) setSucursalId(route.params.sucursal_id);
+
+      if (route.params.mesaId) setMesaId(route.params.mesaId);
+      if (route.params.mesa_id) setMesaId(route.params.mesa_id);
+
+      if (route.params.mesero) setMesero(route.params.mesero);
+      if (route.params.moneda) setMoneda(route.params.moneda);
+
+      if (route.params.total_consumo !== undefined && route.params.total_consumo !== null) {
+        setExternalTotalConsumo(Number(route.params.total_consumo) || null);
+      }
+    }
+
+    const load = async () => {
+      if (incomingItems && Array.isArray(incomingItems)) {
+        try {
+          const mapped = incomingItems.map((it, i) => normalizeItem(it, i));
+          if (mounted) {
+            setItems(mapped);
+          }
+          return;
+        } catch (err) {
+          console.warn('Dividir: error normalizando incoming items', err);
+          if (mounted) setItems([]);
+          return;
+        }
+      }
+
+      if (!token) {
+        if (mounted) setItems([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+          },
+        });
+
+        if (!mounted) return;
+
+        if (!res.ok) {
+          console.warn('Dividir: no se pudo obtener el consumo (HTTP ' + res.status + '). URL:', url);
+          setItems([]);
+          setLoading(false);
+          return;
+        }
+
+        const json = await res.json();
+
+        if (json.sale_id ?? json.venta_id ?? json.id) {
+          setSaleId(json.sale_id ?? json.venta_id ?? json.id);
+        }
+        if (json.restaurante_id) setRestauranteId(json.restaurante_id);
+        if (json.sucursal_id) setSucursalId(json.sucursal_id);
+        if (json.mesa_id) setMesaId(json.mesa_id);
+        if (json.mesero) setMesero(json.mesero);
+        if (json.moneda) setMoneda(json.moneda ?? 'MXN');
+        if (json.total_comensales !== undefined && json.total_comensales !== null) {
+          setTotalComensales(Number(json.total_comensales) || null);
+        }
+        if (json.total_consumo !== undefined && json.total_consumo !== null) {
+          setExternalTotalConsumo(Number(json.total_consumo) || null);
+        }
+
+        const rawItems = Array.isArray(json.items) ? json.items : (json.data?.items ?? json.result?.items ?? []);
+        const mapped = (Array.isArray(rawItems) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+        if (mounted) {
+          setItems(mapped);
+          if (allowPaymentsCheck) {
+            try {
+              applyPaymentsLockIfPossible(mapped, json).catch((e) => console.warn('applyPaymentsLockIfPossible error', e));
+            } catch (err) {
+              console.warn('applyPaymentsLockIfPossible threw', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetch Dividir:', err);
+        if (mounted) setItems([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    const applyPaymentsLockIfPossible = async (currentItems = [], consumoJson = null) => {
+      try {
+        // --- FIX: added parentheses so ?? isn't mixed with || without grouping ---
+        const useSale = saleId || (route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? (consumoJson && (consumoJson.sale_id ?? consumoJson.venta_id ?? consumoJson.id)));
+        const useRest = restauranteId || (route?.params?.restauranteId ?? route?.params?.restaurante_id ?? (consumoJson && consumoJson.restaurante_id));
+        const useSuc = sucursalId || (route?.params?.sucursalId ?? route?.params?.sucursal_id ?? (consumoJson && consumoJson.sucursal_id));
+
+        if (!useSale || !useRest || !useSuc) {
+          if (consumoJson) {
+            const saleState = (consumoJson.sale_state ?? consumoJson.saleState ?? '').toString().toUpperCase();
+            const paymentsTotal = consumoJson.payments_total ?? consumoJson.paymentsTotal ?? consumoJson.payments_total_venta ?? null;
+            const totalConsumo = consumoJson.total_consumo ?? consumoJson.total ?? externalTotalConsumo ?? null;
+            if (saleState === 'CLOSED' && paymentsTotal !== null && Number(paymentsTotal) >= Number(totalConsumo || 0) && Number(totalConsumo || 0) > 0) {
+              const allLocked = (currentItems || []).map(it => ({ ...it, locked: true, paidInfo: { reason: 'sale_closed_and_fully_paid' }, checked: false }));
+              setItems(allLocked);
+            }
+          }
+          return;
+        }
+
+        const hostBase = API_BASE_URL.replace(/\/$/, '');
+        const pagosUrl = `${hostBase}/api/restaurantes/${encodeURIComponent(useRest)}/sucursales/${encodeURIComponent(useSuc)}/ventas/${encodeURIComponent(useSale)}/pagos`;
+
+        const res = await fetch(pagosUrl, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+          },
+        });
+
+        if (!res.ok) {
+          console.warn('Dividir: no se pudo consultar pagos (http ' + res.status + ')', pagosUrl);
+          return;
+        }
+
+        const payJson = await res.json();
+
+        const paymentsArr = Array.isArray(payJson.payments) ? payJson.payments : (Array.isArray(payJson.data?.payments) ? payJson.data.payments : []);
+        const paymentsTotalRaw = payJson.payments_total ?? payJson.paymentsTotal ?? payJson.payments_total_venta ?? null;
+        const paymentsTotal = paymentsTotalRaw !== null ? Number(paymentsTotalRaw) : (paymentsArr.length ? paymentsArr.reduce((s, p) => s + (Number(p.amount || 0)), 0) : null);
+        const saleState = (payJson.sale_state ?? payJson.saleState ?? '').toString().toUpperCase();
+
+        const totalConsumo = consumoJson?.total_consumo ?? consumoJson?.total ?? externalTotalConsumo ?? null;
+        if (saleState === 'CLOSED' && paymentsTotal !== null && Number(paymentsTotal) >= Number(totalConsumo || 0) && Number(totalConsumo || 0) > 0) {
+          const allLocked = (currentItems || []).map(it => ({ ...it, locked: true, paidInfo: { reason: 'sale_closed_and_fully_paid_from_payments' }, checked: false }));
+          setItems(allLocked);
+          return;
+        }
+
+        let paidIdsSet = new Set();
+        let anyPaidDiscovered = false;
+        const possibleArrays = ['paid_items', 'items_paid', 'paid_item_ids', 'paid_ids', 'items_pagados', 'pagados', 'paid'];
+        for (const key of possibleArrays) {
+          if (Array.isArray(payJson[key]) && payJson[key].length > 0) {
+            for (const pi of payJson[key]) {
+              if (!pi) continue;
+              if (typeof pi === 'object') {
+                if (pi.id) paidIdsSet.add(String(pi.id));
+                else if (pi.item_id) paidIdsSet.add(String(pi.item_id));
+                else if (pi.codigo) paidIdsSet.add(String(pi.codigo));
+                else if (pi.name) paidIdsSet.add(String(pi.name).toLowerCase());
+              } else {
+                paidIdsSet.add(String(pi));
+              }
+            }
+            anyPaidDiscovered = true;
+            break;
+          }
+        }
+
+        if (!anyPaidDiscovered && Array.isArray(paymentsArr) && paymentsArr.length > 0) {
+          for (const p of paymentsArr) {
+            if (!p) continue;
+            const cand = p.items ?? p.paid_items ?? p.applied_items ?? p.items_paid ?? p.itemsPagados ?? null;
+            if (Array.isArray(cand) && cand.length > 0) {
+              cand.forEach(pi => {
+                if (!pi) return;
+                if (typeof pi === 'object') {
+                  if (pi.id) paidIdsSet.add(String(pi.id));
+                  else if (pi.item_id) paidIdsSet.add(String(pi.item_id));
+                  else if (pi.codigo) paidIdsSet.add(String(pi.codigo));
+                  else if (pi.name) paidIdsSet.add(String(pi.name).toLowerCase());
+                } else {
+                  paidIdsSet.add(String(pi));
+                }
+              });
+              anyPaidDiscovered = true;
+            }
+          }
+        }
+
+        if (paidIdsSet.size > 0) {
+          const mapped = (currentItems || []).map(it => {
+            const raw = it.raw ?? {};
+            const candidates = [
+              it.id,
+              raw.id,
+              raw.codigo,
+              raw.item_id,
+              raw.line_id,
+              raw.codigo_item,
+              raw.code,
+              raw.sku,
+              (raw.name || '').toLowerCase(),
+              (it.name || '').toLowerCase(),
+            ].filter(Boolean).map(String);
+
+            const matched = candidates.some(c => paidIdsSet.has(String(c)));
+            if (matched) {
+              return { ...it, locked: true, checked: false, paidInfo: { reason: 'matched_in_payments_ids' } };
+            }
+            return it;
+          });
+          setItems(mapped);
+          return;
+        }
+
+        if (Array.isArray(paymentsArr) && paymentsArr.length > 0) {
+          const eps = 0.01;
+          const currentCopy = (currentItems || []).map(it => ({ ...it }));
+          let changed = false;
+
+          for (const p of paymentsArr) {
+            const amt = Number(p.amount ?? p.monto ?? 0);
+            if (!amt || amt <= eps) continue;
+
+            const matchIndex = currentCopy.findIndex(it => !it.locked && Math.abs(Number(it.price || 0) - amt) <= eps);
+            if (matchIndex >= 0) {
+              currentCopy[matchIndex] = { ...currentCopy[matchIndex], locked: true, checked: false, paidInfo: { reason: 'matched_by_exact_amount' } };
+              changed = true;
+            } else {
+              // no bloquear por heurística combinatoria
+            }
+          }
+
+          if (changed) {
+            setItems(currentCopy);
+            return;
+          }
+        }
+
+        return;
+      } catch (err) {
+        console.warn('applyPaymentsLockIfPossible error:', err);
+      }
+    };
+
+    load();
+
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingItems, token, saleId, restauranteId, sucursalId, allowPaymentsCheck]);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkEqualFlag = async () => {
+      try {
+        const sid = saleId ?? route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? null;
+        if (!sid) return;
+        const key = `equal_split_paid_${String(sid)}`;
+        const raw = await AsyncStorage.getItem(key);
+        if (raw === '1' && mounted) {
+          setEqualsSplitPaid(true);
+        } else if (mounted) {
+          setEqualsSplitPaid(false);
+        }
+      } catch (e) {
+        console.warn('Dividir: error reading equal_split flag', e);
+      }
+    };
+    checkEqualFlag();
+    return () => { mounted = false; };
+  }, [saleId, route?.params]);
+
+  const toggleItem = (index) => {
+    setItems(prev => prev.map((it, i) => {
+      if (i !== index) return it;
+      if (it.locked) return it;
+      return { ...it, checked: !it.checked };
+    }));
+  };
+
+  const itemsSum = useMemo(() => {
+    const s = (items || []).reduce((acc, it) => acc + Number(it.price || 0), 0);
+    return round2(s);
+  }, [items]);
+
+  const usesExternalTotal = externalTotalConsumo !== null && externalTotalConsumo !== undefined;
+  const total = useMemo(() => (usesExternalTotal ? round2(Number(externalTotalConsumo || 0)) : itemsSum), [usesExternalTotal, externalTotalConsumo, itemsSum]);
+  const iva = useMemo(() => round2(total / 1.16 * 0.16), [total]);
+  const subtotal = useMemo(() => round2(total - iva), [total, iva]);
+
+  const selectedItems = useMemo(() => (items || []).filter(i => i.checked && !i.locked), [items]);
+  const anySelected = selectedItems.length > 0;
+
+  const selectedIdsArray = useMemo(() => (selectedItems || []).map(it => String(it.id)), [selectedItems]);
+
+  const sharedHiddenFields = () => ({
+    token,
+    saleId,
+    sale_id: saleId,
+    venta_id: saleId,
+    restauranteId,
+    restaurante_id: restauranteId,
+    sucursalId,
+    sucursal_id: sucursalId,
+    mesaId,
+    mesa_id: mesaId,
+    mesero,
+    waiter: mesero,
+    moneda,
+    total_comensales: totalComensales,
+    total_consumo: externalTotalConsumo ?? total,
+    selected_item_ids: selectedIdsArray,
+  });
+
+  const savePendingLocal = async (saleIdLocal, idsArray = [], amount = 0) => {
+    try {
+      if (!saleIdLocal || !Array.isArray(idsArray) || idsArray.length === 0) return;
+      const pendingKey = `pending_payment_${saleIdLocal}`;
+      const obj = { ids: idsArray.map(String), amount: Number(amount) };
+      await AsyncStorage.setItem(pendingKey, JSON.stringify(obj));
+      console.log('Saved pending local', pendingKey, obj);
+    } catch (e) {
+      console.warn('savePendingLocal error', e);
+    }
+  };
+
+  const handlePorConsumo = () => {
+    if (equalsSplitPaid) {
+      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar "Por consumo".');
+      return;
+    }
+
+    const selected = selectedItems;
+    if (!selected || selected.length === 0) {
+      showStyledAlert('Selecciona productos', 'Debes seleccionar al menos un producto para pagar por consumo.');
+      return;
+    }
+
+    const selTotalRaw = selected.reduce((s, it) => s + Number(it.price || 0), 0);
+    const selTotal = round2(selTotalRaw);
+    const selIva = round2(selTotal / 1.16 * 0.16);
+    const selSubtotal = round2(selTotal - selIva);
+
+    if (saleId && selectedIdsArray.length > 0) {
+      savePendingLocal(saleId, selectedIdsArray, selTotal).catch(e => console.warn('savePendingLocal error', e));
+    }
+
+    navigation.navigate('Consumo', {
+      selectedItems: selected,
+      fromToken: token,
+      subtotal: selSubtotal,
+      iva: selIva,
+      total: selTotal,
+      people: 1,
+      ...sharedHiddenFields(),
+    });
+  };
+
+  const handlePartesIguales = () => {
+    if (anySelected) {
+      showStyledAlert('No permitido', 'Has seleccionado productos. Para usar "Partes iguales" debes no seleccionar items. Deselecciona los items o utiliza "Por consumo".');
+      return;
+    }
+
+    const payload = items.filter(it => !it.locked);
+    if (!payload || payload.length === 0) {
+      console.warn('Dividir.handlePartesIguales: no hay productos para dividir.');
+      return;
+    }
+
+    // Si existe un total externo (externalTotalConsumo) preferimos ese total
+    // (esto evita la discrepancia entre la cifra que se muestra en Dividir y la que se manda).
+    const pTotalRaw = (usesExternalTotal && !anySelected) ? Number(total || 0) : payload.reduce((s, it) => s + Number(it.price || 0), 0);
+    const pTotal = round2(pTotalRaw);
+    const pIva = round2(pTotal / 1.16 * 0.16);
+    const pSubtotal = round2(pTotal - pIva);
+
+    // Navegamos asegurando que el total que mandamos sea el que queremos mostrar en EqualSplit
+    navigation.navigate('EqualSplit', {
+      ...sharedHiddenFields(),
+      items: payload,
+      total_comensales: totalComensales,
+      fromToken: token,
+      subtotal: pSubtotal,
+      iva: pIva,
+      total: pTotal,
+      total_consumo: pTotal,
+      total_from_dividir: pTotal,
+    });
+  };
+
+  const handleOneExhibicion = () => {
+    if (equalsSplitPaid) {
+      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar este método.');
+      return;
+    }
+
+    const payloadItems = anySelected ? selectedItems : items.filter(it => !it.locked);
+
+    if (usesExternalTotal && !anySelected) {
+      navigation.navigate('OneExhibicion', {
+        token,
+        items: payloadItems,
+        subtotal,
+        iva,
+        total,
+        total_comensales: totalComensales,
+        restaurantImage: null,
+        ...sharedHiddenFields(),
+      });
+      return;
+    }
+
+    const pTotalRaw = payloadItems.reduce((s, it) => s + Number(it.price || 0), 0);
+    const pTotal = round2(pTotalRaw);
+    const pIva = round2(pTotal / 1.16 * 0.16);
+    const pSubtotal = round2(pTotal - pIva);
+
+    if (anySelected && saleId && selectedIdsArray.length > 0) {
+      savePendingLocal(saleId, selectedIdsArray, pTotal).catch(e => console.warn('savePendingLocal error', e));
+    }
+
+    navigation.navigate('OneExhibicion', {
+      token,
+      items: payloadItems,
+      subtotal: pSubtotal,
+      iva: pIva,
+      total: pTotal,
+      total_comensales: totalComensales,
+      restaurantImage: null,
+      ...sharedHiddenFields(),
+    });
+  };
+
+  const handleBack = () => navigation.canGoBack?.() ? navigation.goBack() : null;
+
+  // New: share via native Share API
+  const handleShare = async () => {
+    try {
+      const fields = sharedHiddenFields();
+      const niceTotal = formatMoney(total);
+      const shareParts = [];
+      shareParts.push(`Cuenta compartida${fields.saleId ? ` (venta ${fields.saleId})` : ''}`);
+      shareParts.push(`Total: ${niceTotal} ${moneda}`);
+      if (token) shareParts.push(`Token: ${token}`);
+      if (fields.total_consumo) shareParts.push(`Consumo: ${formatMoney(fields.total_consumo)} ${moneda}`);
+      const message = shareParts.join('\n');
+
+      await Share.share(
+        { title: 'Compartir cuenta', message },
+        {}
+      );
+    } catch (err) {
+      console.warn('Share error', err);
+      Alert.alert('Error', 'No se pudo compartir la cuenta en este momento.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f7fb' }}>
+        <ActivityIndicator size="large" color="#0046ff" />
+      </View>
+    );
+  }
+
+  // computed sizes used inline
+  const shareBtnWidth = Math.round(Math.min(width - 36, 420));
+  const rightColWidth = Math.round(Math.min(360, width * 0.72));
+  const whiteContentWidth = Math.round(Math.min(width - Math.round(wp(2)), 960));
+  const modalBoxWidth = Math.round(Math.min(width - 48, 420));
+
+  const styles = makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth });
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+          <Text style={styles.backArrow}>{'‹'}</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.topTitle}>Tu cuenta</Text>
+        <Text style={styles.topDate} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.container}>
+        <LinearGradient colors={['#FF2FA0', '#7C3AED', '#0046ff']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.0 }} locations={[0, 0.5, 1]} style={styles.bigGradient}>
+          <View style={styles.gradientContentRow}>
+            <View style={styles.leftGradientCol}>
+              <Image source={require('../../assets/images/logo2.png')} style={styles.tabtrackLogo} resizeMode="contain" />
+              <View style={styles.circleWrap}>
+                <Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantCircle} resizeMode="cover" />
+              </View>
+            </View>
+
+            <View style={[styles.rightGradientCol, { width: rightColWidth }]}>
+              <Text style={styles.divideTitle}>{'¿Cómo desea\ndividir la cuenta?'}</Text>
+
+              <View style={styles.stackButtons}>
+                {/* Solo Partes iguales en el degradado */}
+                <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales}>
+                  <Text style={styles.ghostButtonText}>Partes iguales</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={[styles.whiteContent, { width: whiteContentWidth }]}>
+          <Text style={styles.sectionTitle}>Por consumo</Text>
+          <View style={styles.sectionDivider} />
+
+          <View style={styles.itemsList}>
+            {items.length === 0 ? (
+              <View style={{ padding: 18, alignItems: 'center' }}>
+                <Text style={{ color: '#666' }}>No hay productos disponibles.</Text>
+              </View>
+            ) : (
+              items.map((it, idx) => (
+                <TouchableOpacity
+                  key={it.id || idx}
+                  activeOpacity={it.locked ? 1 : 0.85}
+                  style={[styles.itemRow, it.locked && { opacity: 0.5 }]}
+                  onPress={() => !it.locked && toggleItem(idx)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: it.checked, disabled: it.locked }}
+                >
+                  <View style={styles.itemLeft}>
+                    <View style={[styles.checkbox, (it.checked && !it.locked) && styles.checkboxChecked]}>
+                      {it.checked && !it.locked && <View style={styles.checkboxInner} />}
+                      {it.locked && <Ionicons name="lock-closed" size={Math.round(rf(3))} color="#9ca3af" />}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.itemText, it.locked && { color: '#9ca3af' }]} numberOfLines={1}>{it.name}</Text>
+                      {it.qty > 1 && <Text style={{ fontSize: Math.round(clamp(rf(3.2), 10, 14)), color: '#9ca3af' }}>{it.qty} ×</Text>}
+                    </View>
+                  </View>
+
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[styles.itemPrice, it.locked && { color: '#9ca3af' }]}>{formatMoney(Number(it.price || 0))} MXN</Text>
+                    {it.locked ? <Text style={{ fontSize: Math.round(clamp(rf(2.8), 10, 12)), color: '#ef4444', marginTop: Math.round(hp(0.3)), fontWeight: '700' }}>Pagado</Text> : null}
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+
+          <View style={styles.beforeIvaSeparator} />
+
+          <View style={styles.desgloseContainer}>
+            <View style={styles.desgloseRow}>
+              <Text style={styles.desgloseLabel}>Sub total</Text>
+              <Text style={styles.desgloseValue}>{formatMoney(subtotal)} MXN</Text>
+            </View>
+
+            <View style={[styles.desgloseRow, styles.ivaRow]}>
+              <Text style={[styles.desgloseLabel]}>IVA (estimado)</Text>
+              <Text style={[styles.desgloseValue, styles.ivaText]}>{formatMoney(iva)} MXN</Text>
+            </View>
+
+            <View style={[styles.desgloseRow, { marginTop: Math.round(hp(0.5)) }]}>
+              <Text style={[styles.desgloseLabel, { fontSize: Math.round(clamp(rf(4.6), 16, 20)) }]}>Total</Text>
+              <Text style={[styles.desgloseValue, { fontSize: Math.round(clamp(rf(5.2), 18, 24)) }]}>{formatMoney(total)} MXN</Text>
+            </View>
+          </View>
+
+          <View style={{ height: Math.round(hp(1)) }} />
+
+          {/* New placement: Pagar por consumo (estilo igual al botón Compartir) */}
+          <LinearGradient
+            colors={['rgb(148, 2, 220)', 'rgb(4, 60, 216)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[styles.shareButtonGradient, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]}
+          >
+            <TouchableOpacity
+              onPress={handlePorConsumo}
+              activeOpacity={0.9}
+              style={styles.shareButtonTouchable}
+            >
+              <Text style={styles.shareButtonText}>Pagar por consumo</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+
+
+          {/* Compartir cuenta (ahora usa Share nativo) */}
+          <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth }]} onPress={handleShare}>
+            <Text style={styles.shareButtonText}>Compartir cuenta</Text>
+          </TouchableOpacity>
+
+          <View style={styles.socialRow}>
+            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-whatsapp" size={Math.round(rf(4))} color="#25D366" /></TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-facebook" size={Math.round(rf(4))} color="#1877F2" /></TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap}><Ionicons name="mail-outline" size={Math.round(rf(4))} color="#374151" /></TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-instagram" size={Math.round(rf(4))} color="#C13584" /></TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={{ height: Math.round(hp(4)) }} />
+      </ScrollView>
+
+      {styledAlertVisible && (
+        <View style={styles.modalBackdrop}>
+          <LinearGradient colors={['#fff', '#fff', '#fff']} style={[styles.modalBox, { width: modalBoxWidth }]}>
+            <Ionicons name="alert-circle" size={Math.round(rf(9))} color="#0046ff" style={{ marginBottom: Math.round(hp(1)) }} />
+            <Text style={[styles.modalTitle, { color: '#0046ff' }]}>{styledAlertTitle}</Text>
+            <Text style={[styles.modalMessage, { color: '#000' }]}>{styledAlertMessage}</Text>
+
+            <View style={{ width: '100%', marginTop: Math.round(hp(1)) }}>
+              <TouchableOpacity style={[styles.modalBtnPrimary]} onPress={() => hideStyledAlert()}>
+                <Text style={[styles.modalBtnPrimaryText]}>Aceptar</Text>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      )}
+    </SafeAreaView>
+  );
+}
+
+/* estilos responsivos generados por makeStyles-like (valores por defecto aquí para fallback) */
+function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth }) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: '#f5f7fb' },
+    topBar: {
+      width: '100%',
+      height: Math.round(hp(9.6)),
+      paddingHorizontal: Math.round(wp(3.5)),
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      backgroundColor: '#ffffff',
+      borderBottomWidth: 1,
+      borderBottomColor: '#eee',
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : Math.round(hp(1)),
+    },
+    backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
+    backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
+    topTitle: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
+    topDate: { fontSize: Math.round(clamp(rf(2.8), 10, 12)), color: '#6b7280' },
+
+    container: { alignItems: 'center', paddingBottom: Math.round(hp(3)), paddingTop: Math.round(hp(1)) },
+
+    bigGradient: {
+      width: '100%',
+      paddingHorizontal: Math.round(wp(4)),
+      paddingTop: Math.round(hp(2)),
+      paddingBottom: Math.round(hp(3)),
+      borderBottomRightRadius: Math.round(wp(10)),
+      overflow: 'hidden',
+    },
+    gradientContentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+
+    leftGradientCol: { flex: 1, flexDirection: 'column', alignItems: 'flex-start' },
+    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 28, 48)), marginBottom: Math.round(hp(0.6)) },
+    circleWrap: { marginTop: Math.round(hp(1.8)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
+    restaurantCircle: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
+
+    rightGradientCol: { paddingLeft: Math.round(wp(2.4)), paddingTop: Math.round(hp(0.6)), alignItems: 'flex-end', marginRight: Math.round(wp(2)) },
+    divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.0), 18, 28)), fontWeight: '800', lineHeight: Math.round(clamp(rf(7.5), 22, 34)), marginBottom: Math.round(hp(1)), textAlign: 'right', width: '100%' },
+
+    stackButtons: { width: '100%', alignItems: 'flex-end' },
+    ghostButton: { width: '70%', borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.4)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), marginBottom: Math.round(hp(0.8)), alignSelf: 'flex-end' },
+    ghostButtonText: { color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: Math.round(clamp(rf(3.6), 13, 16)) },
+
+    /* (pinkButton left in file but unused now - no harm) */
+    pinkButton: { width: '70%', backgroundColor: '#7F00FF', paddingVertical: Math.round(hp(1.6)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), alignSelf: 'flex-end' },
+    pinkButtonText: { color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
+
+    whiteContent: { width: whiteContentWidth || Math.round(Math.min(width - Math.round(wp(2)), 960)), backgroundColor: '#fff', paddingTop: Math.round(hp(2)), paddingBottom: Math.round(hp(3)), paddingHorizontal: Math.round(wp(4)), marginTop: 0, alignSelf: 'center' },
+    sectionTitle: { fontSize: Math.round(clamp(rf(5.2), 16, 22)), fontWeight: '700', color: '#111827', marginBottom: Math.round(hp(0.8)) },
+    sectionDivider: { height: 1, backgroundColor: '#e9e9e9', marginBottom: Math.round(hp(1)) },
+
+    itemsList: {},
+    itemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Math.round(hp(1.2)), borderBottomWidth: 0.6, borderBottomColor: '#f1f3f5' },
+    itemLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    checkbox: { width: Math.round(clamp(rf(3.6), 16, 22)), height: Math.round(clamp(rf(3.6), 16, 22)), borderRadius: Math.round(wp(0.8)), borderWidth: 1.6, borderColor: '#cbd5e1', marginRight: Math.round(wp(3)), alignItems: 'center', justifyContent: 'center' },
+    checkboxChecked: { borderColor: '#0b58ff', backgroundColor: '#0b58ff' },
+    checkboxInner: { width: Math.round(clamp(rf(1.6), 6, 10)), height: Math.round(clamp(rf(1.6), 6, 10)), backgroundColor: '#fff', borderRadius: Math.round(wp(0.4)) },
+    itemText: { fontSize: Math.round(clamp(rf(3.8), 13, 16)), color: '#374151' },
+    itemPrice: { width: Math.round(Math.min(140, wp(36))), textAlign: 'right', color: '#111827', fontSize: Math.round(clamp(rf(3.8), 12, 16)) },
+
+    beforeIvaSeparator: { height: 1, backgroundColor: '#e9e9e9', marginTop: Math.round(hp(1)), marginBottom: Math.round(hp(1)) },
+
+    desgloseContainer: { paddingHorizontal: 0, paddingTop: Math.round(hp(0.6)), alignSelf: 'stretch' },
+    desgloseRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: Math.round(hp(0.8)) },
+    desgloseLabel: { fontSize: Math.round(clamp(rf(3.8), 14, 18)), color: '#374151', fontWeight: '700' },
+    desgloseValue: { fontSize: Math.round(clamp(rf(4.2), 16, 20)), color: '#111827', fontWeight: '900' },
+    ivaRow: { paddingTop: 0 },
+    ivaText: { fontWeight: '800' },
+
+    /* share / consumo button style (used for both) */
+    shareButton: { backgroundColor: '#0046ff', paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2)), alignItems: 'center', marginTop: Math.round(hp(1)) },
+    shareButtonText: { color: '#fff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
+
+    socialRow: { flexDirection: 'row', justifyContent: 'center', marginTop: Math.round(hp(1.2)) },
+    iconWrap: { marginHorizontal: Math.round(wp(2.4)), width: Math.round(clamp(rf(8.8), 36, 56)), height: Math.round(clamp(rf(8.8), 36, 56)), borderRadius: Math.round(clamp(rf(8.8), 36, 56) / 2), backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 2, borderWidth: 0.6, borderColor: '#e6eefc' },
+
+    modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+    modalBox: { width: modalBoxWidth || Math.round(Math.min(width - 48, 420)), borderRadius: Math.round(wp(3)), padding: Math.round(wp(4)), alignItems: 'center' },
+    modalTitle: { color: '#fff', fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight: '800', marginBottom: Math.round(hp(1)) },
+    modalMessage: { color: '#000', fontSize: Math.round(clamp(rf(3.6), 12, 16)), textAlign: 'center', marginBottom: Math.round(hp(1.4)) },
+    modalButtonsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between' },
+    modalBtnPrimary: { flex: 1, paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2.2)), backgroundColor: '#fff', marginRight: Math.round(wp(2)), alignItems: 'center' },
+    modalBtnPrimaryText: { color: '#0046ff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.4), 13, 16)) },
+    modalBtnGhost: { flex: 1, paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2.2)), backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)', marginLeft: Math.round(wp(2)), alignItems: 'center' },
+    modalBtnGhostText: { color: '#000', fontWeight: '700', fontSize: Math.round(clamp(rf(3.4), 13, 16)) },
+
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    shareButtonGradient: {
+      borderRadius: Math.round(wp(2)), // mantener radio similar al shareButton original
+      overflow: 'hidden',
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 2, // sombra ligera en Android
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+    },
+
+    shareButtonTouchable: {
+      width: '100%',
+      paddingVertical: Math.round(hp(1.4)), // igual que shareButton original
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent', // dejar transparente para que se vea el degradado
+    },
+
+  });
+}
