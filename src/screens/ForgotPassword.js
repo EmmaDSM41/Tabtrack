@@ -11,9 +11,11 @@ import {
   Easing,
   Platform,
   useWindowDimensions,
+  StatusBar,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
@@ -30,11 +32,15 @@ export default function ForgotPasswordRecovery() {
   const [toastMsg, setToastMsg] = useState('');
   const [toastStyle, setToastStyle] = useState(styles.toast);
 
-   const { width, height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const wp = (p) => (width * Number(p)) / 100;
   const hp = (p) => (height * Number(p)) / 100;
   const rf = (p) => Math.round((width * Number(p)) / 100);
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  const insets = useSafeAreaInsets();
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const bottomSafe = Math.round(insets.bottom || 0);
 
   const dynamicStyles = {
     container: {
@@ -43,7 +49,7 @@ export default function ForgotPasswordRecovery() {
     },
     logo: {
       width: Math.min(wp(55), 220),
-       aspectRatio: 200 / 80,
+      aspectRatio: 200 / 80,
       height: undefined,
       marginBottom: Math.min(hp(2.5), 22),
     },
@@ -152,6 +158,13 @@ export default function ForgotPasswordRecovery() {
     }
   };
 
+  // compute container padding including safe areas
+  const containerPaddingTop = dynamicStyles.container.paddingVertical + topSafe;
+  const containerPaddingBottom = dynamicStyles.container.paddingVertical + bottomSafe;
+
+  // compute toast bottom including safe bottom inset
+  const toastBottom = (Platform.OS === 'ios' ? Math.min(hp(8), 80) : Math.min(hp(5.2), 48)) + bottomSafe;
+
   return (
     <View style={styles.flex}>
       <LinearGradient
@@ -159,7 +172,11 @@ export default function ForgotPasswordRecovery() {
         locations={[0.35, 0.85]}
         start={{ x: 0, y: 1 }}
         end={{ x: 1, y: 0 }}
-        style={[styles.container, dynamicStyles.container]}
+        style={[
+          styles.container,
+          dynamicStyles.container,
+          { paddingTop: containerPaddingTop, paddingBottom: containerPaddingBottom },
+        ]}
       >
         <Image
           source={require('../../assets/images/logo.png')}
@@ -229,7 +246,7 @@ export default function ForgotPasswordRecovery() {
               },
             ],
           },
-          dynamicStyles.toast,
+          { bottom: toastBottom, maxWidth: dynamicStyles.toast.maxWidth },
         ]}
       >
         <Text style={styles.toastText}>{toastMsg}</Text>
@@ -246,7 +263,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    // padding now provided dynamically via dynamicStyles.container
+    // padding now provided dynamically via dynamicStyles.container + safe area
     paddingHorizontal: 30,
     paddingVertical: 40,
   },

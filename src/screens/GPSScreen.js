@@ -3,11 +3,11 @@ import {
   View,
   ActivityIndicator,
   StyleSheet,
-  Dimensions,
   Alert,
   Platform,
   Linking,
   Text,
+  Dimensions,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Geolocation from 'react-native-geolocation-service';
@@ -36,30 +36,24 @@ async function hasLocationPermission() {
   }
 }
 
-/* Helper: intentar convertir una URL relativa en absoluta usando API_URL si hace falta.
-   Si API_URL no existe o la url ya es absoluta, devuelve la url tal cual (o null si no hay). */
 function makeAbsoluteUrl(url) {
   if (!url) return null;
   try {
-    // si ya es URL válida, retornar tal cual
     new URL(url);
     return url;
   } catch (e) {
-    // intentar construir con API_URL origin si existe
     try {
       if (typeof API_URL === 'string' && API_URL.trim()) {
         const u = new URL(API_URL);
         return u.origin + '/' + String(url).replace(/^\/+/, '');
       }
     } catch (e2) {
-      // fallback: devolver la url original (posible relativa)
       return url;
     }
     return url;
   }
 }
 
-/* Genera HTML del mapa (Leaflet). Usa funciones globales para postMessage */
 function generateMapHtml(userLat, userLng, locations, markerSrc, markerCount) {
   const safe = JSON.stringify(locations).replace(/</g, '\\u003c'); // escapar <
   const fallbackImg = markerSrc || '';
@@ -220,14 +214,11 @@ export default function GPSScreen() {
     return null;
   };
 
-  /* pushLocation: agrega la localización normalizada al array 'locations'
-     Incluye logo/banner en campos 'logo' y 'banner' (y mantiene imagen original en imagen_logo_url) */
   const pushLocation = (locationsArr, obj, fallbackName) => {
     if (!obj) return;
     const lat = Number((obj.latitude ?? obj.latitud ?? obj.lat ?? 0));
     const lng = Number((obj.longitude ?? obj.longitud ?? obj.lng ?? 0));
     if (!isFinite(lat) || !isFinite(lng)) return;
-    // controla incluir coordenadas 0,0 si lo deseas (por defecto evitarlas)
     const INCLUDE_ZERO = typeof INCLUDE_ZERO_COORDINATES !== 'undefined' ? !!INCLUDE_ZERO_COORDINATES : false;
     if (!INCLUDE_ZERO && lat === 0 && lng === 0) return;
 
@@ -269,8 +260,6 @@ export default function GPSScreen() {
     });
   };
 
-  /* Para restaurantes que devuelven solo el restaurante (sin sucursales),
-     consultamos /{id}/sucursales si existe ese endpoint (tuya implementación original) */
   const fetchSucursalesForRestaurant = async (baseUrl, token, restaurantId, headers) => {
     if (!restaurantId) return [];
     try {
@@ -464,7 +453,6 @@ export default function GPSScreen() {
     })();
   }, []);
 
-  /* onMessage: recibe mensajes desde el WebView */
   const onMessage = (event) => {
     try {
       console.log('WEBVIEW onMessage raw:', event.nativeEvent.data);
@@ -472,7 +460,6 @@ export default function GPSScreen() {
       if (!payload || !payload.action) return;
 
       if (payload.action === 'viewProfile') {
-        // payload.branch debe venir como objeto de sucursal
         const branchObj = payload.branch ? payload.branch : null;
 
         let rid = null;
@@ -483,7 +470,6 @@ export default function GPSScreen() {
           rid = payload.id;
         }
 
-        // Navega a la pantalla 'Branch' (pasa branch completo + campos convenientes logo/banner)
         navigation.navigate('Branch', {
           id: rid,
           branch: branchObj,
@@ -530,7 +516,6 @@ export default function GPSScreen() {
   );
 }
 
-/* estilos */
 const styles = StyleSheet.create({
   map: { flex: 1, width: Dimensions.get('window').width, },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },

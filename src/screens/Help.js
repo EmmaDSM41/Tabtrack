@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Dimensions,
   ScrollView,
   Image,
   TouchableOpacity,
@@ -16,8 +15,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const { width: WIDTH_STATIC } = Dimensions.get('window');
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const initialMethods = [
   { key: 'card1', label: 'Servicio de ayuda' },
@@ -33,13 +31,15 @@ export default function Help({ navigation }) {
 
   // Responsiveness hook
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const wp = (p) => (width * Number(p)) / 100;
   const hp = (p) => (height * Number(p)) / 100;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
   const iconSize = clamp(Math.round(width * 0.05), 16, 28);
   const headerPaddingV = clamp(Math.round(hp(3)), 8, 36);
   const headerPaddingH = clamp(Math.round(wp(4)), 8, 28);
-  const logoW = Math.min( (wp(18) || 80), 120 );
+  const logoW = Math.min(wp(18), 120);
 
   useEffect(() => {
     (async () => {
@@ -70,7 +70,7 @@ export default function Help({ navigation }) {
     })();
   }, []);
 
-      const getInitials = (name) => {
+  const getInitials = (name) => {
     if (!name) return null;
     const parts = name.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return null;
@@ -160,73 +160,89 @@ export default function Help({ navigation }) {
     }
   };
 
+  // padding top to respect safe area + status bar on Android
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const bottomSafe = Math.round(insets.bottom || 0);
+
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
+      <StatusBar barStyle="dark-content" translucent={false} />
 
       {/* HEADER */}
-      <View style={[
-        styles.header,
-        {
-          paddingVertical: headerPaddingV,
-          paddingHorizontal: headerPaddingH,
-        }
-      ]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={iconSize} color={styles.headerTitle.color} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(width * 0.055), 16, 24) }]}>Perfil</Text>
-
-<View style={styles.headerRight}>
-  {/* Avatar circular */}
-  <View
-    style={{
-      width: clamp(Math.round(width * 0.07), 28, 48),
-      height: clamp(Math.round(width * 0.07), 28, 48),
-      borderRadius: Math.round(clamp(Math.round(width * 0.07), 28, 48) / 2),
-      overflow: 'hidden',
-      backgroundColor: '#f3f6ff',
-      marginHorizontal: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}
-  >
-    {profileUrl ? (
-      <Image
-        source={{ uri: profileUrl }}
-        style={{ width: '100%', height: '100%' }}
-        resizeMode="cover"
-      />
-    ) : (
-      <Text
+      <View
         style={[
-          styles.avatarInitials ? styles.avatarInitials : { color: '#0046ff', fontWeight: '700' },
-          { fontSize: Math.round(clamp(Math.round(width * 0.07), 28, 48) * 0.36), includeFontPadding: false, textAlign: 'center' },
+          styles.header,
+          {
+            paddingVertical: headerPaddingV,
+            paddingHorizontal: headerPaddingH,
+          },
         ]}
       >
-        {getInitials(username) || '👤'}
-      </Text>
-    )}
-  </View>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 10, left: 10, right: 10, bottom: 10 }}>
+          <Ionicons name="arrow-back" size={iconSize} color={styles.headerTitle.color} />
+        </TouchableOpacity>
 
-  {/* Nombre del usuario */}
-  <Text
-    style={[
-      styles.username,
-      {
-        fontSize: clamp(Math.round(width * 0.036), 12, 18),
-        marginRight: clamp(Math.round(width * 0.03), 8, 20),
-      },
-    ]}
-    numberOfLines={1}
-  >
-    {username}
-  </Text>
-</View>
+        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(width * 0.055), 16, 24) }]}>Perfil</Text>
 
+        <View style={styles.headerRight}>
+          {/* Avatar circular */}
+          <View
+            style={{
+              width: clamp(Math.round(width * 0.07), 28, 48),
+              height: clamp(Math.round(width * 0.07), 28, 48),
+              borderRadius: Math.round(clamp(Math.round(width * 0.07), 28, 48) / 2),
+              overflow: 'hidden',
+              backgroundColor: '#f3f6ff',
+              marginHorizontal: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {profileUrl ? (
+              <Image
+                source={{ uri: profileUrl }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text
+                style={{
+                  color: '#0046ff',
+                  fontWeight: '700',
+                  fontSize: Math.round(clamp(Math.round(width * 0.07), 28, 48) * 0.36),
+                  includeFontPadding: false,
+                  textAlign: 'center',
+                }}
+              >
+                {getInitials(username) || '👤'}
+              </Text>
+            )}
+          </View>
+
+          {/* Nombre del usuario */}
+          <Text
+            style={[
+              styles.username,
+              {
+                fontSize: clamp(Math.round(width * 0.036), 12, 18),
+                marginRight: clamp(Math.round(width * 0.03), 8, 20),
+                maxWidth: Math.round(width * 0.36),
+              },
+            ]}
+            numberOfLines={1}
+          >
+            {username}
+          </Text>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: Math.min(36, Math.round(wp(6))) }]}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingHorizontal: Math.min(36, Math.round(wp(6))), paddingBottom: 16 + bottomSafe },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Subtítulo */}
         <View style={styles.sectionHeader}>
           <Ionicons name="help-outline" size={Math.max(18, iconSize)} color={styles.sectionTitle.color} />
@@ -280,26 +296,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 'auto',
   },
-  profileAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginHorizontal: 8,
-    backgroundColor: '#f3f6ff',
-  },
   username: {
     fontSize: 16,
     color: '#000',
     marginRight: 16,
     fontFamily: 'Montserrat-Regular',
-    maxWidth: WIDTH_STATIC * 0.28,
   },
   backButton: { marginRight: 12 },
-  logo: {
-    width: 80,
-    height: 24,
-    resizeMode: 'contain',
-  },
   scrollContent: {
     paddingTop: 16,
     paddingBottom: 32,
@@ -334,6 +337,5 @@ const styles = StyleSheet.create({
     marginLeft: 16,
   },
   saveButtonText: { color: '#fff', fontSize: 14, fontWeight: '600', fontFamily: 'Montserrat-Bold' },
-      avatarInitials: { color: '#0046ff', fontWeight: '700' },
-
+  avatarInitials: { color: '#0046ff', fontWeight: '700' },
 });

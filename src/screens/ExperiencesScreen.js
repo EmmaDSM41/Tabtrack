@@ -21,8 +21,9 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
- function useResponsive() {
+function useResponsive() {
   const { width, height } = useWindowDimensions();
   const wp = (percent) => {
     const p = Number(percent);
@@ -42,14 +43,14 @@ import { useFocusEffect } from '@react-navigation/native';
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   return { width, height, wp, hp, rf, clamp };
 }
- 
+
 const CARD_SLIDE_HEIGHT = 100;
 const BLUE = '#0046ff';
 
- const API_BASE_URL = 'https://api.tab-track.com';
+const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
- 
-const VISITS_STORAGE_KEY_BASE = 'user_visits';  
+
+const VISITS_STORAGE_KEY_BASE = 'user_visits';
 const PENDING_VISITS_KEY_BASE = 'pending_visits';
 const BRANCHES_CACHE_PREFIX = 'branches_cache_';
 const VISITS_MAX = 100000;
@@ -81,8 +82,6 @@ function safeJsonParse(raw, fallback = null) {
     return fallback;
   }
 }
-
-// cache-busting helper (no toca AsyncStorage)
 function getCacheBustedUrl(url) {
   if (!url) return null;
   try {
@@ -92,8 +91,6 @@ function getCacheBustedUrl(url) {
     return url;
   }
 }
-
-// auth headers helper (opcional Authorization si hay token)
 function getAuthHeaders(extra = {}) {
   const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
   if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) base.Authorization = `Bearer ${API_AUTH_TOKEN}`;
@@ -102,12 +99,18 @@ function getAuthHeaders(extra = {}) {
 
 export default function VisitsScreen({ navigation }) {
   const { width, wp, hp, rf, clamp } = useResponsive(); /* RESPONSIVE */
+  const insets = useSafeAreaInsets();
+
+  // safe paddings (usar insets correctamente para iOS/Android)
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const bottomSafe = Math.round(insets?.bottom ?? 0);
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
 
   const [visits, setVisits] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [username, setUsername] = useState('');
-  const [profileUrl, setProfileUrl] = useState(null); // display URL (cache-busted)
+  const [profileUrl, setProfileUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState(null);
 
@@ -154,47 +157,31 @@ export default function VisitsScreen({ navigation }) {
     }
   }
 
-  /* ------------------------ REUSABLE: load profile (from API) ------------------------
-     - lee user_email desde AsyncStorage
-     - consulta: `${API_BASE_URL}/api/mobileapp/usuarios?mail=${mail}&presign_ttl=30`
-     - SIEMPRE usa la respuesta del API (si existe) para foto_perfil_url y nombre
-     - muestra la URL con cache-busting para forzar recarga al actualizar
-  ------------------------------------------------------------------------------- */
   const loadProfileFromApi = useCallback(async () => {
     try {
       const email = await AsyncStorage.getItem('user_email');
-      if (!email) return; // no hay mail -> no hacemos nada
-
+      if (!email) return;
       const endpoint = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios?mail=${encodeURIComponent(email)}&presign_ttl=30`;
       const headers = getAuthHeaders();
-
       let res;
       try {
         res = await fetch(endpoint, { method: 'GET', headers });
       } catch (networkErr) {
         console.warn('loadProfileFromApi network error', networkErr);
-        return; // no fallback a caché según solicitud
+        return;
       }
-
       if (!res.ok) {
         console.warn('loadProfileFromApi http not ok', res.status);
-        return; // no fallback a caché según solicitud
+        return;
       }
-
       const json = await res.json();
-      // estructura esperada: { usuarios: [ { foto_perfil_url, nombre, apellido, mail, ... } ] }
       const usuario = Array.isArray(json?.usuarios) && json.usuarios.length > 0
         ? json.usuarios[0]
         : (Array.isArray(json?.data) && json.data.length > 0 ? json.data[0] : null);
-
       if (!usuario) return;
-
-      // foto (si viene, la usamos; si no viene, no tocamos nada)
       if (usuario.foto_perfil_url) {
         setProfileUrl(getCacheBustedUrl(usuario.foto_perfil_url));
       }
-
-      // nombre (si viene)
       const nombreApi = usuario.nombre ?? usuario.nombre_completo ?? null;
       const apellidoApi = usuario.apellido ?? null;
       if (nombreApi || apellidoApi) {
@@ -710,7 +697,6 @@ export default function VisitsScreen({ navigation }) {
     }
   }
 
-  // -------------- REFRESH USER (NAME + PROFILE) helper (usa API SIEMPRE) ----------------
   const refreshUserFromApi = useCallback(async () => {
     await loadProfileFromApi();
   }, [loadProfileFromApi]);
@@ -719,7 +705,6 @@ export default function VisitsScreen({ navigation }) {
     (async () => {
       setNotifications(sampleNotifications);
       try {
-        // siempre intentar obtener la info del API al montar
         await refreshUserFromApi();
       } catch (err) {
         pushLog('Error refreshing user from API', err);
@@ -741,7 +726,6 @@ export default function VisitsScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- Suscripción a evento profileUpdated: cuando se emite, reconsulta al API ----------
   useEffect(() => {
     const listener = DeviceEventEmitter.addListener('profileUpdated', async () => {
       try {
@@ -755,11 +739,9 @@ export default function VisitsScreen({ navigation }) {
       try { listener.remove(); } catch (e) { /* ignore */ }
     };
   }, [loadProfileFromApi]);
-  // --------------------------------------------------------------------------------------------
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      // Al volver a la pantalla siempre reconsultamos API para foto/nombre y recargamos visitas
       await refreshUserFromApi();
       await loadVisitsAndEnrich(pushLog);
     })();
@@ -818,7 +800,6 @@ export default function VisitsScreen({ navigation }) {
   const slideWidth = Math.max(Math.round(width - cardLeftWidth - Math.max(24, wp(6))), Math.round(wp(40)));
   const cardRadius = 12;
 
-  // helper: iniciales desde username
   const getInitials = (name) => {
     if (!name) return 'U';
     const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -828,14 +809,13 @@ export default function VisitsScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
-      <StatusBar barStyle="dark-content" />
-
-      <View style={[styles.topBar, { paddingHorizontal: contentPaddingHorizontal }]}>
-        <Text style={[styles.title, { fontSize: clamp(rf(4.6), 19, 20) }]}>                       Experiencias</Text>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <View style={[styles.topBar, { paddingHorizontal: contentPaddingHorizontal, paddingTop: 6 }]}>
+        <Text style={[styles.title, { fontSize: clamp(rf(4.6), 19, 20) }]}>Experiencias</Text>
 
         <View style={styles.iconsRight}>
-          <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 12 }]}>
+          <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 12 }]} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Ionicons name="notifications-outline" size={clamp(rf(3.2), 19, 26)} color="#0051c9" />
             {unreadCount > 0 && (
               <View style={styles.badge}>
@@ -851,7 +831,7 @@ export default function VisitsScreen({ navigation }) {
           <View style={[styles.modalBox, { width: modalW }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalHeaderText, { fontSize: clamp(rf(3.6), 16, 20) }]}>Notificaciones</Text>
-              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+              <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="close" size={clamp(rf(3), 16, 22)} color="#333" />
               </TouchableOpacity>
             </View>
@@ -868,7 +848,7 @@ export default function VisitsScreen({ navigation }) {
       </Modal>
 
       <LinearGradient colors={['#8E2DE2', '#4A00E0']} style={[styles.headerGradient, { height: headerGradientHeight, borderBottomLeftRadius: Math.round(cardRadius / 1.5), borderBottomRightRadius: Math.round(cardRadius * 5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-        <View style={[styles.avatarWrapper, { width: avatarWrapperSize, height: avatarWrapperSize, borderRadius: Math.round(avatarWrapperSize / 2), left: Math.max(12, wp(3)), top: -Math.round(avatarWrapperSize / 3) }]}>
+        <View style={[styles.avatarWrapper, { width: avatarWrapperSize, height: avatarWrapperSize, borderRadius: Math.round(avatarWrapperSize / 2), left: Math.max(12, sidePad * 0.7), top: -Math.round(avatarWrapperSize / 3), elevation: 6 }]}>
           {profileUrl ? (
             <Image source={{ uri: profileUrl }} style={[styles.avatar, { width: avatarInner, height: avatarInner, borderRadius: Math.round(avatarInner / 2) }]} />
           ) : (
@@ -879,16 +859,16 @@ export default function VisitsScreen({ navigation }) {
         </View>
         <View style={[styles.greetingContainer, { marginLeft: Math.max(84, cardLeftWidth) + 8, paddingTop: Math.max(8, hp(1.5)) }]}>
           <Text style={[styles.greeting, { fontSize: clamp(rf(3.2), 14, 18) }]}>Hola :)</Text>
-          <Text style={[styles.username, { fontSize: clamp(rf(4), 18, 28), marginTop: 4 }]}>{username}</Text>
+          <Text style={[styles.username, { fontSize: clamp(rf(4), 18, 28), marginTop: 4 }]} numberOfLines={1} ellipsizeMode="tail">{username}</Text>
         </View>
       </LinearGradient>
 
       <View style={[styles.content, { paddingHorizontal: contentPaddingHorizontal, marginTop: Math.max(12, hp(2)) }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <Text style={[styles.sectionTitle, { fontSize: clamp(rf(3.2), 14, 18) }]}>Visitas recientes</Text>
-          <TouchableOpacity onPress={runStorageHealthCheck} accessibilityLabel="Health check" style={{ padding: 6 }}>
-         {/*             <Ionicons name="bug-outline" size={clamp(rf(2.8), 14, 20)} color="#333" />*/} 
-         </TouchableOpacity>
+          <TouchableOpacity onPress={runStorageHealthCheck} accessibilityLabel="Health check" style={{ padding: 6 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            {/* icon opcional */}
+          </TouchableOpacity>
         </View>
 
         {visits.length === 0 ? (
@@ -900,7 +880,7 @@ export default function VisitsScreen({ navigation }) {
             data={visits}
             keyExtractor={item => String(item.sale_id ?? item.id ?? Math.random())}
             renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} />}
-            contentContainerStyle={{ paddingBottom: 24 }}
+            contentContainerStyle={{ paddingBottom: 24 + bottomSafe }}
             initialNumToRender={8}
             maxToRenderPerBatch={12}
             windowSize={15}
@@ -933,7 +913,6 @@ function numericEquals(a, b) {
 }
 /* ------------------------------------------------------ */
 
-/* VisitCard: únicamente estilos y anchos ahora vienen por props responsivas */
 function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, logoSize = 64, cardRadius = 12 }) {
   const scrollRef = useRef(null);
   const [idx, setIdx] = useState(0);
@@ -969,8 +948,8 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
         </ScrollView>
 
         <View style={styles.infoContainer}>
-          <Text style={{ fontSize: Math.max(14, Math.round(slideWidth * 0.045)), fontWeight: '700', marginBottom: 4, color:'#000' }}>{displayName}</Text>
-          {branchName ? <Text style={{ fontSize: Math.max(12, Math.round(slideWidth * 0.032)), color: '#666', marginBottom: 6 }}>{branchName}</Text> : null}
+          <Text style={{ fontSize: Math.max(14, Math.round(slideWidth * 0.045)), fontWeight: '700', marginBottom: 4, color:'#000' }} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+          {branchName ? <Text style={{ fontSize: Math.max(12, Math.round(slideWidth * 0.032)), color: '#666', marginBottom: 6 }} numberOfLines={1} ellipsizeMode="tail">{branchName}</Text> : null}
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Última visita</Text>
@@ -989,15 +968,14 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
         </View>
 
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('ExperiencesDetails', { visit: item })}><Text style={styles.btnText}>Detalle</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('Opinion', { visit: item })}><Text style={styles.btnText}>Calificar</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('ExperiencesDetails', { visit: item })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Text style={styles.btnText}>Detalle</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('Opinion', { visit: item })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Text style={styles.btnText}>Calificar</Text></TouchableOpacity>
         </View>
       </View>
     </View>
   );
 }
 
-/* ---------------- Styles (la mayoría invariables) ---------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', paddingVertical: 12 },
@@ -1017,24 +995,24 @@ const styles = StyleSheet.create({
   unread: { backgroundColor: '#eef5ff' },
   read: { backgroundColor: '#fff' },
   headerGradient: { alignSelf: 'center', width: '100%', paddingTop: 6, paddingBottom: 14 },
-  avatarWrapper: { position: 'absolute', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 4 },
+  avatarWrapper: { position: 'absolute', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   avatar: { resizeMode: 'cover' },
-  initialsContainer: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }, // nuevo: contenedor de iniciales
-  greetingContainer: { /* marginLeft aplicado en JSX */ },
+  initialsContainer: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  greetingContainer: { },
   greeting: { color: '#fff' },
   username: { color: '#fff' },
   content: { flex: 1, marginTop: 16 },
   sectionTitle: { color: '#0046ff', marginBottom: 12 },
-  card: { flexDirection: 'row', backgroundColor: '#fff', marginBottom: 16, overflow: 'hidden' },
-  cardLeft: { alignItems: 'center' },
-  logoWrapper: { overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
-  logoImage: { resizeMode: 'cover' },
+  card: { flexDirection: 'row', backgroundColor: '#fff', marginBottom: 16, overflow: 'hidden', borderRadius: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6 },
+  cardLeft: { alignItems: 'center', paddingHorizontal: 8, backgroundColor: '#fff', justifyContent: 'center' },
+  logoWrapper: { overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  logoImage: { resizeMode: 'cover', borderRadius: 999 },
   ratingRow: { flexDirection: 'row', marginTop: 4 },
   star: { fontSize: 14, marginHorizontal: 1 },
   starFilled: { color: '#FFD700' },
   starEmpty: { color: '#CCC' },
-  cardRight: { flex: 1 },
-  slider: { /* height dinamico */ },
+  cardRight: { flex: 1, backgroundColor: '#fff' },
+  slider: { },
   slideImage: { marginHorizontal: 4, borderRadius: 8, resizeMode: 'cover' },
   infoContainer: { padding: 8 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
@@ -1044,5 +1022,6 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#ddd', marginVertical: 6 },
   buttonRow: { flexDirection: 'row', marginTop: 8, marginHorizontal: 8, marginBottom: 12 },
   btn: { flex: 1, backgroundColor: '#0046ff', paddingVertical: 10, borderRadius: 4, marginHorizontal: 4 },
-  btnText: { color: '#fff', fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  btnText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
 });
+

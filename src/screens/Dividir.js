@@ -19,6 +19,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
@@ -37,6 +38,8 @@ export default function Dividir() {
 
   // responsive helpers
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
   const wp = (p) => (Number(p) / 100) * width;
   const hp = (p) => (Number(p) / 100) * height;
   const rf = (p) => {
@@ -44,6 +47,17 @@ export default function Dividir() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  // safe paddings to avoid notch/statusbar overlap
+  const topSafe = Math.round(
+    Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0))
+  );
+  const bottomSafe = Math.round(insets?.bottom ?? 0);
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36)); // lateral padding con límites
+
+  // breakpoints
+  const isNarrow = width < 420;
+  const contentMaxWidth = Math.round(Math.min(width - Math.round(wp(8)), 960));
 
   const token = route?.params?.token ?? null;
   const incomingItems = route?.params?.items ?? null;
@@ -268,7 +282,6 @@ export default function Dividir() {
 
     const applyPaymentsLockIfPossible = async (currentItems = [], consumoJson = null) => {
       try {
-        // --- FIX: added parentheses so ?? isn't mixed with || without grouping ---
         const useSale = saleId || (route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? (consumoJson && (consumoJson.sale_id ?? consumoJson.venta_id ?? consumoJson.id)));
         const useRest = restauranteId || (route?.params?.restauranteId ?? route?.params?.restaurante_id ?? (consumoJson && consumoJson.restaurante_id));
         const useSuc = sucursalId || (route?.params?.sucursalId ?? route?.params?.sucursal_id ?? (consumoJson && consumoJson.sucursal_id));
@@ -540,14 +553,11 @@ export default function Dividir() {
       return;
     }
 
-    // Si existe un total externo (externalTotalConsumo) preferimos ese total
-    // (esto evita la discrepancia entre la cifra que se muestra en Dividir y la que se manda).
     const pTotalRaw = (usesExternalTotal && !anySelected) ? Number(total || 0) : payload.reduce((s, it) => s + Number(it.price || 0), 0);
     const pTotal = round2(pTotalRaw);
     const pIva = round2(pTotal / 1.16 * 0.16);
     const pSubtotal = round2(pTotal - pIva);
 
-    // Navegamos asegurando que el total que mandamos sea el que queremos mostrar en EqualSplit
     navigation.navigate('EqualSplit', {
       ...sharedHiddenFields(),
       items: payload,
@@ -567,42 +577,42 @@ export default function Dividir() {
       return;
     }
 
-    const payloadItems = anySelected ? selectedItems : items.filter(it => !it.locked);
+  const payloadItems = anySelected ? selectedItems : items.filter(it => !it.locked);
 
-    if (usesExternalTotal && !anySelected) {
-      navigation.navigate('OneExhibicion', {
-        token,
-        items: payloadItems,
-        subtotal,
-        iva,
-        total,
-        total_comensales: totalComensales,
-        restaurantImage: null,
-        ...sharedHiddenFields(),
-      });
-      return;
-    }
-
-    const pTotalRaw = payloadItems.reduce((s, it) => s + Number(it.price || 0), 0);
-    const pTotal = round2(pTotalRaw);
-    const pIva = round2(pTotal / 1.16 * 0.16);
-    const pSubtotal = round2(pTotal - pIva);
-
-    if (anySelected && saleId && selectedIdsArray.length > 0) {
-      savePendingLocal(saleId, selectedIdsArray, pTotal).catch(e => console.warn('savePendingLocal error', e));
-    }
-
+  if (usesExternalTotal && !anySelected) {
     navigation.navigate('OneExhibicion', {
       token,
       items: payloadItems,
-      subtotal: pSubtotal,
-      iva: pIva,
-      total: pTotal,
+      subtotal,
+      iva,
+      total,
       total_comensales: totalComensales,
       restaurantImage: null,
       ...sharedHiddenFields(),
     });
-  };
+    return;
+  }
+
+  const pTotalRaw = payloadItems.reduce((s, it) => s + Number(it.price || 0), 0);
+  const pTotal = round2(pTotalRaw);
+  const pIva = round2(pTotal / 1.16 * 0.16);
+  const pSubtotal = round2(pTotal - pIva);
+
+  if (anySelected && saleId && selectedIdsArray.length > 0) {
+    savePendingLocal(saleId, selectedIdsArray, pTotal).catch(e => console.warn('savePendingLocal error', e));
+  }
+
+  navigation.navigate('OneExhibicion', {
+    token,
+    items: payloadItems,
+    subtotal: pSubtotal,
+    iva: pIva,
+    total: pTotal,
+    total_comensales: totalComensales,
+    restaurantImage: null,
+    ...sharedHiddenFields(),
+  });
+};
 
   const handleBack = () => navigation.canGoBack?.() ? navigation.goBack() : null;
 
@@ -637,19 +647,24 @@ export default function Dividir() {
   }
 
   // computed sizes used inline
-  const shareBtnWidth = Math.round(Math.min(width - 36, 420));
+  const shareBtnWidth = Math.round(Math.min(width - sidePad * 2, 420));
   const rightColWidth = Math.round(Math.min(360, width * 0.72));
-  const whiteContentWidth = Math.round(Math.min(width - Math.round(wp(2)), 960));
+  const whiteContentWidth = contentMaxWidth;
   const modalBoxWidth = Math.round(Math.min(width - 48, 420));
 
-  const styles = makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth });
+  // memoize styles (no recreación cada render)
+  const styles = useMemo(() => makeStyles({
+    wp, hp, rf, clamp, width, height,
+    rightColWidth, whiteContentWidth, modalBoxWidth,
+    topSafe, bottomSafe, sidePad, isNarrow
+  }), [wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth, topSafe, bottomSafe, sidePad, isNarrow]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+      <View style={[styles.topBar, { paddingTop: 0 }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={handleBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.backArrow}>{'‹'}</Text>
         </TouchableOpacity>
 
@@ -657,9 +672,9 @@ export default function Dividir() {
         <Text style={styles.topDate} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
         <LinearGradient colors={['#FF2FA0', '#7C3AED', '#0046ff']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.0 }} locations={[0, 0.5, 1]} style={styles.bigGradient}>
-          <View style={styles.gradientContentRow}>
+          <View style={[styles.gradientContentRow, isNarrow ? { flexDirection: 'column' } : { flexDirection: 'row' }]}>
             <View style={styles.leftGradientCol}>
               <Image source={require('../../assets/images/logo2.png')} style={styles.tabtrackLogo} resizeMode="contain" />
               <View style={styles.circleWrap}>
@@ -672,7 +687,7 @@ export default function Dividir() {
 
               <View style={styles.stackButtons}>
                 {/* Solo Partes iguales en el degradado */}
-                <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales}>
+                <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Text style={styles.ghostButtonText}>Partes iguales</Text>
                 </TouchableOpacity>
               </View>
@@ -698,6 +713,7 @@ export default function Dividir() {
                   onPress={() => !it.locked && toggleItem(idx)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: it.checked, disabled: it.locked }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <View style={styles.itemLeft}>
                     <View style={[styles.checkbox, (it.checked && !it.locked) && styles.checkboxChecked]}>
@@ -741,7 +757,7 @@ export default function Dividir() {
 
           <View style={{ height: Math.round(hp(1)) }} />
 
-          {/* New placement: Pagar por consumo (estilo igual al botón Compartir) */}
+          {/* Pagar por consumo (estilo igual al botón Compartir) */}
           <LinearGradient
             colors={['rgb(148, 2, 220)', 'rgb(4, 60, 216)']}
             start={{ x: 0, y: 0 }}
@@ -752,22 +768,30 @@ export default function Dividir() {
               onPress={handlePorConsumo}
               activeOpacity={0.9}
               style={styles.shareButtonTouchable}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.shareButtonText}>Pagar por consumo</Text>
             </TouchableOpacity>
           </LinearGradient>
 
-
-          {/* Compartir cuenta (ahora usa Share nativo) */}
-          <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth }]} onPress={handleShare}>
+          {/* Compartir cuenta (Share nativo) */}
+          <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.shareButtonText}>Compartir cuenta</Text>
           </TouchableOpacity>
 
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-whatsapp" size={Math.round(rf(4))} color="#25D366" /></TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-facebook" size={Math.round(rf(4))} color="#1877F2" /></TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap}><Ionicons name="mail-outline" size={Math.round(rf(4))} color="#374151" /></TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap}><Ionicons name="logo-instagram" size={Math.round(rf(4))} color="#C13584" /></TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="logo-whatsapp" size={Math.round(rf(4))} color="#25D366" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="logo-facebook" size={Math.round(rf(4))} color="#1877F2" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="mail-outline" size={Math.round(rf(4))} color="#374151" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="logo-instagram" size={Math.round(rf(4))} color="#C13584" />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -782,7 +806,7 @@ export default function Dividir() {
             <Text style={[styles.modalMessage, { color: '#000' }]}>{styledAlertMessage}</Text>
 
             <View style={{ width: '100%', marginTop: Math.round(hp(1)) }}>
-              <TouchableOpacity style={[styles.modalBtnPrimary]} onPress={() => hideStyledAlert()}>
+              <TouchableOpacity style={[styles.modalBtnPrimary]} onPress={() => hideStyledAlert()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Text style={[styles.modalBtnPrimaryText]}>Aceptar</Text>
               </TouchableOpacity>
             </View>
@@ -794,52 +818,51 @@ export default function Dividir() {
 }
 
 /* estilos responsivos generados por makeStyles-like (valores por defecto aquí para fallback) */
-function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth }) {
+function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth, topSafe, bottomSafe, sidePad, isNarrow }) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f5f7fb' },
     topBar: {
       width: '100%',
       height: Math.round(hp(9.6)),
-      paddingHorizontal: Math.round(wp(3.5)),
+      paddingHorizontal: Math.round(sidePad || wp(3.5)),
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
       backgroundColor: '#ffffff',
       borderBottomWidth: 1,
       borderBottomColor: '#eee',
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : Math.round(hp(1)),
+      paddingTop: 0, // no usar Platform aquí; topSafe se aplica en SafeAreaView
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
     backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
     topTitle: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
     topDate: { fontSize: Math.round(clamp(rf(2.8), 10, 12)), color: '#6b7280' },
 
-    container: { alignItems: 'center', paddingBottom: Math.round(hp(3)), paddingTop: Math.round(hp(1)) },
+    container: { alignItems: 'center', paddingTop: Math.round(hp(1)), paddingBottom: Math.round(hp(3) + bottomSafe) },
 
     bigGradient: {
       width: '100%',
-      paddingHorizontal: Math.round(wp(4)),
+      paddingHorizontal: Math.round(sidePad || wp(4)),
       paddingTop: Math.round(hp(2)),
       paddingBottom: Math.round(hp(3)),
       borderBottomRightRadius: Math.round(wp(10)),
       overflow: 'hidden',
     },
-    gradientContentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    gradientContentRow: { justifyContent: 'space-between', alignItems: 'flex-start' },
 
     leftGradientCol: { flex: 1, flexDirection: 'column', alignItems: 'flex-start' },
     tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 28, 48)), marginBottom: Math.round(hp(0.6)) },
     circleWrap: { marginTop: Math.round(hp(1.8)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
     restaurantCircle: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
 
-    rightGradientCol: { paddingLeft: Math.round(wp(2.4)), paddingTop: Math.round(hp(0.6)), alignItems: 'flex-end', marginRight: Math.round(wp(2)) },
-    divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.0), 18, 28)), fontWeight: '800', lineHeight: Math.round(clamp(rf(7.5), 22, 34)), marginBottom: Math.round(hp(1)), textAlign: 'right', width: '100%' },
+    rightGradientCol: { paddingLeft: Math.round(wp(2.4)), paddingTop: Math.round(hp(0.6)), alignItems: isNarrow ? 'flex-start' : 'flex-end', marginRight: Math.round(wp(2)) },
+    divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.0), 18, 28)), fontWeight: '800', lineHeight: Math.round(clamp(rf(7.5), 22, 34)), marginBottom: Math.round(hp(1)), textAlign: isNarrow ? 'left' : 'right', width: '100%' },
 
-    stackButtons: { width: '100%', alignItems: 'flex-end' },
-    ghostButton: { width: '70%', borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.4)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), marginBottom: Math.round(hp(0.8)), alignSelf: 'flex-end' },
+    stackButtons: { width: '100%', alignItems: isNarrow ? 'flex-start' : 'flex-end' },
+    ghostButton: { width: isNarrow ? '100%' : '70%', borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.4)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), marginBottom: Math.round(hp(0.8)), alignSelf: isNarrow ? 'stretch' : 'flex-end' },
     ghostButtonText: { color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: Math.round(clamp(rf(3.6), 13, 16)) },
 
-    /* (pinkButton left in file but unused now - no harm) */
-    pinkButton: { width: '70%', backgroundColor: '#7F00FF', paddingVertical: Math.round(hp(1.6)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), alignSelf: 'flex-end' },
+    pinkButton: { width: isNarrow ? '100%' : '70%', backgroundColor: '#7F00FF', paddingVertical: Math.round(hp(1.6)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), alignSelf: isNarrow ? 'stretch' : 'flex-end' },
     pinkButtonText: { color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
 
     whiteContent: { width: whiteContentWidth || Math.round(Math.min(width - Math.round(wp(2)), 960)), backgroundColor: '#fff', paddingTop: Math.round(hp(2)), paddingBottom: Math.round(hp(3)), paddingHorizontal: Math.round(wp(4)), marginTop: 0, alignSelf: 'center' },
@@ -864,7 +887,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     ivaRow: { paddingTop: 0 },
     ivaText: { fontWeight: '800' },
 
-    /* share / consumo button style (used for both) */
     shareButton: { backgroundColor: '#0046ff', paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2)), alignItems: 'center', marginTop: Math.round(hp(1)) },
     shareButtonText: { color: '#fff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
 
@@ -883,11 +905,11 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
 
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     shareButtonGradient: {
-      borderRadius: Math.round(wp(2)), // mantener radio similar al shareButton original
+      borderRadius: Math.round(wp(2)),
       overflow: 'hidden',
       alignItems: 'center',
       justifyContent: 'center',
-      elevation: 2, // sombra ligera en Android
+      elevation: 2,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.12,
@@ -896,10 +918,10 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
 
     shareButtonTouchable: {
       width: '100%',
-      paddingVertical: Math.round(hp(1.4)), // igual que shareButton original
+      paddingVertical: Math.round(hp(1.4)),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'transparent', // dejar transparente para que se vea el degradado
+      backgroundColor: 'transparent',
     },
 
   });

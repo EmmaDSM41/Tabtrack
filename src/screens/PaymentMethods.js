@@ -33,7 +33,7 @@ const initialMethods = [
   { key: 'paypal', label: 'PayPal', icon: 'logo-paypal' },
 ];
 
- const PlainInput = React.memo(
+const PlainInput = React.memo(
   React.forwardRef(function PlainInput(props, ref) {
     const {
       placeholder,
@@ -97,12 +97,12 @@ function SmallToast({ message, visible, success }) {
 }
 
 export default function PaymentMethods({ navigation }) {
-  // responsive helpers
+  // responsive helpers using current window (better for orientation changes)
   const { width: dimWidth, height: dimHeight } = Dimensions.get('window');
-  const wp = p => Math.round((p / 100) * dimWidth);
-  const hp = p => Math.round((p / 100) * dimHeight);
+  const wp = p => Math.round((Number(p) / 100) * dimWidth);
+  const hp = p => Math.round((Number(p) / 100) * dimHeight);
   const rf = p => {
-    const scale = (p / 100) * dimWidth;
+    const scale = (Number(p) / 100) * dimWidth;
     return Math.round(PixelRatio.roundToNearestPixel(scale));
   };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -195,14 +195,14 @@ export default function PaymentMethods({ navigation }) {
 
   // formatters
   const formatCardNumber = useCallback((text) => {
-    const digits = text.replace(/\D/g, '').slice(0, 16);
+    const digits = String(text).replace(/\D/g, '').slice(0, 16);
     const groups = digits.match(/.{1,4}/g);
     return groups ? groups.join(' ') : digits;
   }, []);
   const onChangeCardNumber = useCallback((t) => setCardNumber(formatCardNumber(t)), [formatCardNumber]);
 
   const formatExpiry = useCallback((text) => {
-    const digits = text.replace(/\D/g, '').slice(0, 4);
+    const digits = String(text).replace(/\D/g, '').slice(0, 4);
     if (digits.length <= 2) return digits;
     return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   }, []);
@@ -218,7 +218,7 @@ export default function PaymentMethods({ navigation }) {
   }, []);
 
   const saveCard = useCallback(() => {
-    const rawCard = cardNumber.replace(/\s/g, '');
+    const rawCard = String(cardNumber).replace(/\s/g, '');
     if (!cardHolderName.trim()) {
       showToast('Ingresa el nombre del titular', false);
       return;
@@ -236,7 +236,6 @@ export default function PaymentMethods({ navigation }) {
       return;
     }
 
-    // create card object (store masked display + last4 + raw? storing raw locally; if you prefer remove it)
     const newCard = {
       id: `${Date.now()}`,
       holder: cardHolderName.trim(),
@@ -250,6 +249,7 @@ export default function PaymentMethods({ navigation }) {
     const updated = [newCard, ...savedCards];
     setSavedCards(updated);
     persistCards(updated);
+
     // clear form and close modal
     setCardNumber('');
     setExpiryDate('');
@@ -277,7 +277,6 @@ export default function PaymentMethods({ navigation }) {
     setCvv('');
     setCardHolderName('');
     setAddress('');
-    // autofocus iOS only (small delay)
     if (Platform.OS === 'ios') {
       setTimeout(() => cardHolderRef.current && cardHolderRef.current.focus && cardHolderRef.current.focus(), 220);
     }
@@ -291,11 +290,17 @@ export default function PaymentMethods({ navigation }) {
         <Text style={styles.cardMeta}>{card.holder} · {card.expiry}</Text>
       </View>
       <TouchableOpacity
-        onPress={() => {
-          // quick action: use card (placeholder)
-          showToast('Tarjeta seleccionada', true);
+        onPress={() => { showToast('Tarjeta seleccionada', true); }}
+        onLongPress={() => {
+          Alert.alert(
+            'Eliminar tarjeta',
+            '¿Deseas eliminar esta tarjeta?',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Eliminar', style: 'destructive', onPress: () => removeCard(card.id) },
+            ]
+          );
         }}
-        onLongPress={() => removeCard(card.id)}
         style={styles.cardAction}
       >
         <Text style={{ color: BLUE, fontWeight: '700' }}>Usar</Text>
@@ -307,7 +312,7 @@ export default function PaymentMethods({ navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       <View style={[styles.header, { paddingVertical: headerPaddingVertical, paddingHorizontal: headerPaddingHorizontal }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Volver">
           <Ionicons name="arrow-back" size={Math.round(clamp(iconSize, 20, 28))} color={BLUE} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(rf(2.6)), 20, 24) }]}>Perfil</Text>
@@ -358,6 +363,8 @@ export default function PaymentMethods({ navigation }) {
             onPress={openAddCardModal}
             style={styles.addButton}
             activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Agregar tarjeta"
           >
             <Ionicons name="add" size={18} color={BLUE} style={{ marginRight: 6 }} />
             <Text style={{ color: BLUE, fontWeight: '700' }}>Agregar tarjeta</Text>
@@ -368,8 +375,7 @@ export default function PaymentMethods({ navigation }) {
           {savedCards.length === 0 ? (
             <View style={styles.emptyBox}>
               <Text style={{ color: '#333', marginBottom: 8 }}>Aún no tienes tarjetas guardadas.</Text>
-{/*               <Text style={{ color: '#666', fontSize: 13 }}>Presiona "Agregar tarjeta" para registrar una nueva. Aquí aparecerán tus tarjetas guardadas localmente.</Text>*/} 
-           </View>
+            </View>
           ) : (
             <View style={styles.cardsList}>
               {savedCards.map(card => (
@@ -392,7 +398,7 @@ export default function PaymentMethods({ navigation }) {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalWrapper}>
             <View style={[styles.modalContainer, { width: modalWidth }]}>
               <LinearGradient colors={['#ffffff', '#fbfbff']} style={styles.modalGradient}>
-                <TouchableOpacity style={styles.modalClose} onPress={() => setModalVisible(false)}>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setModalVisible(false)} accessibilityLabel="Cerrar">
                   <Ionicons name="close" size={18} color="#6b7280" />
                 </TouchableOpacity>
 
@@ -412,13 +418,10 @@ export default function PaymentMethods({ navigation }) {
                   shadowRadius: 10,
                   elevation: 4,
                 }}>
-                  {/* IMPORTANT: changed layout to keep right column fixed width and left column flexible.
-                      Texts use adjustsFontSizeToFit so they shrink instead of pushing content. */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1, paddingRight: 10 }}>
                       <Text style={{ color: '#222', fontWeight: '700', fontSize: 13 }}>Tarjeta</Text>
 
-                      {/* card number: shrink to fit, single line */}
                       <Text
                         style={styles.cardNumber}
                         numberOfLines={1}
@@ -443,7 +446,6 @@ export default function PaymentMethods({ navigation }) {
                       </View>
                     </View>
 
-                    {/* right column fixed width to avoid being pushed by left content */}
                     <View style={{ width: 110, alignItems: 'flex-end' }}>
                       <View style={{ backgroundColor: '#f0f6ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#e6eefc' }}>
                         <Text
@@ -497,7 +499,7 @@ export default function PaymentMethods({ navigation }) {
                       ref={cvvRef}
                       placeholder="CVV"
                       value={cvv}
-                      onChangeText={(t) => setCvv(t.replace(/\D/g, '').slice(0, 4))}
+                      onChangeText={(t) => setCvv(String(t).replace(/\D/g, '').slice(0, 4))}
                       keyboardType="number-pad"
                       secureTextEntry={true}
                       maxLength={4}
@@ -589,7 +591,6 @@ const styles = StyleSheet.create({
   cardsList: {
     marginTop: 8,
     paddingVertical: 4,
-    gap: 8,
   },
   cardItem: {
     width: '100%',
@@ -623,7 +624,6 @@ const styles = StyleSheet.create({
 
   cardPreview: { width: '100%', borderRadius: 12, padding: 14, marginVertical: 8, backgroundColor: '#fff', borderWidth: 1.6, borderColor: SOFT_BLUE, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 
-  /* NEW: card preview text styles with shrink-to-fit */
   cardNumber: {
     color: '#222',
     marginTop: 10,
@@ -642,7 +642,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  /* inputs plano */
   inputRow: {
     width: '100%',
     backgroundColor: '#fbfbfd',

@@ -19,9 +19,13 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
- const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0'; 
+/* colores usados (declarados arriba para evitar referencias antes de la definición) */
+const PRIMARY = '#0046ff';
+const PURPLE = '#6b2cff';
 
- const SEND_BASE = 'https://api.tab-track.com/api/mobileapp/usuarios/verification-codes';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+
+const SEND_BASE = 'https://api.tab-track.com/api/mobileapp/usuarios/verification-codes';
 const VALIDATE_BASE = 'https://api.tab-track.com/api/mobileapp/usuarios/verification-codes/validate';
 
 export default function VerificationScreen({ navigation, route }) {
@@ -36,23 +40,23 @@ export default function VerificationScreen({ navigation, route }) {
   const [resendCount, setResendCount] = useState(0);
   const [resendLimitReached, setResendLimitReached] = useState(false);
 
-  // responsive helpers (patrón Propina.js)
+  // responsive helpers
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // Responsive sizes
+  // Responsive sizes (valores calculados)
   const horizontalPadding = Math.max(12, Math.round(width * 0.06));
-  const topSpacingHeight = clamp(rf(18), 120, 48);
-  const logoSize = clamp(Math.round(Math.min(width * 0.56, height * 0.32)), rf(80), 360);
-  const otpSize = clamp(Math.round(Math.min(60, Math.max(44, (width - horizontalPadding * 2 - 48) / NUM))), 40, 80);
-  const otpMargin = Math.max(6, Math.round(width * 0.015));
+  // topSpacingHeight: espacio superior flexible
+  const topSpacingHeight = clamp(Math.round(rf(10)), 12, 120);
+  const logoSize = clamp(Math.round(Math.min(width * 0.56, height * 0.32)), rf(72), 360);
+  const otpSize = clamp(Math.round(Math.min(80, Math.max(44, (width - horizontalPadding * 2 - (NUM * 8)) / NUM))), 40, 88);
+  const otpMargin = Math.max(6, Math.round(width * 0.012));
   const helperFont = clamp(rf(14), 12, 18);
   const titleFont = clamp(rf(22), 18, 32);
-  const verifyBtnWidth = Math.round(Math.min(520, Math.max(width * 0.6, width * 0.8)));
+  const verifyBtnWidth = Math.round(Math.min(520, Math.max(width * 0.62, width * 0.82)));
   const bottomSafe = insets.bottom || 16;
-  // end responsive
 
   // key for storing resend count per email
   const resendKeyFor = (e) => `verification_resend_count_${String(e || '').toLowerCase()}`;
@@ -111,7 +115,9 @@ export default function VerificationScreen({ navigation, route }) {
   };
 
   const focusTo = (idx) => {
-    if (inputsRef.current[idx]) inputsRef.current[idx].focus();
+    if (inputsRef.current[idx]) {
+      try { inputsRef.current[idx].focus(); } catch (_) { /* noop */ }
+    }
   };
 
   const handleChange = (text, idx) => {
@@ -122,13 +128,11 @@ export default function VerificationScreen({ navigation, route }) {
     if (ch && idx < NUM - 1) {
       focusTo(idx + 1);
     }
-    if (!ch && idx > 0) {
-      // si borró, dejamos que el usuario maneje foco (no tocar lógica)
-    }
+    // si borra dejamos que el usuario controle foco (no modificamos lógica)
   };
 
   const handleKeyPress = ({ nativeEvent }, idx) => {
-    if (nativeEvent.key === 'Backspace' && digits[idx] === '' && idx > 0) {
+    if (nativeEvent && nativeEvent.key === 'Backspace' && digits[idx] === '' && idx > 0) {
       focusTo(idx - 1);
       const copy = [...digits];
       copy[idx - 1] = '';
@@ -195,7 +199,6 @@ export default function VerificationScreen({ navigation, route }) {
       try { bodyText = await res.text(); } catch (_) { bodyText = null; }
 
       if (!res.ok) {
-        // intentar parsear mensaje útil
         let msg = 'No se pudo reenviar el código. Intenta más tarde.';
         try {
           if (bodyText) {
@@ -217,7 +220,6 @@ export default function VerificationScreen({ navigation, route }) {
 
       // mostrar mensaje informativo
       setInfoMessage('Código enviado. Revisa tu correo (incluye spam).');
-      // Clear any previous error
       setVerificationError('');
     } catch (err) {
       console.warn('onResend error', err);
@@ -256,26 +258,21 @@ export default function VerificationScreen({ navigation, route }) {
         },
       });
 
-      // parse JSON seguro
       let json = null;
       try { json = await res.json(); } catch (err) { json = null; }
 
       if (res.ok && json && json.valid === true) {
-        // marcado como válido: opcionalmente persistir bandera local y navegar
         try {
           await AsyncStorage.setItem('user_verified', '1');
-          // si quieres marcar doble_verificacion locally:
           await AsyncStorage.setItem('user_double_verification', '1');
         } catch (e) {
           console.warn('persist local verification flag error', e);
         }
 
-        // navegar
         navigation.navigate('Loading');
         return;
       }
 
-      // si llegamos aquí: server dijo invalid o hubo error
       let msg = 'Código incorrecto o expirado.';
       if (json && json.message) msg = json.message;
       setVerificationError(msg);
@@ -313,7 +310,6 @@ export default function VerificationScreen({ navigation, route }) {
             />
           </View>
 
-          {/* --- ESPACIO EXTRA DESPUÉS DEL LOGO para bajar el contenido (solicitud) --- */}
           <View style={{ height: Math.round(rf(12)) }} />
 
           <Text style={[styles.title, { fontSize: titleFont }]}>Valida tu cuenta</Text>
@@ -372,7 +368,7 @@ export default function VerificationScreen({ navigation, route }) {
               style={[
                 styles.resendBtn,
                 resendLimitReached && { opacity: 0.5 },
-                { minWidth: Math.max(120, Math.round(width * 0.35)), paddingHorizontal: Math.max(12, Math.round(width * 0.03)) },
+                { minWidth: Math.max(120, Math.round(width * 0.34)), paddingHorizontal: Math.max(12, Math.round(width * 0.03)) },
               ]}
               disabled={loadingResend || resendLimitReached}
             >
@@ -383,12 +379,11 @@ export default function VerificationScreen({ navigation, route }) {
 
             <TouchableOpacity
               onPress={async () => {
-                // pequeña ayuda: abrir correo o mostrar instrucciones
                 Alert.alert('Ayuda', 'Si no llega el correo, revisa tu carpeta de spam o intenta reenviar el código.');
               }}
               style={[styles.spamInfo, { paddingHorizontal: Math.max(10, Math.round(width * 0.03)), paddingVertical: Math.max(8, Math.round(rf(8))), marginTop: 0 }]}
             >
-              <Text style={[styles.spamText, { fontSize: helperFont * 0.95 }]}>¿No recibiste el correo?</Text>
+              <Text style={[styles.spamText, { fontSize: Math.max(12, helperFont * 0.95) }]}>¿No recibiste el correo?</Text>
             </TouchableOpacity>
           </View>
 
@@ -396,8 +391,7 @@ export default function VerificationScreen({ navigation, route }) {
             {renderResendInfo()}
           </View>
 
-          {/* --- MENSAJE SOLICITADO: "Revisa tu bandeja de spam" (entre reenvíos disponibles y verificar) --- */}
-          <View style={{ marginTop: Math.round(rf(50)), alignItems: 'center', paddingHorizontal: Math.round(rf(6)) }}>
+          <View style={{ marginTop: Math.round(rf(36)), alignItems: 'center', paddingHorizontal: Math.round(rf(6)) }}>
             <Text style={{ fontSize: helperFont, color: PRIMARY, textAlign: 'center', fontWeight: '800' }}>Revisa tu bandeja de spam.</Text>
           </View>
 
@@ -421,9 +415,6 @@ export default function VerificationScreen({ navigation, route }) {
     </SafeAreaView>
   );
 }
-
-const PRIMARY = '#0046ff';
-const PURPLE = '#6b2cff';
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#ffffff' },

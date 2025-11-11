@@ -21,10 +21,11 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from '@react-native-documents/picker';
 import { WebView } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const API_BASE_URL = 'https://api.tab-track.com'; 
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0'; 
- 
+const API_BASE_URL = 'https://api.tab-track.com';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+
 const initialMethods = [
   { key: 'card1', label: 'Razon Social' },
   { key: 'card2', label: 'RFC' },
@@ -34,7 +35,7 @@ const initialMethods = [
   { key: 'other2', label: 'Identificacion' },
 ];
 
- function useResponsive() {
+function useResponsive() {
   const { width, height } = useWindowDimensions();
   const wp = (percent) => {
     const p = Number(percent);
@@ -83,6 +84,9 @@ export default function Facturacion({ navigation }) {
   const [profileUrl, setProfileUrl] = useState(null);
 
   const { width, wp, hp, rf, clamp } = useResponsive();
+  const insets = useSafeAreaInsets();
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const bottomSafe = Math.round(insets.bottom || 0);
 
   // --- Toast state ---
   const [toastMsg, setToastMsg] = useState('');
@@ -318,14 +322,12 @@ export default function Facturacion({ navigation }) {
       try {
         const xhr = new XMLHttpRequest();
         xhr.open('GET', fileUri);
-        // intentar blob, si no -> arraybuffer
         try {
           xhr.responseType = 'blob';
         } catch (e) {
           try { xhr.responseType = 'arraybuffer'; } catch (_) { }
         }
         xhr.onload = function () {
-          // status 200 o 0 (file:// / content://) o que response exista
           if (xhr.status === 200 || xhr.status === 0 || xhr.response) {
             const resp = xhr.response;
             if (!resp) {
@@ -613,16 +615,13 @@ export default function Facturacion({ navigation }) {
     try {
       const can = await Linking.canOpenURL(url);
       if (can) {
-        // intenta abrir en navegador/external
         await Linking.openURL(url);
         return;
       }
     } catch (err) {
-      // no abrir, caeremos al modal
       console.warn('Linking open failed, will show WebView modal', err);
     }
 
-    // abrir dentro de la app con WebView modal
     setPdfUrl(url);
     setPdfLoading(true);
     setPdfModalVisible(true);
@@ -650,12 +649,12 @@ export default function Facturacion({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
-      {/* HEADER (no tocar según solicitaste) */}
-      <View style={[styles.header, { paddingHorizontal: headerPaddingH, paddingVertical: headerPaddingV, borderBottomWidth: 1 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+      {/* HEADER */}
+      <View style={[styles.header, { paddingHorizontal: headerPaddingH, paddingVertical: headerPaddingV }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="arrow-back" size={clamp(rf(3.4), 20, 26)} color={styles.headerTitle.color} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(4.5), 20, 28) }]}>Perfil</Text>
@@ -699,7 +698,7 @@ export default function Facturacion({ navigation }) {
       </View>
 
       {/* CONTENT */}
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: scrollPadH }]}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: scrollPadH, paddingBottom: Math.max(32, bottomSafe + 24) }]}>
         <View style={styles.sectionHeader}>
           <Ionicons name="book-outline" size={sectionIconSize} color={styles.sectionTitle.color} />
           <Text style={[styles.sectionTitle, { fontSize: clamp(rf(3.6), 14, 20), marginLeft: 8 }]}>Facturación</Text>
@@ -776,6 +775,7 @@ export default function Facturacion({ navigation }) {
               style={[styles.saveButton, { marginTop: saveBtnMarginTop, paddingVertical: saveBtnPaddingV, paddingHorizontal: saveBtnPaddingH }]}
               onPress={saveFiscal}
               disabled={saving}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{fiscalExists ? 'Actualizar' : 'Crear y guardar'}</Text>}
             </TouchableOpacity>
@@ -790,11 +790,11 @@ export default function Facturacion({ navigation }) {
                 <Text style={{ color: csfKeyPresent ? '#0b8f56' : '#666' }}>{csfKeyPresent ? 'CSF cargada' : 'CSF no cargada'}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   {csfPresignedUrl ? (
-                    <TouchableOpacity onPress={() => openUrl(csfPresignedUrl)} style={styles.smallBtn}>
+                    <TouchableOpacity onPress={() => openUrl(csfPresignedUrl)} style={styles.smallBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Text style={styles.smallBtnText}>Ver</Text>
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity onPress={() => presignAndUpload('csf')} style={[styles.smallBtn, { marginLeft: 8 }]} disabled={uploading}>
+                  <TouchableOpacity onPress={() => presignAndUpload('csf')} style={[styles.smallBtn, { marginLeft: 8 }]} disabled={uploading} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     {uploading ? <ActivityIndicator /> : <Text style={styles.smallBtnText}>Subir CSF (PDF)</Text>}
                   </TouchableOpacity>
                 </View>
@@ -808,21 +808,16 @@ export default function Facturacion({ navigation }) {
                 <Text style={{ color: ineKeyPresent ? '#0b8f56' : '#666' }}>{ineKeyPresent ? 'INE cargada' : 'INE no cargada'}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   {inePresignedUrl ? (
-                    <TouchableOpacity onPress={() => openUrl(inePresignedUrl)} style={styles.smallBtn}>
+                    <TouchableOpacity onPress={() => openUrl(inePresignedUrl)} style={styles.smallBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Text style={styles.smallBtnText}>Ver</Text>
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity onPress={() => presignAndUpload('ine')} style={[styles.smallBtn, { marginLeft: 8 }]} disabled={uploading}>
+                  <TouchableOpacity onPress={() => presignAndUpload('ine')} style={[styles.smallBtn, { marginLeft: 8 }]} disabled={uploading} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     {uploading ? <ActivityIndicator /> : <Text style={styles.smallBtnText}>Subir INE (PDF)</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
-
-            {/* info helper */}
-{/*             <View style={{ marginTop: 18 }}>
-              <Text style={{ color: '#666' }}>Las cargas de archivos usan URLs pre-firmadas. Después de subir se confirma (commit) en el servidor y la información aparecerá aquí.</Text>
-            </View> */}
           </>
         )}
 
@@ -833,7 +828,7 @@ export default function Facturacion({ navigation }) {
       <Modal visible={pdfModalVisible} animationType="slide" onRequestClose={() => setPdfModalVisible(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
-            <TouchableOpacity onPress={() => setPdfModalVisible(false)} style={{ padding: 8 }}>
+            <TouchableOpacity onPress={() => setPdfModalVisible(false)} style={{ padding: 8 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="arrow-back" size={20} color="#333" />
             </TouchableOpacity>
             <Text style={{ fontSize: 16, color: '#000', marginLeft: 8 }}>Visor PDF</Text>
@@ -864,7 +859,7 @@ export default function Facturacion({ navigation }) {
         pointerEvents="none"
         style={{
           position: 'absolute',
-          bottom: Platform.OS === 'ios' ? 90 : 60,
+          bottom: bottomSafe + (Platform.OS === 'ios' ? 18 : 12),
           alignSelf: 'center',
           maxWidth: '92%',
           paddingVertical: 10,
@@ -875,7 +870,7 @@ export default function Facturacion({ navigation }) {
           opacity: toastAnim,
         }}
       >
-        <Text style={{ color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' }}>{toastMsg}</Text>
+        <Text style={{ color: '#fff', fontSize: 14, textAlign: 'center' }}>{toastMsg}</Text>
       </Animated.View>
     </SafeAreaView>
   );
@@ -894,7 +889,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontWeight: '600',
     color: BLUE,
-    fontFamily: 'Montserrat-Bold',
   },
   headerRight: {
     flexDirection: 'row',
@@ -906,7 +900,6 @@ const styles = StyleSheet.create({
   },
   username: {
     color: '#000',
-    fontFamily: 'Montserrat-Regular',
   },
   backButton: { marginRight: 8 },
   logo: {
@@ -920,11 +913,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontWeight: '600',
     color: BLUE,
-    fontFamily: 'Montserrat-Bold',
   },
 
   // inputs / fields
-  fieldLabel: { fontSize: 14, color: '#333', marginBottom: 6, fontFamily: 'Montserrat-Regular' },
+  fieldLabel: { fontSize: 14, color: '#333', marginBottom: 6 },
   input: {
     width: '100%',
     borderWidth: 1,
@@ -936,7 +928,7 @@ const styles = StyleSheet.create({
     color: '#111',
   },
 
-  methodsContainer: { },
+  methodsContainer: {},
   methodRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -946,14 +938,14 @@ const styles = StyleSheet.create({
     borderBottomColor: DOT_COLOR,
   },
   methodLeft: { flexDirection: 'row', alignItems: 'center' },
-  methodText: { color: '#000', marginLeft: 8, fontFamily: 'Montserrat-Regular' },
-  editText: { color: BLUE, fontFamily: 'Montserrat-Regular' },
+  methodText: { color: '#000', marginLeft: 8 },
+  editText: { color: BLUE },
   saveButton: {
     alignSelf: 'flex-start',
     backgroundColor: BLUE,
     borderRadius: 8,
   },
-  saveButtonText: { color: '#fff', fontWeight: '600', fontFamily: 'Montserrat-Bold' },
+  saveButtonText: { color: '#fff', fontWeight: '600' },
 
   smallBtn: {
     backgroundColor: '#fff',

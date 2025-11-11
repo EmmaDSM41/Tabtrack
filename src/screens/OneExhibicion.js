@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   SafeAreaView,
   View,
@@ -15,13 +15,18 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const formatMoney = (n) => (Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+const formatMoney = (n) =>
+  Number.isFinite(n)
+    ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '0.00';
 
 export default function OneExhibicion() {
   const navigation = useNavigation();
   const route = useRoute();
   const params = route?.params ?? {};
+  const insets = useSafeAreaInsets();
 
   const { width, height } = useWindowDimensions();
   const wp = (p) => (Number(p) / 100) * width;
@@ -31,9 +36,10 @@ export default function OneExhibicion() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-  const styles = makeStyles({ width, height, wp, hp, rf, clamp });
 
-   const {
+  const styles = makeStyles({ width, height, wp, hp, rf, clamp, insets });
+
+  const {
     token = null,
     items: incomingItems = [],
     subtotal: pSubtotal = null,
@@ -48,12 +54,48 @@ export default function OneExhibicion() {
 
   const tipApplied = params.tipApplied ?? null;
 
-  const sale_id = params.sale_id ?? params.saleId ?? tipApplied?.sale_id ?? tipApplied?.saleId ?? saleIdFromParams ?? null;
-  const sucursal_id = params.sucursal_id ?? params.sucursalId ?? params.sucursal ?? tipApplied?.sucursal_id ?? tipApplied?.sucursalId ?? null;
-  const restaurante_id = params.restaurante_id ?? params.restauranteId ?? params.restaurante ?? tipApplied?.restaurante_id ?? tipApplied?.restauranteId ?? null;
-  const mesa_id = params.mesa_id ?? params.mesaId ?? params.mesa ?? tipApplied?.mesa_id ?? tipApplied?.mesaId ?? null;
-  const total_comensales = params.total_comensales ?? params.totalComensales ?? params.groupPeople ?? tipApplied?.total_comensales ?? tipApplied?.totalComensales ?? totalComensalesFromParams ?? null;
-  const fechaApertura = params.fecha_apertura ?? params.fechaApertura ?? tipApplied?.fecha_apertura ?? fechaAperturaFromParams ?? null;
+  const sale_id =
+    params.sale_id ??
+    params.saleId ??
+    tipApplied?.sale_id ??
+    tipApplied?.saleId ??
+    saleIdFromParams ??
+    null;
+  const sucursal_id =
+    params.sucursal_id ??
+    params.sucursalId ??
+    params.sucursal ??
+    tipApplied?.sucursal_id ??
+    tipApplied?.sucursalId ??
+    null;
+  const restaurante_id =
+    params.restaurante_id ??
+    params.restauranteId ??
+    params.restaurante ??
+    tipApplied?.restaurante_id ??
+    tipApplied?.restauranteId ??
+    null;
+  const mesa_id =
+    params.mesa_id ??
+    params.mesaId ??
+    params.mesa ??
+    tipApplied?.mesa_id ??
+    tipApplied?.mesaId ??
+    null;
+  const total_comensales =
+    params.total_comensales ??
+    params.totalComensales ??
+    params.groupPeople ??
+    tipApplied?.total_comensales ??
+    tipApplied?.totalComensales ??
+    totalComensalesFromParams ??
+    null;
+  const fechaApertura =
+    params.fecha_apertura ??
+    params.fechaApertura ??
+    tipApplied?.fecha_apertura ??
+    fechaAperturaFromParams ??
+    null;
   const moneda = params.moneda ?? tipApplied?.moneda ?? 'MXN';
   const mesero = params.mesero ?? tipApplied?.mesero ?? null;
 
@@ -62,8 +104,18 @@ export default function OneExhibicion() {
     if (!Array.isArray(rawItems)) return [];
     return rawItems.map((it, idx) => {
       const qty = Number(it.qty ?? it.cantidad ?? it.quantity ?? 1) || 1;
-      const unit = Number(it.unitPrice ?? it.precio_item ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
-      const line = Number(it.lineTotal ?? it.line_total ?? it.total ?? +(unit * qty).toFixed(2)) || +(unit * qty).toFixed(2);
+      const unit =
+        Number(
+          it.unitPrice ??
+            it.precio_item ??
+            it.precio ??
+            it.price ??
+            it.unit_price ??
+            0
+        ) || 0;
+      const line =
+        Number(it.lineTotal ?? it.line_total ?? it.total ?? +(unit * qty).toFixed(2)) ||
+        +(unit * qty).toFixed(2);
       const name = it.name ?? it.nombre ?? it.nombre_item ?? it.title ?? `Item ${idx + 1}`;
       const paid = !!(it.paid === true || it.pagado === true);
       const paidPartial = !!(it.paidPartial === true || it.paid_partial === true);
@@ -87,18 +139,24 @@ export default function OneExhibicion() {
     });
   };
 
-  const items = useMemo(() => normalizeItems(params.items ?? incomingItems ?? []), [params.items, incomingItems]);
+  const items = useMemo(() => normalizeItems(params.items ?? incomingItems ?? []), [
+    params.items,
+    incomingItems,
+  ]);
 
-  const originalTotal = useMemo(() => items.reduce((s, it) => s + (Number(it.lineTotal || 0)), 0), [items]);
+  const originalTotal = useMemo(
+    () => items.reduce((s, it) => s + Number(it.lineTotal || 0), 0),
+    [items]
+  );
 
-  const paidSum = useMemo(() => items.reduce((s, it) => s + (Number(it.paidAmount || 0)), 0), [items]);
+  const paidSum = useMemo(() => items.reduce((s, it) => s + Number(it.paidAmount || 0), 0), [items]);
 
   const pendingFromParams = Number(params.total_pending ?? params.totalPending ?? params.total_pending_amount ?? NaN);
   const hasPendingFromParams = !Number.isNaN(pendingFromParams);
   const pendingTotalFromItems = +(originalTotal - paidSum).toFixed(2);
   const pendingTotal = hasPendingFromParams ? Number(pendingFromParams) : (pendingTotalFromItems >= 0 ? pendingTotalFromItems : 0);
 
-  const iva = +(pendingTotal /1.16 * 0.16).toFixed(2);
+  const iva = +(pendingTotal / 1.16 * 0.16).toFixed(2);
   const subtotal = +(pendingTotal - iva).toFixed(2);
 
   const shownTotal = tipApplied?.totalWithTip ?? pTotalWithTip ?? pendingTotal;
@@ -116,11 +174,13 @@ export default function OneExhibicion() {
     return (
       <View style={styles.itemRow}>
         <View style={{ flex: 1 }}>
-          <Text style={[
-            styles.itemName,
-            item.canceled && styles.itemCanceled,
-            item.paid && { color: '#10b981', fontWeight: '800' },
-          ]}>
+          <Text
+            style={[
+              styles.itemName,
+              item.canceled && styles.itemCanceled,
+              item.paid && { color: '#10b981', fontWeight: '800' },
+            ]}
+          >
             {(qty > 1 ? `${qty}× ` : '') + (item.name ?? '—')}
           </Text>
 
@@ -132,7 +192,15 @@ export default function OneExhibicion() {
         </View>
 
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[styles.itemPrice, item.canceled && styles.itemCanceled, item.paid && { color: '#10b981', fontWeight: '800' }]}>{formatMoney(line)} {moneda}</Text>
+          <Text
+            style={[
+              styles.itemPrice,
+              item.canceled && styles.itemCanceled,
+              item.paid && { color: '#10b981', fontWeight: '800' },
+            ]}
+          >
+            {formatMoney(line)} {moneda}
+          </Text>
           {!item.paid && item.paidPartial ? (
             <Text style={styles.metaPending}>Pendiente: {formatMoney(remainingForItem)} {moneda}</Text>
           ) : null}
@@ -193,7 +261,7 @@ export default function OneExhibicion() {
     }).filter(Boolean);
 
     const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
-    const ivaToCharge = +(totalToCharge /1.16 * 0.16).toFixed(2);
+    const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
     const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
 
     const tipObj = tipApplied ?? params.tipApplied ?? null;
@@ -228,7 +296,6 @@ export default function OneExhibicion() {
       total_pending: pendingTotal,
     };
 
-    // <<< Cambié únicamente: añado el total que se muestra en pantalla para que la pantalla Payment lo reciba.
     payload.displayTotal = shownTotal;
 
     console.log('OneExhibicion -> navegando a Payment con payload:', JSON.stringify(payload, null, 2));
@@ -328,13 +395,14 @@ export default function OneExhibicion() {
   );
 }
 
-function makeStyles({ width, height, wp, hp, rf, clamp }) {
-  const topBarHeight = Math.round(clamp(hp(11), 64, 110));
+function makeStyles({ width, height, wp, hp, rf, clamp, insets }) {
+  const safeTop = Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 8) : (insets?.top ?? 8));
+  const topBarHeight = Math.round(clamp(hp(10) + (safeTop / 100), 64, 110));
   const headerPaddingV = Math.round(hp(2.2));
   const logoW = Math.round(Math.min(140, width * 0.28));
-  const restaurantImageSize = Math.round(clamp(rf(6.5), 48, 80));
-  const contentMaxWidth = Math.min(width - 32, 520);
-  const totalNumberSize = Math.round(clamp(rf(8.5), 20, 36));
+  const restaurantImageSize = Math.round(clamp(rf(6.5), 48, Math.max(64, Math.min(96, width * 0.18))));
+  const contentMaxWidth = Math.min(width - 32, 720);
+  const totalNumberSize = Math.round(clamp(rf(8.5), 20, Math.max(28, Math.min(42, width * 0.09))));
   const sectionTitleSize = Math.round(clamp(rf(5.6), 18, 26));
 
   return StyleSheet.create({
@@ -358,15 +426,15 @@ function makeStyles({ width, height, wp, hp, rf, clamp }) {
 
     container: { alignItems: 'center', paddingBottom: Math.round(hp(3)) },
 
-    headerGradient: { width: '100%', paddingHorizontal: Math.round(wp(4)), paddingTop: headerPaddingV, paddingBottom: Math.round(hp(3.2)), borderBottomRightRadius: 42, overflow: 'hidden' },
+    headerGradient: { width: '100%', paddingHorizontal: Math.round(wp(4)), paddingTop: headerPaddingV, paddingBottom: Math.round(hp(3.2)), borderBottomRightRadius: Math.round(Math.min(56, width * 0.12)), overflow: 'hidden' },
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
 
     leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
-    tabtrackLogo: { width: logoW, height: Math.round(logoW * 0.3), marginBottom: Math.round(hp(0.6)) },
+    tabtrackLogo: { width: logoW, height: Math.round(logoW * 0.32), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(1)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: 10 },
-    restaurantImage: { width: restaurantImageSize, height: restaurantImageSize, borderRadius: 12, backgroundColor: '#fff' },
+    restaurantImage: { width: restaurantImageSize, height: restaurantImageSize, borderRadius: Math.round(Math.min(16, restaurantImageSize * 0.18)), backgroundColor: '#fff' },
 
-    rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 2, maxWidth: Math.round(Math.min(width * 0.45, 220)), marginRight: Math.round(wp(2)) },
+    rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 2, maxWidth: Math.round(Math.min(width * 0.45, 320)), marginRight: Math.round(wp(2)) },
     totalLabel: { color: 'rgba(255,255,255,0.95)', fontSize: Math.round(clamp(rf(3.6), 12, 16)), marginBottom: 6 },
     totalRow: { flexDirection: 'row', alignItems: 'flex-end' },
     totalNumber: { color: '#fff', fontSize: totalNumberSize, fontWeight: '900', letterSpacing: 0.6, lineHeight: Math.round(totalNumberSize * 1.05) },

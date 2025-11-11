@@ -78,22 +78,19 @@ export default function Propina() {
     return selectedPercent || 0;
   }, [selectedPercent, otherPercent, customActive]);
 
- 
   const peopleCount = (typeof people === 'number' && people > 0) ? people : 1;
 
-   const groupSubtotal = Number(subtotal || 0);
+  const groupSubtotal = Number(subtotal || 0);
   const groupIva = Number(iva || 0);
   const groupTotal = Number(total || 0);
 
- 
   const perPersonSubtotal = round2(params.perPersonSubtotal ?? (peopleCount > 0 ? (groupSubtotal / peopleCount) : groupSubtotal));
   const perPersonIva = round2(params.perPersonIva ?? (peopleCount > 0 ? (groupIva / peopleCount) : groupIva));
   const perPersonTotal = round2(params.perPersonTotal ?? (peopleCount > 0 ? (groupTotal / peopleCount) : groupTotal));
 
-   const comingFromEqualSplit = returnScreen === 'EqualSplit' || params.from === 'EqualSplit';
+  const comingFromEqualSplit = returnScreen === 'EqualSplit' || params.from === 'EqualSplit';
   const comingFromConsumo = returnScreen === 'Consumo' || params.from === 'Consumo';
 
-  // Calculamos tanto la propina del grupo (basada en groupTotal) como la propina por persona
   const groupTipAmount = useMemo(() => {
     const t = +(groupTotal * (Number(percent || 0) / 100));
     return Number(t.toFixed(2));
@@ -107,11 +104,6 @@ export default function Propina() {
   const groupTotalWithTip = useMemo(() => Number((groupTotal + groupTipAmount).toFixed(2)), [groupTotal, groupTipAmount]);
   const perPersonTotalWithTip = useMemo(() => Number((perPersonTotal + perPersonTipAmount).toFixed(2)), [perPersonTotal, perPersonTipAmount]);
 
-  // ------------------------------
-  // Variables que mostramos/uso para cálculos en UI según contexto
-  // Si venimos de EqualSplit y hay más de 1 persona, mostramos/calculeamos POR PERSONA.
-  // En otro caso usamos valores de grupo (original).
-  // ------------------------------
   const effectiveTotal = (comingFromEqualSplit && peopleCount > 1) ? perPersonTotal : groupTotal;
   const effectiveSubtotal = (comingFromEqualSplit && peopleCount > 1) ? perPersonSubtotal : groupSubtotal;
   const effectiveIva = (comingFromEqualSplit && peopleCount > 1) ? perPersonIva : groupIva;
@@ -137,19 +129,17 @@ export default function Propina() {
   });
 
   const applyAndReturn = () => {
-    // payload que se pasa como tipApplied (group-level) -> lo dejamos como **group-level**
     const payloadTipApplied = {
       percent: Number(percent || 0),
       tipAmount: round2(groupTipAmount),
       totalWithTip: round2(groupTotalWithTip),
       subtotal: round2(groupSubtotal),
       iva: round2(groupIva),
-      total: round2(groupTotal), // total SIN propina (grupo)
+      total: round2(groupTotal),
       items: normalizedItems,
       people,
     };
 
-    // si venimos de EqualSplit y es grupo dividido (peopleCount > 1) hacemos payload por persona además
     if (comingFromEqualSplit && peopleCount > 1) {
       const payloadPerPerson = {
         percent: Number(percent || 0),
@@ -157,7 +147,7 @@ export default function Propina() {
         totalWithTip: perPersonTotalWithTip,
         subtotal: perPersonSubtotal,
         iva: perPersonIva,
-        total: perPersonTotal, // per-person total SIN propina
+        total: perPersonTotal,
         token,
         items: normalizedItems,
         people: 1,
@@ -173,13 +163,11 @@ export default function Propina() {
 
       const target = returnScreen || 'ResumenPago';
       navigation.navigate(target, attachMetaDup({
-        // Enviamos **group totals** y **tipApplied** (por compatibilidad)
         subtotal: round2(groupSubtotal),
         iva: round2(groupIva),
         tipAmount: round2(groupTipAmount),
-        total: round2(groupTotal), // grupo SIN propina
+        total: round2(groupTotal),
         totalWithTip: round2(groupTotalWithTip),
-        // además enviamos campos por persona para que el destino los use
         perPersonSubtotal, perPersonIva, perPersonTipAmount, perPersonTotalWithTip,
         tipApplied: payloadPerPerson,
         groupPeople: peopleCount,
@@ -191,14 +179,13 @@ export default function Propina() {
       return;
     }
 
- 
     const payloadToReturn = attachMetaDup({
       percent: Number(percent || 0),
       tipAmount: round2(groupTipAmount),
       totalWithTip: round2(groupTotalWithTip),
       subtotal: round2(groupSubtotal),
       iva: round2(groupIva),
-      total: round2(groupTotal), 
+      total: round2(groupTotal),
       token,
       items: normalizedItems,
       people,
@@ -209,7 +196,6 @@ export default function Propina() {
     });
 
     if (returnScreen) {
-      // enviamos tambien tipApplied en top-level para compatibilidad (group-level)
       navigation.navigate(returnScreen, {
         ...payloadToReturn,
         tipApplied: payloadTipApplied,
@@ -228,7 +214,6 @@ export default function Propina() {
         subtotal: perPersonSubtotal,
         iva: perPersonIva,
         tipAmount: perPersonTipAmount,
-        // Nota: mantener comportamiento original: "total" que se enviaba en el branch EqualSplit
         total: perPersonTotalWithTip,
         totalWithTip: perPersonTotalWithTip,
         people: 1,
@@ -247,7 +232,7 @@ export default function Propina() {
       iva: groupIva,
       tipAmount: round2(groupTipAmount),
       totalWithTip: round2(groupTotalWithTip),
-      total: groupTotal, // total SIN propina
+      total: groupTotal,
       people,
       tipPercent: percent,
       restaurantImage,
@@ -260,26 +245,23 @@ export default function Propina() {
   // ---------------- Responsive calculations ----------------
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // responsive font/size
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // responsive font/size base 375
+  const clampLocal = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  const headerHeight = clamp(rf(48), 64, 120);
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
-  const logoWidth = clamp(Math.round(width * 0.32), 90, 160);
-  const restImageSize = clamp(Math.round(width * 0.18), 56, 96);
-  const contentMaxWidth = Math.min(width - 32, 520);
-  const totalFontSize = clamp(rf(24), 18, 36);
-  const smallFont = clamp(rf(12), 11, 16);
-  const sectionTitleFont = clamp(rf(16), 14, 20);
-  const optionFont = clamp(rf(14), 13, 18);
-  const inputHeight = clamp(36, 34, 48);
-  const checkboxSize = clamp(18, 16, 22);
+  const headerHeight = clampLocal(rf(48), 60, 120);
+  const logoWidth = clampLocal(Math.round(width * 0.32), 88, 180);
+  const restImageSize = clampLocal(Math.round(width * 0.18), 56, 120);
+  const contentMaxWidth = Math.min(Math.round(width - 32), Math.max(420, Math.round(width * 0.9)));
+  const totalFontSize = clampLocal(rf(26), 18, 44);
+  const smallFont = clampLocal(rf(12), 11, 18);
+  const sectionTitleFont = clampLocal(rf(16), 14, 22);
+  const optionFont = clampLocal(rf(14), 13, 20);
+  const inputHeight = clampLocal(40, 36, 56);
+  const checkboxSize = clampLocal(18, 16, 28);
+  const basePadding = clampLocal(Math.round(width * 0.04), 10, 28);
   // --------------------------------------------------------
 
-  // --------------------------------------------------------
-  // NUEVO: evitar que el tab bar del padre se "levante" con el teclado.
-  // Forzamos estilo del tab bar del parent para que sea posición absoluta (fixed)
-  // y desactivamos el comportamiento de ocultado por teclado.
   useEffect(() => {
     const parent = navigation.getParent?.();
     if (!parent) return undefined;
@@ -289,74 +271,85 @@ export default function Propina() {
         tabBarHideOnKeyboard: false,
       });
     } catch (e) {
-      // no hacemos nada si falla (compatibilidad)
-      // console.warn('No se pudo ajustar opciones del parent tab bar', e);
+      // ignore
     }
     return () => {
       try {
-        // restaurar opciones a undefined (dejar que el parent use sus defaults)
         parent.setOptions?.({
           tabBarStyle: undefined,
           tabBarHideOnKeyboard: undefined,
         });
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) { /* noop */ }
     };
   }, [navigation]);
   // --------------------------------------------------------
 
   return (
-    <SafeAreaView style={[styles.safe, { paddingTop: topPadding, paddingBottom: insets.bottom }]}>
+    <SafeAreaView style={[styles.safe, { paddingTop: topPadding, paddingBottom: insets.bottom || 12 }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-      <View style={[styles.topBar, { height: headerHeight }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}><Text style={[styles.backArrow, { fontSize: rf(32) }]}>{'‹'}</Text></TouchableOpacity>
-        <Text style={[styles.title, { fontSize: clamp(rf(15), 13, 18) }]}>Tu cuenta</Text>
-        <Text style={[styles.topSmall, { fontSize: clamp(rf(10), 10, 13) }]}>{todayString}</Text>
+      <View style={[styles.topBar, { height: headerHeight, paddingHorizontal: basePadding }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
+          <Text style={[styles.backArrow, { fontSize: clampLocal(rf(32), 20, 36) }]}>{'‹'}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.title, { fontSize: clampLocal(rf(15), 14, 20) }]}>Tu cuenta</Text>
+        <Text style={[styles.topSmall, { fontSize: clampLocal(rf(10), 10, 14) }]}>{todayString}</Text>
       </View>
 
-      {/* Ajuste clave: contentContainerStyle incluye flexGrow:1 y paddingBottom que suma insets.bottom
-          para garantizar que el último contenido (botones) no quede oculto por la barra inferior. */}
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(24, rf(20)) + (insets.bottom || 0), flexGrow: 1 }]}
         keyboardShouldPersistTaps="handled"
       >
-        <LinearGradient colors={['#FF2FA0', '#7C3AED', '#0046ff']} style={[styles.headerGradient, { paddingTop: rf(18), paddingBottom: rf(18) }]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }}>
-          <View style={styles.headerInner}>
+        <LinearGradient
+          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          start={{ x: 0, y: 1 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.headerGradient, { paddingHorizontal: Math.max(12, basePadding), paddingTop: Math.max(12, rf(14)), paddingBottom: Math.max(12, rf(14)) }]}
+        >
+          <View style={[styles.headerInner, { paddingHorizontal: 0 }]}>
             <View style={[styles.leftCol, { flex: 1 }]}>
-              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32) }]} resizeMode="contain" />
+              <Image
+                source={require('../../assets/images/logo2.png')}
+                style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32) }]}
+                resizeMode="contain"
+              />
               <View style={[styles.logoWrap, { marginTop: rf(6), padding: Math.round(rf(6)) }]}>
-                <Image source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')} style={[styles.restaurantImage, { width: restImageSize, height: restImageSize, borderRadius: Math.round(restImageSize * 0.14) }]} resizeMode="cover" />
+                <Image
+                  source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
+                  style={[styles.restaurantImage, { width: restImageSize, height: restImageSize, borderRadius: Math.round(restImageSize * 0.14) }]}
+                  resizeMode="cover"
+                />
               </View>
             </View>
 
-            <View style={[styles.rightCol, { alignItems: 'flex-end', maxWidth: Math.round(width * 0.42) }]}>
-              <Text style={[styles.totalLabel, { fontSize: clamp(rf(13), 12, 16) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>
+            <View style={[styles.rightCol, { alignItems: 'flex-end', maxWidth: Math.round(width * 0.46) }]}>
+              <Text style={[styles.totalLabel, { fontSize: clampLocal(rf(13), 12, 18) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>
               <View style={styles.totalRow}>
                 <Text style={[styles.totalNumber, { fontSize: totalFontSize }]} numberOfLines={1}>{formatMoney(effectiveTotalWithTip)}</Text>
-                <Text style={[styles.totalCurrency, { fontSize: clamp(rf(12), 11, 14) }]}>MXN</Text>
+                <Text style={[styles.totalCurrency, { fontSize: clampLocal(rf(12), 11, 14) }]}>{moneda ?? 'MXN'}</Text>
               </View>
               <View style={styles.rightThanks}>
-                <Text style={[styles.thanksText, { fontSize: clamp(rf(14), 12, 16) }]}>¡Gracias por tu propina!</Text>
-                <Text style={[styles.thanksSub, { fontSize: clamp(rf(11), 10, 14) }]}>{normalizedItems.length} {normalizedItems.length === 1 ? 'item' : 'items'}</Text>
+                <Text style={[styles.thanksText, { fontSize: clampLocal(rf(14), 12, 18) }]}>¡Gracias por tu propina!</Text>
+                <Text style={[styles.thanksSub, { fontSize: clampLocal(rf(11), 10, 14) }]}>{normalizedItems.length} {normalizedItems.length === 1 ? 'item' : 'items'}</Text>
               </View>
             </View>
           </View>
         </LinearGradient>
 
-        <View style={[styles.content, { width: contentMaxWidth, padding: clamp(12, 10, 20) }]}>
-          <View style={styles.sectionRow}><Text style={[styles.sectionTitle, { fontSize: sectionTitleFont }]}>Selecciona el porcentaje que deseas añadir a tu cuenta.</Text></View>
+        <View style={[styles.content, { width: contentMaxWidth, padding: clampLocal( Math.round(width * 0.035), 10, 22 ) }]}>
+          <View style={styles.sectionRow}>
+            <Text style={[styles.sectionTitle, { fontSize: sectionTitleFont }]}>Selecciona el porcentaje que deseas añadir a tu cuenta.</Text>
+          </View>
 
-          <View style={styles.optionsWrap}>
+          <View style={[styles.optionsWrap, { marginTop: Math.max(8, rf(6)) }]}>
             {presetPercentages.map((p) => {
               const checked = !customActive && selectedPercent === p;
-              // monto de propina mostrado según contexto (por persona o total grupo)
               const rightValueBase = (comingFromEqualSplit && peopleCount > 1) ? perPersonTotal : groupTotal;
               return (
                 <TouchableOpacity
                   key={p}
-                  style={[styles.optionRow, { paddingVertical: clamp(12, 10, 16) }]}
+                  style={[styles.optionRow, { paddingVertical: clampLocal(Math.round(rf(12)), 8, 16) }]}
                   onPress={() => { setCustomActive(false); setOtherPercent(''); setSelectedPercent(p); setHasAppliedBefore(true); }}
+                  hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
                 >
                   <View style={[styles.checkbox, checked && styles.checkboxChecked, { width: checkboxSize, height: checkboxSize, borderRadius: Math.round(checkboxSize * 0.14) }]} >
                     {checked && <View style={[styles.checkboxInner, { width: Math.round(checkboxSize * 0.44), height: Math.round(checkboxSize * 0.44) }]} />}
@@ -367,13 +360,13 @@ export default function Propina() {
               );
             })}
 
-            <View style={[styles.optionRow, { paddingVertical: clamp(12, 10, 16) }]}>
-              <TouchableOpacity onPress={() => { setCustomActive(true); setSelectedPercent(null); }} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <View style={[styles.optionRow, { paddingVertical: clampLocal(Math.round(rf(12)), 8, 16) }]}>
+              <TouchableOpacity onPress={() => { setCustomActive(true); setSelectedPercent(null); }} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <View style={[styles.checkbox, customActive && styles.checkboxChecked, { width: checkboxSize, height: checkboxSize, borderRadius: Math.round(checkboxSize * 0.14) }]}>{customActive && <View style={[styles.checkboxInner, { width: Math.round(checkboxSize * 0.44), height: Math.round(checkboxSize * 0.44) }]} />}</View>
                 <Text style={[styles.optionText, { fontSize: optionFont }]}>Otro</Text>
               </TouchableOpacity>
 
-              <View style={[styles.otherInputWrap, { width: clamp(100, 80, 140), height: inputHeight }]}>
+              <View style={[styles.otherInputWrap, { width: clampLocal(Math.round(width * 0.24), 80, 160), height: inputHeight }]}>
                 <TextInput
                   placeholder=""
                   keyboardType="numeric"
@@ -382,9 +375,9 @@ export default function Propina() {
                     const cleaned = t.replace(/[^0-9,.\-]/g, '');
                     setOtherPercent(cleaned); setCustomActive(true); setSelectedPercent(null); setHasAppliedBefore(true);
                   }}
-                  style={[styles.otherInput, { height: inputHeight, fontSize: clamp(rf(14), 13, 16) }]}
+                  style={[styles.otherInput, { height: inputHeight, fontSize: clampLocal(rf(14), 13, 18) }]}
                 />
-                <Text style={[styles.percentSuffix, { fontSize: clamp(rf(12), 11, 14) }]}>%</Text>
+                <Text style={[styles.percentSuffix, { fontSize: clampLocal(rf(12), 11, 14) }]}>%</Text>
               </View>
             </View>
           </View>
@@ -392,11 +385,12 @@ export default function Propina() {
           <View style={styles.divider} />
           <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTotal)} MXN</Text></View>
           <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>Propina</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTipAmount)} MXN</Text></View>
-          <View style={[styles.totalsRow, { marginTop: 8 }]}><Text style={[styles.totLabel, { fontWeight:'800', fontSize: clamp(rf(14), 13, 18) }]}>Total con propina</Text><Text style={[styles.totValue, { fontWeight:'900', fontSize: clamp(rf(20), 16, 24) }]}>{formatMoney(effectiveTotalWithTip)} MXN</Text></View>
+          <View style={[styles.totalsRow, { marginTop: 8 }]}><Text style={[styles.totLabel, { fontWeight:'800', fontSize: clampLocal(rf(14), 13, 20) }]}>Total con propina</Text><Text style={[styles.totValue, { fontWeight:'900', fontSize: clampLocal(rf(20), 16, 28) }]}>{formatMoney(effectiveTotalWithTip)} MXN</Text></View>
 
           <View style={styles.buttonsWrap}>
-{/*             <TouchableOpacity style={[styles.primaryButton, { paddingVertical: clamp(12, 10, 16) }]} onPress={applyAndReturn} activeOpacity={0.9}><Text style={[styles.primaryButtonText, { fontSize: clamp(rf(15), 14, 18) }]}>{buttonLabel}</Text></TouchableOpacity>*/}
-            <TouchableOpacity style={[styles.ghostButton, { paddingVertical: clamp(10, 8, 14) }]} onPress={payNow} activeOpacity={0.9}><Text style={[styles.ghostButtonText, { fontSize: clamp(rf(14), 13, 16) }]}>Pagar</Text></TouchableOpacity>
+            {/* Si quieres activar el botón "Añadir/editar propina" reemplaza el comentario */}
+            {/* <TouchableOpacity style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(12)), 10, 18) }]} onPress={applyAndReturn} activeOpacity={0.9}><Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(15), 14, 18) }]}>{buttonLabel}</Text></TouchableOpacity> */}
+            <TouchableOpacity style={[styles.ghostButton, { paddingVertical: clampLocal(Math.round(rf(10)), 10, 16) }]} onPress={payNow} activeOpacity={0.9}><Text style={[styles.ghostButtonText, { fontSize: clampLocal(rf(14), 13, 18) }]}>Pagar</Text></TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -408,13 +402,13 @@ const { width: staticWidth } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
-  topBar: { width: '100%', paddingHorizontal: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  topBar: { width: '100%', alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   backBtn: { width: 56, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: '#0b58ff', marginLeft: 2 },
+  backArrow: { color: '#0b58ff', marginLeft: 2, fontWeight: '700' },
   title: { fontWeight: '800', color: '#0b58ff' },
   topSmall: { color: '#6b7280' },
-  container: { alignItems: 'center' }, 
-  headerGradient: { width: '100%', paddingHorizontal: 20, borderBottomRightRadius: 28, overflow: 'hidden' },
+  container: { alignItems: 'center' },
+  headerGradient: { width: '100%', borderBottomRightRadius: 28, overflow: 'hidden' },
   headerInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
   tabtrackLogo: { width: Math.min(staticWidth * 0.32, 160), height: Math.min(staticWidth * 0.32 * 0.32, 60), marginBottom: 8 },
@@ -428,7 +422,7 @@ const styles = StyleSheet.create({
   rightThanks: { marginTop: 10, alignItems: 'flex-end' },
   thanksText: { color: '#fff', fontWeight: '800' },
   thanksSub: { color: 'rgba(255,255,255,0.95)' },
-  content: { width: Math.min(staticWidth - 32, 420), backgroundColor: '#fff', padding: 16, marginTop: 8 },
+  content: { width: Math.min(staticWidth - 32, 420), backgroundColor: '#fff', padding: 16, marginTop: 8, borderRadius: 10 },
   sectionRow: { marginBottom: 6 },
   sectionTitle: { fontSize: 16, color: '#374151' },
   optionsWrap: { marginTop: 8 },
@@ -438,14 +432,14 @@ const styles = StyleSheet.create({
   checkboxInner: { width: 8, height: 8, backgroundColor: '#fff', borderRadius: 1 },
   optionText: { flex: 1, color: '#374151' },
   optionRight: { color: '#374151' },
-  otherInputWrap: { width: 80, height: 36, position: 'relative', justifyContent: 'center' },
-  otherInput: { width: '100%', height: 36, borderWidth: 1, borderColor: '#e6eefc', borderRadius: 8, paddingHorizontal: 8, textAlign: 'center', color:'#000' },
+  otherInputWrap: { position: 'relative', justifyContent: 'center' },
+  otherInput: { width: '100%', borderWidth: 1, borderColor: '#e6eefc', borderRadius: 8, paddingHorizontal: 8, textAlign: 'center', color:'#000' },
   percentSuffix: { position: 'absolute', right: 8, top: '50%', transform: [{ translateY: -8 }], color: '#6b7280' },
   divider: { height: 1, backgroundColor: '#e9e9e9', marginVertical: 12 },
   totalsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   totLabel: { color: '#6b7280' },
   totValue: { color: '#111827' },
-  buttonsWrap: { width: '100%', alignItems: 'center', marginTop: 12, marginBottom: 8 }, 
+  buttonsWrap: { width: '100%', alignItems: 'center', marginTop: 12, marginBottom: 8 },
   primaryButton: { width: '100%', backgroundColor: '#0046ff', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
   primaryButtonText: { color: '#fff', fontWeight: '800' },
   ghostButton: { width: '100%', backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: '#ddd' },

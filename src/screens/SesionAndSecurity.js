@@ -18,8 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SesionAndSecurity({ navigation }) {
   const [username, setUsername] = useState('Usuario');
-    const [profileUrl, setProfileUrl] = useState(null);
-  
+  const [profileUrl, setProfileUrl] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -40,7 +39,7 @@ export default function SesionAndSecurity({ navigation }) {
 
         setUsername(displayName);
 
-                // <-- AÑADIDO: leer url de foto de perfil cacheada y guardarla en el estado local
+        // <-- AÑADIDO: leer url de foto de perfil cacheada y guardarla en el estado local
         try {
           const cachedUrl = await AsyncStorage.getItem('user_profile_url');
           if (cachedUrl) setProfileUrl(cachedUrl);
@@ -53,27 +52,32 @@ export default function SesionAndSecurity({ navigation }) {
       }
     })();
   }, []);
-    const getInitials = (name) => {
+
+  const getInitials = (name) => {
     if (!name) return null;
     const parts = name.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return null;
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
-  // -------- responsive helpers (patrón Propina.js) ----------
+
+  // -------- responsive helpers (patrón usado en tus otros componentes) ----------
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // base 375
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // responsive values
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
   const contentMaxWidth = Math.min(width - 32, 760); // permitir tarjetas anchas en tablet pero con límite
   const headerHorizontalPadding = Math.max(12, Math.round(width * 0.04));
-  const headerVerticalPadding = clamp(rf(20), 10, 40);
-  const avatarSize = clamp(rf(40), 28, 80);
-  const logoWidth = clamp(Math.round(width * 0.18), 60, 140);
+  const headerVerticalPadding = clamp(rf(18), 8, 36);
+  const avatarSize = clamp(rf(44), 28, 96);
+  const logoWidth = clamp(Math.round(width * 0.18), 56, 140);
   const titleFont = clamp(rf(20), 16, 28);
   const sectionTitleFont = clamp(rf(18), 14, 22);
   const bodyFont = clamp(rf(14), 12, 18);
+  const rightNameMaxWidth = Math.round(Math.max(90, width * 0.36));
   // ----------------------------------------------------------
 
   return (
@@ -89,9 +93,10 @@ export default function SesionAndSecurity({ navigation }) {
           },
         ]}
       >
-                  <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Volver">
-            <Ionicons name="arrow-back" size={Math.max(18, Math.round(titleFont * 0.9))} color={styles.headerTitle.color} />
-          </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Volver">
+          <Ionicons name="arrow-back" size={Math.max(18, Math.round(titleFont * 0.9))} color={styles.headerTitle.color} />
+        </TouchableOpacity>
+
         <Text
           style={[
             styles.headerTitle,
@@ -103,51 +108,50 @@ export default function SesionAndSecurity({ navigation }) {
           Perfil
         </Text>
 
-<View style={styles.headerRight}>
-  {/* AVATAR: muestra foto si existe profileUrl, si no muestra iniciales centradas */}
-  <View style={{
-    width: avatarSize,
-    height: avatarSize,
-    borderRadius: avatarSize / 2,
-    overflow: 'hidden',
-    backgroundColor: '#f3f6ff',
-    marginHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}>
-    {profileUrl ? (
-      <Image
-        source={{ uri: profileUrl }}
-        style={{ width: '100%', height: '100%' }}
-        resizeMode="cover"
-      />
-    ) : (
-      <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-        <Text
-          style={[
-            styles.avatarInitials ? styles.avatarInitials : { color: '#0046ff', fontWeight: '700' },
-            { fontSize: Math.round(avatarSize * 0.36), includeFontPadding: false, textAlign: 'center' }
-          ]}
-        >
-          {getInitials(username) || '👤'}
-        </Text>
-      </View>
-    )}
-  </View>
+        <View style={styles.headerRight}>
+          {/* AVATAR: muestra foto si existe profileUrl, si no muestra iniciales centradas */}
+          <View style={{
+            width: avatarSize,
+            height: avatarSize,
+            borderRadius: avatarSize / 2,
+            overflow: 'hidden',
+            backgroundColor: '#f3f6ff',
+            marginHorizontal: 8,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            {profileUrl ? (
+              <Image
+                source={{ uri: profileUrl }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                <Text
+                  style={[
+                    styles.avatarInitials ? styles.avatarInitials : { color: '#0046ff', fontWeight: '700' },
+                    { fontSize: Math.round(avatarSize * 0.36), includeFontPadding: false, textAlign: 'center' }
+                  ]}
+                >
+                  {getInitials(username) || '👤'}
+                </Text>
+              </View>
+            )}
+          </View>
 
-  {/* NOMBRE (se mantiene intacto) */}
-  <Text
-    style={[
-      styles.username,
-      { fontSize: clamp(bodyFont, 12, 18), marginRight: Math.round(Math.max(8, width * 0.02)) },
-    ]}
-    numberOfLines={1}
-    ellipsizeMode="tail"
-  >
-    {username}
-  </Text>
-</View>
-
+          {/* NOMBRE (se mantiene intacto) */}
+          <Text
+            style={[
+              styles.username,
+              { fontSize: clamp(bodyFont, 12, 18), marginRight: Math.round(Math.max(8, width * 0.02)), maxWidth: rightNameMaxWidth },
+            ]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {username}
+          </Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={[styles.scrollContent, { alignItems: 'center', paddingHorizontal: Math.max(12, Math.round(width * 0.03)) }]}>

@@ -20,7 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0'; // pon tu token si aplica
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0'; 
 
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
@@ -46,7 +46,6 @@ function useResponsive() {
 }
 /* ------------------------------------------------------------- */
 
-// persistencia simple para visitas guardadas
 async function saveVisitToStorage(visit) {
   try {
     if (!visit) return false;
@@ -108,7 +107,6 @@ async function savePendingVisit(visit) {
   }
 }
 
-// lectura/merge local de paid ids (fallback offline)
 async function readLocalPaidIds(sale) {
   try {
     const localKey = `local_paid_items_${sale}`;
@@ -161,6 +159,11 @@ export default function Escanear() {
   const { width, height, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
 
+  // safe paddings (usar insets correctamente para iOS/Android)
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const bottomSafe = Math.round(insets?.bottom ?? 0);
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
+
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [originalTotalConsumo, setOriginalTotalConsumo] = useState(0);
@@ -194,7 +197,6 @@ export default function Escanear() {
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
-  // promote pendings (mantengo tu lógica; no cambia la fuente de verdad)
   const checkPendingPromotions = useCallback(async (log = false) => {
     try {
       const rawPend = await AsyncStorage.getItem(PENDING_VISITS_KEY);
@@ -210,7 +212,6 @@ export default function Escanear() {
           const totalPending = safeNum(p.total ?? p.amount ?? 0);
           if (!sale || !rest || !suc) { keep.push(p); continue; }
 
-          // Intentaremos consultar splits por sucursal/venta; si hay paid -> promover
           const splitsBySaleUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/sucursal/${encodeURIComponent(String(suc))}/ventas/${encodeURIComponent(String(sale))}/splits`;
           try {
             const sr = await fetch(splitsBySaleUrl, {
@@ -222,8 +223,6 @@ export default function Escanear() {
             const splitsArr = Array.isArray(sjson.splits) ? sjson.splits : [];
             const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
             if (paidSplits.length > 0) {
-              // consideramos confirmado si hay paid splits cubriendo al menos parte del monto pendiente
-              // (aquí simplificado: si existe paidSplits promovemos)
               const visitToSave = {
                 sale_id: sale,
                 restaurante_id: rest,
@@ -240,7 +239,7 @@ export default function Escanear() {
               };
               await saveVisitToStorage(visitToSave);
               try { await AsyncStorage.removeItem(`pending_payment_${String(sale)}`); } catch(e) {}
-              continue; // no push to keep
+              continue;
             } else {
               keep.push(p);
             }
@@ -264,7 +263,6 @@ export default function Escanear() {
     return () => { mounted = false; clearInterval(id); };
   }, [checkPendingPromotions]);
 
-  // Construye pending_payment object
   const buildPendingPaymentObj = (saleKey, itemsArr, amount) => {
     try {
       const idsSet = new Set();
@@ -294,7 +292,6 @@ export default function Escanear() {
     }
   };
 
-  // fetch principal: obtiene consumo (token) y luego consulta only splits para marcar items pagados
   const fetchConsumo = useCallback(async (opts = { showLoading: true }) => {
     if (!token) { openErrorModal('Token no encontrado. Vuelve a escanear.'); if (isMountedRef.current) setLoading(false); return; }
     if (opts.showLoading && isMountedRef.current) setLoading(true);
@@ -306,9 +303,7 @@ export default function Escanear() {
       if (!res.ok) { openErrorModal(`No se pudo obtener el consumo (HTTP ${res.status}).`); if (isMountedRef.current) setLoading(false); return; }
 
       const json = await res.json();
-      console.log('fetchConsumo -> token response:', json);
 
-      // admin data
       if (isMountedRef.current) {
         setMesaId(json.mesa_id ?? json.mesa ?? null);
         setMesero(json.mesero ?? json.cajero ?? null);
@@ -325,13 +320,11 @@ export default function Escanear() {
       if (possibleImage && String(possibleImage).trim()) setRestaurantImageUri(String(possibleImage).trim());
       else setRestaurantImageUri(null);
 
-      // expandir items por cantidad (la API devuelve cantidad y codigo_item)
       const rawItems = Array.isArray(json.items) ? json.items : [];
       const expandedItems = [];
       rawItems.forEach((it, idx) => {
         const rawQty = Math.max(1, safeNum(it.cantidad ?? it.qty ?? 1));
         const rawPrecio = safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
-        // si precio_item es precio por unidad o total de línea depende del API; asumimos precio_item = unit o line conforme a tu ejemplo (cantidad=1).
         const originalId = it.codigo_item ?? it.codigo ?? it.id ?? it.item_id ?? `item-${idx}`;
         for (let k = 0; k < rawQty; k++) {
           const unitId = `${String(originalId)}#${idx}#${k+1}`;
@@ -356,7 +349,6 @@ export default function Escanear() {
       const neutralItems = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
       if (isMountedRef.current) { setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
 
-      // si sale existe -> consultar splits (tx o sucursal/venta)
       const sale = json.sale_id ?? json.venta_id ?? json.id ?? null;
       const suc = json.sucursal_id ?? json.sucursal ?? null;
 
@@ -365,7 +357,6 @@ export default function Escanear() {
         return;
       }
 
-      // revisar flag equal split guardada
       let eqPreviously = false;
       try {
         const eqKey = `equal_split_paid_${String(sale)}`;
@@ -380,7 +371,6 @@ export default function Escanear() {
         }
       } catch (e) { console.warn('Error reading equal_split_paid flag', e); }
 
-      // aplicar local persistido primero (fallback offline)
       let localPaidSet = new Set();
       try { localPaidSet = await readLocalPaidIds(sale); } catch (e) { localPaidSet = new Set(); }
 
@@ -418,7 +408,6 @@ export default function Escanear() {
         } catch (e) { console.warn('Error applying local paid set', e); }
       }
 
-      // Intentar splits por last_transaction_{sale} primero (si existe)
       try {
         const txKey = `last_transaction_${sale}`;
         const rawTx = await AsyncStorage.getItem(txKey);
@@ -440,7 +429,6 @@ export default function Escanear() {
                 if (paidSplits.length > 0) {
                   splitsHandled = true;
 
-                  // detectar equal-split (codigo_item === '1' o nombre)
                   const hasEqualSplitPaid = paidSplits.some(s => {
                     const code = String(s.codigo_item ?? '').trim();
                     const name = String(s.nombre_item ?? s.nombre ?? '').toLowerCase();
@@ -448,17 +436,14 @@ export default function Escanear() {
                   });
 
                   if (hasEqualSplitPaid) {
-                    // marcar equal-split y no marcar items individuales
                     try { await AsyncStorage.setItem(`equal_split_paid_${String(sale)}`, '1'); } catch(e) {}
                     if (isMountedRef.current) { setEqualsSplitPaid(true); setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
-                    // persistir otros paid codes (excluyendo '1')
                     const paidCodesRaw = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                     const paidCodesFiltered = paidCodesRaw.filter(c => c !== '1');
                     if (paidCodesFiltered.length > 0) {
                       await mergePersistLocalPaidIds(sale, paidCodesFiltered);
                     }
                   } else {
-                    // marcar items según codigo_item de splits
                     const paidCodes = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                     const paidSet = new Set(paidCodes.map(String));
                     const allocated = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
@@ -468,10 +453,11 @@ export default function Escanear() {
                       const candidates = [
                         e.id,
                         e.original_line_id,
-                        raw.codigo_item,
-                        raw.codigo,
                         raw.id,
                         raw.item_id,
+                        raw.codigo,
+                        raw.codigo_item,
+                        raw.line_id,
                         raw.code,
                         raw.sku,
                         (raw.name || '').toLowerCase(),
@@ -483,7 +469,6 @@ export default function Escanear() {
                         allocated[ui].paid = price > 0;
                       }
                     }
-                    // aplicar local additionally y persistir union de ids
                     const localSet2 = await readLocalPaidIds(sale);
                     for (let ui=0; ui<allocated.length; ui++) {
                       const e = allocated[ui];
@@ -510,7 +495,6 @@ export default function Escanear() {
                     const paidSum = allocated.reduce((s,it) => s + safeNum(it.paidAmount || 0), 0);
                     const outstanding = +(computedTotal - paidSum).toFixed(2);
                     if (isMountedRef.current) { setItems(allocated); setTotalConsumo(outstanding >= 0 ? outstanding : 0); }
-                    // persist union
                     const unionArr = Array.from(new Set([...(Array.from(localSet2 || []).map(String)), ...paidCodes.map(String)])).filter(Boolean);
                     if (unionArr.length > 0) await mergePersistLocalPaidIds(sale, unionArr);
                   }
@@ -522,7 +506,6 @@ export default function Escanear() {
           }
         }
 
-        // si no manejamos por tx, intentar endpoint por sucursal/venta (funciona con tu segundo ejemplo)
         if (!splitsHandled && suc) {
           try {
             const splitsBySaleUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/sucursal/${encodeURIComponent(String(suc))}/ventas/${encodeURIComponent(String(sale))}/splits`;
@@ -572,7 +555,6 @@ export default function Escanear() {
                       allocated[ui].paid = price > 0;
                     }
                   }
-                  // apply local too
                   const localSet3 = await readLocalPaidIds(sale);
                   for (let ui=0; ui<allocated.length; ui++) {
                     const e = allocated[ui];
@@ -599,7 +581,6 @@ export default function Escanear() {
                   const paidSum = allocated.reduce((s,it) => s + safeNum(it.paidAmount || 0), 0);
                   const outstanding = +(computedTotal - paidSum).toFixed(2);
                   if (isMountedRef.current) { setItems(allocated); setTotalConsumo(outstanding >= 0 ? outstanding : 0); }
-                  // persist union
                   const unionArr = Array.from(new Set([...(Array.from(localSet3 || []).map(String)), ...paidCodes.map(String)])).filter(Boolean);
                   if (unionArr.length > 0) await mergePersistLocalPaidIds(sale, unionArr);
                 }
@@ -624,21 +605,19 @@ export default function Escanear() {
     }
   }, [token]);
 
-  useEffect(() => { fetchConsumo({ showLoading: true }); }, [token]); // on mount/new token
+  useEffect(() => { fetchConsumo({ showLoading: true }); }, [token]);
 
   useFocusEffect(useCallback(() => { fetchConsumo({ showLoading: false }); }, [fetchConsumo]));
 
-  // calcular iva/subtotal desde totalConsumo
   const iva = +(totalConsumo / 1.16 * 0.16).toFixed(2);
   const subtotal = +(totalConsumo - iva).toFixed(2);
   const fechaTexto = fechaApertura ? new Date(fechaApertura).toLocaleString('es-MX') : '';
   const fechaCierreTexto = fechaCierre ? new Date(fechaCierre).toLocaleString('es-MX') : '';
 
   // responsive values
-  const layoutWidth = Math.min(width - 32, 420);
-  const headerPaddingHorizontal = Math.max(12, wp(4));
+  const layoutWidth = Math.min(width - (sidePad * 2), 420);
+  const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
-  const topBarHeight = topBarBaseHeight + (insets.top || 0);
   const logoWidth = clamp(Math.round(wp(28)), 80, 140);
   const restaurantImgSize = clamp(Math.round(wp(16)), 48, 96);
   const rightColMaxWidth = Math.round(Math.min(Math.max(wp(36), 120), 220));
@@ -652,10 +631,10 @@ export default function Escanear() {
   const primaryBtnPadding = Math.max(12, hp(1.6));
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-      <View style={[styles.topBar, { paddingHorizontal: headerPaddingHorizontal, paddingTop: (insets.top || 8), height: topBarHeight }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+      <View style={[styles.topBar, { paddingHorizontal: headerPaddingHorizontal, height: topBarBaseHeight }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={[styles.backArrow, { fontSize: clamp(rf(4.2), 22, 36) }]}>{'‹'}</Text>
         </TouchableOpacity>
 
@@ -679,11 +658,11 @@ export default function Escanear() {
             <Text style={styles.modalMessage}>{errorModalMessage}</Text>
 
             <View style={styles.modalButtonsRow}>
-              <TouchableOpacity style={[styles.modalBtnPrimary]} onPress={() => { setErrorModalVisible(false); navigation.navigate('QRMain'); }}>
+              <TouchableOpacity style={[styles.modalBtnPrimary]} onPress={() => { setErrorModalVisible(false); navigation.navigate('QRMain'); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={styles.modalBtnPrimaryText}>Volver a escanear</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.modalBtnGhost]} onPress={() => setErrorModalVisible(false)}>
+              <TouchableOpacity style={[styles.modalBtnGhost]} onPress={() => setErrorModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={styles.modalBtnGhostText}>Cerrar</Text>
               </TouchableOpacity>
             </View>
@@ -697,7 +676,7 @@ export default function Escanear() {
           <Text style={{ marginTop: 12, color: '#666' }}>Cargando consumo…</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + (insets.bottom || 0) }]} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
           <LinearGradient colors={['#FF2FA0', '#6B2CFF', '#0046ff']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
@@ -795,7 +774,7 @@ export default function Escanear() {
             } catch (e) { console.warn('Error saving pending visit before navigate', e); }
 
             navigation.navigate('OneExhibicion', paramsToSend);
-          }}>
+          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={[styles.primaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago en una sola exhibición</Text>
           </TouchableOpacity>
 
@@ -811,13 +790,13 @@ export default function Escanear() {
               }
             } catch (e) { console.warn('Error saving pending visit before navigate', e); }
             navigation.navigate('Dividir', paramsDividir);
-          }}>
+          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Dividir cuenta</Text>
           </TouchableOpacity>
 
           <View style={{ height: Math.max(12, hp(1.2)) }} />
 
-          <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, backgroundColor: '#fff', borderColor: '#ddd', paddingVertical: Math.max(12, hp(1.4)) }]} onPress={() => navigation.navigate('QRMain')}>
+          <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, backgroundColor: '#fff', borderColor: '#ddd', paddingVertical: Math.max(12, hp(1.4)) }]} onPress={() => navigation.navigate('QRMain')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={[styles.secondaryButtonText, { color: '#444', fontSize: clamp(rf(3.2), 13, 16) }]}>Volver a escanear</Text>
           </TouchableOpacity>
 
@@ -825,7 +804,6 @@ export default function Escanear() {
         </ScrollView>
       )}
 
-      {/* styled alert (visible Accept button) */}
       {styledAlertVisible && (
         <View style={styles.modalBackdrop}>
           <LinearGradient colors={['#FF2FA0', '#6B2CFF', '#0046ff']} style={[styles.gatewayModalBox, { width: Math.min(layoutWidth - 48, Math.max(wp(72), 320)) }]}>
@@ -833,7 +811,7 @@ export default function Escanear() {
             <Text style={[styles.gatewayModalTitle, { color: '#fff', fontSize: clamp(rf(3.6), 16, 20) }]}>{styledAlertTitle}</Text>
             <Text style={[styles.gatewayModalMessage, { color: '#fff', fontSize: clamp(rf(2.8), 13, 16) }]}>{styledAlertMessage}</Text>
 
-            <TouchableOpacity style={[styles.gatewayModalButton]} onPress={() => setStyledAlertVisible(false)} activeOpacity={0.9}>
+            <TouchableOpacity style={[styles.gatewayModalButton]} onPress={() => setStyledAlertVisible(false)} activeOpacity={0.9} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={[styles.gatewayModalButtonText]}>Aceptar</Text>
             </TouchableOpacity>
           </LinearGradient>

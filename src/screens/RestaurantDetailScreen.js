@@ -27,10 +27,10 @@ const placeholderBanner = require("../../assets/images/restaurante.jpeg");
 const placeholderAvatar = require("../../assets/images/restaurante.jpeg");
 const tiktokIcon = require("../../assets/images/tik_tok.jpg");
 
- const GLOBAL_FAVORITES_KEY = 'favorites';
+const GLOBAL_FAVORITES_KEY = 'favorites';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
 
- const getUserIdentifier = async () => {
+const getUserIdentifier = async () => {
   try {
     const uid = await AsyncStorage.getItem('user_usuario_app_id');
     if (uid) return String(uid);
@@ -49,19 +49,31 @@ export default function RestaurantDetailScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
 
-   const { width, height } = useWindowDimensions();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
+  // responsive helpers
+  const { width, height } = useWindowDimensions();
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // base 375
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // responsive measurements
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
-  const contentMaxWidth = Math.min(width - 32, 520);
-   const AVATAR_SIZE = clamp(rf(60), 44, 110);
-  const SLIDER_HEIGHT = clamp(Math.round(height * 0.32), 180, 420);
-  const HEADER_LEFT = Math.max(12, Math.round(width * 0.04));
-  const HEADER_RIGHT = Math.max(12, Math.round(width * 0.04));
+  const contentMaxWidth = Math.min(width - 32, 720); // allow wider cards on tablets
+  const AVATAR_SIZE = clamp(rf(60), 44, 140);
+  const SLIDER_HEIGHT = clamp(Math.round(height * 0.32), 160, Math.round(height * 0.6));
+  const HEADER_LEFT = Math.max(8, Math.round(width * 0.03));
+  const HEADER_RIGHT = Math.max(8, Math.round(width * 0.03));
   const DOT_BOTTOM = Math.max(8, Math.round(SLIDER_HEIGHT * 0.04));
   const DOT_RIGHT = Math.max(12, Math.round(width * 0.04));
-  const ICON_SIZE = Math.round(Math.max(18, rf(20)));
+  const ICON_SIZE = clamp(rf(20), 16, 34);
+  const DOT_SIZE = Math.max(6, Math.round(8 * (width / 375)));
+  const DOT_MARGIN = Math.max(3, Math.round(4 * (width / 375)));
+  const TITLE_FONT = clamp(rf(20), 16, 30);
+  const PARAGRAPH_FONT = clamp(rf(13), 12, 18);
+  const BUTTON_HEIGHT = clamp(rf(44), 40, 56);
+  const BUTTON_RADIUS = Math.round(BUTTON_HEIGHT / 2);
+  const SOCIAL_ICON_SIZE = clamp(rf(22), 18, 36);
+  const CARD_PADDING_H = Math.max(14, Math.round(width * 0.06));
+  const CARD_PADDING_TOP = Math.round(AVATAR_SIZE / 2 + 16);
+  const CARD_WIDTH = Math.min(contentMaxWidth, Math.round(width - 24));
 
   const branchParam =
     route.params?.branch ??
@@ -292,16 +304,13 @@ export default function RestaurantDetailScreen() {
     setSlideIndex(idx);
   };
 
-  // ---------- NUEVO: helper que limpia/normaliza URLs (permite "https: ," "https: //", etc.)
   const cleanUrl = (raw) => {
     if (!raw && raw !== 0) return null;
     try {
       let s = String(raw).trim();
       if (!s) return null;
-      // eliminar comillas y comas sobrantes al final/principio
       s = s.replace(/^[`'"]+|[`'"]+$/g, '');
       s = s.replace(/[,\s]+$/g, '');
-      // eliminar espacios internos (casos "https: //dominio")
       s = s.replace(/\s+/g, '');
       if (!s) return null;
       if (/^\/\//.test(s)) return 'https:' + s;
@@ -314,7 +323,6 @@ export default function RestaurantDetailScreen() {
     }
   };
 
-  // ---------- NUEVO: buscar URL de reserva (url_opentable u otras variantes)
   const getReservationUrl = () => {
     if (!data) return null;
     const candidates = [
@@ -341,7 +349,6 @@ export default function RestaurantDetailScreen() {
     return null;
   };
 
-  // ---------- NUEVO: handler para el botón Reservar
   const handleReserve = async () => {
     try {
       const url = getReservationUrl();
@@ -349,7 +356,6 @@ export default function RestaurantDetailScreen() {
         try {
           await Linking.openURL(url);
         } catch (err) {
-          // fallback: intentar forzar https si no lo tiene
           try {
             const httpsUrl = url.startsWith('http') ? url : `https://${url}`;
             await Linking.openURL(httpsUrl);
@@ -359,8 +365,6 @@ export default function RestaurantDetailScreen() {
           }
         }
       } else {
-        // <-- MODIFICACIÓN: Si no hay URL de reserva, abrir WhatsApp (si existe)
-        // Intentamos abrir WhatsApp vía openSocial que ya implementa wa.me y url_whatsapp
         try {
           await openSocial('whatsapp');
         } catch (e) {
@@ -382,7 +386,6 @@ export default function RestaurantDetailScreen() {
     );
   }
 
-  // --- avatarUri: preferir campos de logo/imagen pequeña --- (ahora también mira data.raw.*)
   const avatarUri = (() => {
     const prefs = [
       data.imagen_logo_url,
@@ -391,7 +394,6 @@ export default function RestaurantDetailScreen() {
       data.image_url,
       data.image,
       data.imagen,
-      // buscar en raw si no está en raíz
       data?.raw?.imagen_logo_url,
       data?.raw?.imagen_logo,
       data?.raw?.logo,
@@ -407,12 +409,9 @@ export default function RestaurantDetailScreen() {
     return null;
   })();
 
-  // --- images (BANNER) : priorizar campos de banner y luego fallback a otras imágenes, buscando también en data.raw.*
   const images = (() => {
     try {
       const arr = [];
-
-      // 1) imagenes array en data o data.raw
       const imgsFromData = Array.isArray(data.imagenes) && data.imagenes.length > 0 ? data.imagenes : null;
       const imgsFromRaw = Array.isArray(data?.raw?.imagenes) && data.raw.imagenes.length > 0 ? data.raw.imagenes : null;
       const imgsFromDataImages = Array.isArray(data.images) && data.images.length > 0 ? data.images : null;
@@ -435,7 +434,6 @@ export default function RestaurantDetailScreen() {
       if (imgsFromRaw) imgsFromRaw.forEach(pushImageCandidate);
       if (imgsFromRawImages) imgsFromRawImages.forEach(pushImageCandidate);
 
-      // 2) Campos explícitos de banner (mayor prioridad) - buscar en raíz y en raw
       const bannerCandidates = [
         data.imagen_banner_url,
         data.imagen_banner,
@@ -448,7 +446,6 @@ export default function RestaurantDetailScreen() {
         data?.raw?.banner_url,
         data?.raw?.bannerImage,
       ];
-      // pushear estos candidatos al inicio (si aún no hay arr o incluso si hay, mantener prioridad)
       bannerCandidates.forEach(c => {
         if (!c) return;
         if (Array.isArray(c)) {
@@ -459,7 +456,6 @@ export default function RestaurantDetailScreen() {
         }
       });
 
-      // 3) Si no hay nada, mirar campos generales (imagen_banner_url ya intentado)
       if (arr.length === 0) {
         const candList = [
           data.image_url,
@@ -484,7 +480,7 @@ export default function RestaurantDetailScreen() {
         }
       }
 
-       const uniq = Array.from(new Set(arr.filter(Boolean)));
+      const uniq = Array.from(new Set(arr.filter(Boolean)));
       if (avatarUri) {
         return uniq.filter(u => String(u) !== String(avatarUri));
       }
@@ -533,10 +529,10 @@ export default function RestaurantDetailScreen() {
                 styles.dot,
                 i === slideIndex && styles.dotActive,
                 {
-                  width: Math.max(6, Math.round(8 * (width / 375))),
-                  height: Math.max(6, Math.round(8 * (width / 375))),
-                  borderRadius: Math.max(3, Math.round(4 * (width / 375))),
-                  marginHorizontal: Math.max(3, Math.round(4 * (width / 375))),
+                  width: DOT_SIZE,
+                  height: DOT_SIZE,
+                  borderRadius: Math.max(3, Math.round(DOT_SIZE / 2)),
+                  marginHorizontal: DOT_MARGIN,
                 }
               ]}
             />
@@ -544,14 +540,14 @@ export default function RestaurantDetailScreen() {
         </View>
 
         <View style={[styles.header, { top: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 12, left: HEADER_LEFT, right: HEADER_RIGHT }]}>
-            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top:10,left:10,right:10,bottom:10 }}>
-              <Ionicons name="arrow-back" size={ICON_SIZE} color="#fff" />
-            </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top:10,left:10,right:10,bottom:10 }}>
+            <Ionicons name="arrow-back" size={ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
           <View style={styles.headerIcons}>
-            <TouchableOpacity onPress={onShare} style={{ marginLeft: 10 }}>
+            <TouchableOpacity onPress={onShare} style={{ marginLeft: Math.round(width * 0.02) }}>
               <Ionicons name="share-social-outline" size={ICON_SIZE} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={toggleFavorite} style={{ marginLeft: 10 }}>
+            <TouchableOpacity onPress={toggleFavorite} style={{ marginLeft: Math.round(width * 0.02) }}>
               <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON_SIZE} color={isFavorite ? "red" : "#fff"} />
             </TouchableOpacity>
           </View>
@@ -560,7 +556,7 @@ export default function RestaurantDetailScreen() {
 
       <View style={[styles.avatarContainer, {
         top: SLIDER_HEIGHT - AVATAR_SIZE / 2,
-        left: Math.max(18, Math.round(width * 0.07)),
+        left: Math.max(12, Math.round(width * 0.06)),
         width: AVATAR_SIZE,
         height: AVATAR_SIZE,
         borderRadius: AVATAR_SIZE / 2,
@@ -571,76 +567,101 @@ export default function RestaurantDetailScreen() {
         }
       </View>
 
-      <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: 32 }}>
-        <View style={[styles.card, { width: contentMaxWidth, paddingTop: AVATAR_SIZE / 2 + 16, paddingHorizontal: Math.max(18, Math.round(width * 0.06)) }]}>
+      <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: Math.max(32, insets.bottom + 8) }}>
+        <View style={[styles.card, { width: CARD_WIDTH, paddingTop: CARD_PADDING_TOP, paddingHorizontal: CARD_PADDING_H }]}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, { fontSize: Math.max(18, Math.round(24 * (width / 375))) }]} numberOfLines={2}>{data.nombre || data.name || "—"}</Text>
-{/*             <View style={styles.rating}>
-              <Text style={[styles.ratingStar, { fontSize: Math.max(14, Math.round(18 * (width / 375))), marginRight: Math.round(4 * (width / 375)) }]}>★</Text>
-              <Text style={[styles.ratingText, { fontSize: Math.max(13, Math.round(16 * (width / 375))) }]}>
-                {data.avg_rating != null && !Number.isNaN(Number(data.avg_rating)) ? Number(data.avg_rating).toFixed(1) : "4.2"}
-              </Text>
-            </View> */}
+            <Text style={[styles.title, { fontSize: TITLE_FONT }]} numberOfLines={2}>{data.nombre || data.name || "—"}</Text>
           </View>
 
           <View style={styles.divider} />
-          <Text style={styles.sectionTitle}>Descripción breve</Text>
-          <Text style={styles.paragraph}>{data.descripcion ?? data.short_description ?? "—"}</Text>
+          <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Descripción breve</Text>
+          <Text style={[styles.paragraph, { fontSize: PARAGRAPH_FONT }]}>{data.descripcion ?? data.short_description ?? "—"}</Text>
 
           { Array.isArray(data.horarios) && data.horarios.length > 0 ? (
             <>
               <View style={styles.divider} />
-              <Text style={styles.sectionTitle}>Horarios</Text>
+              <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Horarios</Text>
               {data.horarios.map((h, i) => {
                 const dia = (h.dia_semana ?? h.dia) || "";
                 const apertura = (h.horario_apertura ?? h.open) || "";
                 const cierre = (h.horario_cierre ?? h.close) || "";
-                return <Text key={i} style={styles.paragraph}>{`${dia}: ${apertura} - ${cierre}`}</Text>;
+                return <Text key={i} style={[styles.paragraph, { fontSize: PARAGRAPH_FONT }]}>{`${dia}: ${apertura} - ${cierre}`}</Text>;
               })}
             </>
           ) : null }
 
           <View style={styles.divider} />
-          <Text style={styles.sectionTitle}>Dirección</Text>
-          <Text style={styles.paragraph}>{data.direccion || data.address || "—"}</Text>
+          <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Dirección</Text>
+          <Text style={[styles.paragraph, { fontSize: PARAGRAPH_FONT }]}>{data.direccion || data.address || "—"}</Text>
 
           { data.telefono_sucursal ? (
             <>
               <View style={styles.divider} />
-              <Text style={styles.sectionTitle}>Teléfono</Text>
+              <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Teléfono</Text>
               <TouchableOpacity onPress={() => Linking.openURL(`tel:${data.telefono_sucursal}`).catch(()=>_showToast('No se pudo marcar'))}>
-                <Text style={[styles.paragraph, { color: BLUE }]}>{data.telefono_sucursal}</Text>
+                <Text style={[styles.paragraph, { color: BLUE, fontSize: PARAGRAPH_FONT }]}>{data.telefono_sucursal}</Text>
               </TouchableOpacity>
             </>
           ) : null }
 
           <View style={styles.divider} />
           <View style={styles.buttonRow}>
-            {/* <-- modificado: ahora usa handleReserve */} 
-            <TouchableOpacity style={[styles.button, styles.btnReserve]} onPress={handleReserve}>
-              <Text style={styles.buttonText}>Reservar</Text>
+            <TouchableOpacity style={[styles.button, styles.btnReserve, { height: BUTTON_HEIGHT, borderRadius: BUTTON_RADIUS, marginRight: 8 }]} onPress={handleReserve}>
+              <Text style={[styles.buttonText, { fontSize: Math.max(14, Math.round(PARAGRAPH_FONT * 0.95)) }]}>Reservar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.button, styles.btnRoute]} onPress={openMap}>
-              <Text style={styles.buttonText}>Ir</Text>
+            <TouchableOpacity style={[styles.button, styles.btnRoute, { height: BUTTON_HEIGHT, borderRadius: BUTTON_RADIUS, marginLeft: 8 }]} onPress={openMap}>
+              <Text style={[styles.buttonText, { fontSize: Math.max(14, Math.round(PARAGRAPH_FONT * 0.95)) }]}>Ir</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.divider} />
           <View style={styles.socialIconsRow}>
-            <TouchableOpacity style={[styles.socialIconWrap, !hasWhatsapp && styles.socialIconDisabled]} onPress={() => hasWhatsapp ? openSocial('whatsapp') : _showToast('No disponible en esta sucursal')} activeOpacity={hasWhatsapp ? 0.8 : 1}>
-              <Ionicons name="logo-whatsapp" size={22} color={hasWhatsapp ? "#25D366" : "#bfc7cc"} />
+            <TouchableOpacity
+              style={[
+                styles.socialIconWrap,
+                !hasWhatsapp && styles.socialIconDisabled,
+                { width: SOCIAL_ICON_SIZE * 1.8, height: SOCIAL_ICON_SIZE * 1.8, borderRadius: Math.round((SOCIAL_ICON_SIZE * 1.8) / 2) }
+              ]}
+              onPress={() => hasWhatsapp ? openSocial('whatsapp') : _showToast('No disponible en esta sucursal')}
+              activeOpacity={hasWhatsapp ? 0.8 : 1}
+            >
+              <Ionicons name="logo-whatsapp" size={SOCIAL_ICON_SIZE} color={hasWhatsapp ? "#25D366" : "#bfc7cc"} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialIconWrap, !hasFacebook && styles.socialIconDisabled]} onPress={() => hasFacebook ? openSocial('facebook') : _showToast('No disponible en esta sucursal')} activeOpacity={hasFacebook ? 0.8 : 1}>
-              <Ionicons name="logo-facebook" size={22} color={hasFacebook ? "#1877F2" : "#bfc7cc"} />
+            <TouchableOpacity
+              style={[
+                styles.socialIconWrap,
+                !hasFacebook && styles.socialIconDisabled,
+                { width: SOCIAL_ICON_SIZE * 1.8, height: SOCIAL_ICON_SIZE * 1.8, borderRadius: Math.round((SOCIAL_ICON_SIZE * 1.8) / 2) }
+              ]}
+              onPress={() => hasFacebook ? openSocial('facebook') : _showToast('No disponible en esta sucursal')}
+              activeOpacity={hasFacebook ? 0.8 : 1}
+            >
+              <Ionicons name="logo-facebook" size={SOCIAL_ICON_SIZE} color={hasFacebook ? "#1877F2" : "#bfc7cc"} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialIconWrap, !hasTiktok && styles.socialIconDisabled]} onPress={() => hasTiktok ? openSocial('tiktok') : _showToast('No disponible en esta sucursal')} activeOpacity={hasTiktok ? 0.8 : 1}>
-              <Image source={tiktokIcon} style={{ width: 22, height: 22, opacity: hasTiktok ? 1 : 0.35 }} />
+            <TouchableOpacity
+              style={[
+                styles.socialIconWrap,
+                !hasTiktok && styles.socialIconDisabled,
+                { width: SOCIAL_ICON_SIZE * 1.8, height: SOCIAL_ICON_SIZE * 1.8, borderRadius: Math.round((SOCIAL_ICON_SIZE * 1.8) / 2) }
+              ]}
+              onPress={() => hasTiktok ? openSocial('tiktok') : _showToast('No disponible en esta sucursal')}
+              activeOpacity={hasTiktok ? 0.8 : 1}
+            >
+              <Image source={tiktokIcon} style={{ width: SOCIAL_ICON_SIZE, height: SOCIAL_ICON_SIZE, opacity: hasTiktok ? 1 : 0.35 }} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialIconWrap, !hasInstagram && styles.socialIconDisabled]} onPress={() => hasInstagram ? openSocial('instagram') : _showToast('No disponible en esta sucursal')} activeOpacity={hasInstagram ? 0.8 : 1}>
-              <Ionicons name="logo-instagram" size={22} color={hasInstagram ? "#C13584" : "#bfc7cc"} />
+            <TouchableOpacity
+              style={[
+                styles.socialIconWrap,
+                !hasInstagram && styles.socialIconDisabled,
+                { width: SOCIAL_ICON_SIZE * 1.8, height: SOCIAL_ICON_SIZE * 1.8, borderRadius: Math.round((SOCIAL_ICON_SIZE * 1.8) / 2) }
+              ]}
+              onPress={() => hasInstagram ? openSocial('instagram') : _showToast('No disponible en esta sucursal')}
+              activeOpacity={hasInstagram ? 0.8 : 1}
+            >
+              <Ionicons name="logo-instagram" size={SOCIAL_ICON_SIZE} color={hasInstagram ? "#C13584" : "#bfc7cc"} />
             </TouchableOpacity>
           </View>
         </View>
@@ -662,7 +683,7 @@ export default function RestaurantDetailScreen() {
   );
 }
 
-/* estilos (estructura similar, pero layout responsive manejado arriba) */
+/* estilos base (no cambian la lógica) */
 const BLUE = "#0046ff";
 
 const styles = StyleSheet.create({
@@ -687,7 +708,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     zIndex: 30,
-    marginTop: -20
   },
   headerLogo: { resizeMode: "contain" },
   headerIcons: { flexDirection: "row", alignItems: "center" },
@@ -696,10 +716,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderRadius: 999,
     backgroundColor: "#fff",
-    elevation: 4,
+    elevation: 6,
     justifyContent: "center",
     alignItems: "center",
     zIndex: 10,
+    overflow: 'hidden'
   },
   avatar: {
     borderRadius: 999,
@@ -712,6 +733,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     marginTop: -5,
     paddingBottom: 32,
+    alignSelf: 'center',
   },
 
   titleRow: {
@@ -720,7 +742,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  title: { fontSize: 24, color: BLUE, fontWeight: '700', flexShrink: 1 },
+  title: { color: BLUE, fontWeight: '700', flexShrink: 1 },
   rating: { flexDirection: "row", alignItems: "center" },
   ratingStar: { color: "#FFD700", marginRight: 4, fontSize: 18, },
   ratingText: { fontSize: 16, fontWeight: "600", color: "#333" },
@@ -728,7 +750,7 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: BLUE,
-    opacity: 0.4,
+    opacity: 0.18,
     marginVertical: 12,
   },
 
@@ -738,7 +760,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontWeight: '700'
   },
-  paragraph: { fontSize: 13, color: "#555", lineHeight: 18, marginBottom: 8 },
+  paragraph: { color: "#555", lineHeight: 20, marginBottom: 8 },
 
   buttonRow: {
     flexDirection: "row",
@@ -747,16 +769,13 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    height: 40,
-    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
   },
-  btnReserve: { backgroundColor: BLUE, marginRight: 8 },
-  btnRoute: { backgroundColor: BLUE, marginLeft: 8 },
+  btnReserve: { backgroundColor: BLUE },
+  btnRoute: { backgroundColor: BLUE },
   buttonText: { color: "#fff", fontSize: 16 },
 
-  /* social icons centered */
   socialIconsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -765,9 +784,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   socialIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     backgroundColor: '#fff',
     marginHorizontal: 8,
     alignItems: 'center',
@@ -780,7 +796,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f4f6f8',
   },
 
-  /* toast */
   toastWrap: {
     position: 'absolute',
     left: 12,

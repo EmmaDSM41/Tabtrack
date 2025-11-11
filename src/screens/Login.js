@@ -1,3 +1,4 @@
+// Login.js
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -29,19 +30,19 @@ export default function Login() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
+  // Base width used to scale fonts/sizes relative to a reference (mantengo por compatibilidad)
   const BASE_WIDTH = 375;
-
   const rf = (size) => Math.round((size * width) / BASE_WIDTH);
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-   const scaled = {
+  const scaled = {
     paddingVertical: clamp(rf(60), 8, 140),
     logoWidth: clamp(rf(250), 120, Math.round(width * 0.9)),
     logoHeight: clamp(rf(100), 48, Math.round(width * 0.4)),
     titleFont: clamp(rf(34), 16, 46),
     titleMarginTop: clamp(rf(18), 6, 60),
     caritaFont: clamp(rf(34), 16, 46),
-    inputWidthPct: '80%', 
+    inputWidthPct: '80%',
     inputHeight: clamp(rf(40), 36, 56),
     inputRadius: clamp(rf(20), 8, 28),
     inputPaddingH: clamp(rf(10), 8, 18),
@@ -53,9 +54,20 @@ export default function Login() {
     forgotSize: clamp(rf(14), 10, 18),
     buttonContainerWidthPct: '80%',
     buttonContainerMarginTop: clamp(rf(40), 12, Math.round(height * 0.45)),
+    // base toast distances (kept but we will add insets to them)
     toastBottomIOS: clamp(rf(80), 40, 140),
     toastBottomAndroid: clamp(rf(40), 20, 120),
   };
+
+  // compute top inset & header-aware offsets (more robust than magic numbers)
+  const topInset = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
+  const headerApprox = 56; // si tienes un header fijo, cámbialo; sirve como referencia para offset teclado
+  const keyboardVerticalOffset = Platform.OS === 'ios' ? topInset + headerApprox : (StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 20);
+
+  // Toast positions computed using insets.bottom so the toast never overlaps home indicator / safe area
+  const toastBottomBase = Platform.OS === 'ios' ? scaled.toastBottomIOS : scaled.toastBottomAndroid;
+  const toastBottom = toastBottomBase + (insets.bottom ?? 0);
+  const successToastBottom = toastBottom + 20;
 
   // spacing between title+carita block and inputs/subtitle
   const titleCaritaSpacing = clamp(Math.round(scaled.titleFont * 0.5), 8, 48);
@@ -63,7 +75,8 @@ export default function Login() {
   // dynamic style overrides applied inline / merged with base styles
   const dynamic = StyleSheet.create({
     containerOverride: {
-      paddingVertical: scaled.paddingVertical + (Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : insets.top || 0),
+      // usamos topInset en vez de depender solo de Platform
+      paddingVertical: scaled.paddingVertical + topInset,
     },
     logoOverride: {
       width: scaled.logoWidth,
@@ -98,11 +111,12 @@ export default function Login() {
       width: scaled.buttonContainerWidthPct,
       marginTop: scaled.buttonContainerMarginTop,
     },
+    // mantenemos las propiedades pero calculamos bottom al render para sumar insets
     toastOverride: {
-      bottom: Platform.OS === 'ios' ? scaled.toastBottomIOS : scaled.toastBottomAndroid,
+      bottom: toastBottom,
     },
     successToastOverride: {
-      bottom: Platform.OS === 'ios' ? scaled.toastBottomIOS + 20 : scaled.toastBottomAndroid + 20,
+      bottom: successToastBottom,
     },
     titleCaritaContainer: {
       alignItems: 'center',
@@ -231,11 +245,11 @@ export default function Login() {
           <Text style={[styles.carita, dynamic.caritaOverride]}>:)</Text>
         </View>
 
-        {/* KeyboardAvoidingView sólo para la zona de inputs + botones, así el teclado no empuja la cabecera */}
+        {/* KeyboardAvoidingView sólo para la zona de inputs + botones */}
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ width: '100%', alignItems: 'center' }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
+          keyboardVerticalOffset={keyboardVerticalOffset}
         >
           <TextInput
             style={[styles.input, styles.inputBorder, dynamic.inputOverride]}
@@ -290,7 +304,7 @@ export default function Login() {
         pointerEvents="none"
         style={[
           toastStyle,
-          (toastStyle === styles.toast ? dynamic.toastOverride : dynamic.successToastOverride),
+          (toastStyle === styles.toast ? { bottom: toastBottom } : { bottom: successToastBottom }),
           {
             opacity: toastAnim,
             transform: [{
@@ -324,8 +338,8 @@ const styles = StyleSheet.create({
   buttonContainer: { width: '80%', marginTop: 18 },
   button: { backgroundColor: '#ffffff', padding: 7, borderRadius: 10, marginVertical: 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#000', borderRadius: 8, },
   icon: { width: 20, height: 20, marginRight: 10, color:"#000" },
-  toast: { position: 'absolute', bottom: Platform.OS === 'ios' ? 80 : 40, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, maxWidth: '85%' },
+  toast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, maxWidth: '85%' },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' },
-  successToast: { position: 'absolute', bottom: Platform.OS === 'ios' ? 100 : 60, alignSelf: 'center', backgroundColor: 'rgb(0, 50, 186)', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },
+  successToast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgb(0, 50, 186)', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
 });

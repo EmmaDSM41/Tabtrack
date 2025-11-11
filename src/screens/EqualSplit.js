@@ -1,6 +1,3 @@
-// EqualSplit.responsive.js
-// Versión responsiva de EqualSplit: solo ajustes de layout/tamaños, lógica igual.
-
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   SafeAreaView,
@@ -22,8 +19,9 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
- const API_BASE_URL = 'https://api.tab-track.com';
+const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
 const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
@@ -38,32 +36,32 @@ const totalFontSizeFor = (str) => {
   return 28;
 };
 
- const parseNumberSafe = (v) => {
+const parseNumberSafe = (v) => {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   let s = String(v).trim();
   if (!s) return null;
-   s = s.replace(/\s/g, '').replace(/[^0-9\.,\-]/g, '');
+  s = s.replace(/\s/g, '').replace(/[^0-9\.,\-]/g, '');
   const lastDot = s.lastIndexOf('.');
   const lastComma = s.lastIndexOf(',');
   let normalized = s;
 
-   if (lastDot !== -1 && lastComma !== -1) {
+  if (lastDot !== -1 && lastComma !== -1) {
     if (lastDot > lastComma) {
-       normalized = s.replace(/,/g, '');
+      normalized = s.replace(/,/g, '');
     } else {
-       normalized = s.replace(/\./g, '').replace(',', '.');
+      normalized = s.replace(/\./g, '').replace(',', '.');
     }
   } else if (lastComma !== -1) {
-     const after = s.length - lastComma - 1;
+    const after = s.length - lastComma - 1;
     if (after === 2) normalized = s.replace(',', '.');
     else normalized = s.replace(/,/g, '');
   } else {
-     const parts = s.split('.');
+    const parts = s.split('.');
     if (parts.length > 2) {
-       normalized = s.replace(/\./g, '');
+      normalized = s.replace(/\./g, '');
     } else {
-      normalized = s; 
+      normalized = s;
     }
   }
 
@@ -82,6 +80,8 @@ export default function EqualSplit() {
 
   // responsive helpers
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
   const wp = (p) => (Number(p) / 100) * width;
   const hp = (p) => (Number(p) / 100) * height;
   const rf = (p) => {
@@ -90,13 +90,17 @@ export default function EqualSplit() {
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
+  // safe paddings
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const bottomSafe = Math.round(insets?.bottom ?? 0);
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
+  const isNarrow = width < 420;
+
   const token = route?.params?.fromToken ?? route?.params?.token ?? null;
   const passedItems = route?.params?.items ?? null;
- 
+
   const incomingSubtotalRaw = route?.params?.subtotal ?? route?.params?.sub_total ?? undefined;
   const incomingIvaRaw = route?.params?.iva ?? undefined;
-
- 
   const incomingTotalRaw = route?.params?.total ?? route?.params?.total_consumo ?? undefined;
 
   const incomingSubtotal = parseNumberSafe(incomingSubtotalRaw);
@@ -240,9 +244,8 @@ export default function EqualSplit() {
     return round2(s);
   }, [items]);
 
-  // >>> USAR incomingTotal SOLO SI ES VÁLIDO: así EqualSplit mostrará exactamente lo que Dividir mandó en `total`.
   const total = Number.isFinite(incomingTotal) ? round2(incomingTotal) : itemsSum;
-  const iva = round2(total /1.16 * 0.16);
+  const iva = round2(total / 1.16 * 0.16);
   const subtotal = round2(total - iva);
 
   const incomingTipApplied = route?.params?.tipApplied ?? route?.params?.tip_applied ?? null;
@@ -311,59 +314,52 @@ export default function EqualSplit() {
     });
   };
 
-const handlePay = () => {
-  // items a cobrar (igual que antes)
-  const itemsToPay = (items || []).map((it) => {
-    const line = Number(it.lineTotal || 0);
-    if (it.canceled) return null;
-    if (it.paid) return null;
-    if (it.paidPartial) {
-      const remaining = +(line - Number(it.paidAmount || 0)).toFixed(2);
+  const handlePay = () => {
+    const itemsToPay = (items || []).map((it) => {
+      const line = Number(it.lineTotal || 0);
+      if (it.canceled) return null;
+      if (it.paid) return null;
+      if (it.paidPartial) {
+        const remaining = +(line - Number(it.paidAmount || 0)).toFixed(2);
+        return {
+          ...it,
+          lineTotal: remaining,
+          price: remaining,
+          qty: 1,
+        };
+      }
       return {
         ...it,
-        lineTotal: remaining,
-        price: remaining,
+        lineTotal: line,
+        price: line,
         qty: 1,
       };
-    }
-    return {
-      ...it,
-      lineTotal: line,
-      price: line,
-      qty: 1,
+    }).filter(Boolean);
+
+    const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
+    const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
+    const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
+
+    const payPayload = {
+      token,
+      items: itemsToPay,
+      subtotal: perPersonSubtotal,
+      iva: perPersonIva,
+      tipAmount: perPersonTip,
+      tipPercent: tipPercent,
+      total: perPersonBaseTotal,
+      totalWithTip: perPersonTotalWithTip,
+      perPersonAmount: perPersonTotalWithTip,
+      per_person_amount: perPersonTotalWithTip,
+      total_persona: perPersonTotalWithTip,
+      people,
+      groupPeople: totalComensales,
+      originalItems: items,
     };
-  }).filter(Boolean);
 
-  // cálculos
-  const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
-  const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
-  const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
-
-  // --- CAMBIO: pasar los montos POR PERSONA al payload que navegará a Payment ---
-  const payPayload = {
-    token,
-    // Si prefieres que 'items' represente la parte por persona, podrías construir itemsPerPerson aquí.
-    // Mantengo itemsToPay para compatibilidad, pero lo importante: los totales ahora son por persona.
-    items: itemsToPay,
-    subtotal: perPersonSubtotal,        // subtotal por persona
-    iva: perPersonIva,                  // iva por persona
-    tipAmount: perPersonTip,            // tip por persona
-    tipPercent: tipPercent,
-    total: perPersonBaseTotal,          // monto base por persona (sin propina)
-    totalWithTip: perPersonTotalWithTip,// monto total por persona (con propina)
-    // alias útiles para Payment (por compatibilidad con tu PaymentScreen)
-    perPersonAmount: perPersonTotalWithTip,
-    per_person_amount: perPersonTotalWithTip,
-    total_persona: perPersonTotalWithTip,
-    people,
-    groupPeople: totalComensales,
-    originalItems: items,
+    console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
+    navigation.navigate('Payment', payPayload);
   };
-
-  console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
-  navigation.navigate('Payment', payPayload);
-};
-
 
   const hasTipApplied = tipPercent > 0;
 
@@ -457,18 +453,19 @@ const handlePay = () => {
   };
 
   // computed sizes for styles usage
-  const headerGradientPaddingH = Math.round(wp(4));
+  const headerGradientPaddingH = Math.round(sidePad);
   const contentWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
   const modalWidth = Math.round(Math.min(width - 48, 360));
   const logoSize = Math.round(clamp(rf(12), 64, 140));
 
-  const styles = makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize });
+  // memoize styles
+  const styles = useMemo(() => makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow }), [wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+      <View style={[styles.topBar, { paddingHorizontal: sidePad }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.backArrow}>{'‹'}</Text>
         </TouchableOpacity>
 
@@ -476,9 +473,9 @@ const handlePay = () => {
         <View style={{ width: Math.round(wp(12)) }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
         <LinearGradient colors={['#FF2FA0','#7C3AED','#0046ff']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
-          <View style={styles.gradientRow}>
+          <View style={[styles.gradientRow, isNarrow ? { flexDirection: 'column' } : { flexDirection: 'row' }]}>
             <View style={styles.leftCol}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
               <View style={styles.logoWrap}>
@@ -486,7 +483,7 @@ const handlePay = () => {
               </View>
             </View>
 
-            <View style={styles.rightCol}>
+            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start' } : {}]}>
               <Text style={styles.totalLabel}>Total</Text>
 
               <View style={styles.totalRow}>
@@ -556,6 +553,7 @@ const handlePay = () => {
             style={styles.secondaryButton}
             onPress={goToPropina}
             activeOpacity={0.9}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={styles.secondaryButtonText}>{hasTipApplied ? 'Añadir/editar propina' : 'Añadir propina'}</Text>
           </TouchableOpacity>
@@ -565,11 +563,12 @@ const handlePay = () => {
               style={styles.primaryButton}
               onPress={handlePay}
               activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.primaryButtonText}>Pagar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Dividir', { token })} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Dividir', { token })} activeOpacity={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.ghostButtonText}>Volver</Text>
             </TouchableOpacity>
           </View>
@@ -578,7 +577,7 @@ const handlePay = () => {
 
       <Modal visible={showPeopleModal} transparent animationType="fade">
         <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', alignItems:'center' }}>
-          <View style={{ width: modalWidth, backgroundColor:'#fff', borderRadius:12, padding: Math.round(wp(4)) }}>
+          <View style={{ width: modalWidth, backgroundColor:'#fff', borderRadius:12, padding: Math.round(sidePad) }}>
             <Text style={{ fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight:'800', marginBottom: Math.round(hp(0.6)) }}>¿Entre cuántas personas?</Text>
             <Text style={{ color:'#444', marginBottom: Math.round(hp(1)) }}>Ingresa el número de personas para dividir la cuenta. Esto se guardará para esta cuenta y no se volverá a preguntar.</Text>
 
@@ -592,11 +591,11 @@ const handlePay = () => {
             />
 
             <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-              <TouchableOpacity onPress={handleCancelPeople} disabled={modalConfirmLoading} style={{ flex:1, marginRight:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor:'#f3f4f6', alignItems:'center' }}>
+              <TouchableOpacity onPress={handleCancelPeople} disabled={modalConfirmLoading} style={{ flex:1, marginRight:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor:'#f3f4f6', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={{ color:'#374151', fontWeight:'700' }}>Cancelar</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }}>
+              <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 {modalConfirmLoading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'800' }}>Confirmar</Text>}
               </TouchableOpacity>
             </View>
@@ -607,22 +606,22 @@ const handlePay = () => {
   );
 }
 
-function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize }) {
+function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow }) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f5f7fb' },
     topBar: {
       width: '100%',
       height: Math.round(hp(9.6)),
-      paddingHorizontal: Math.round(wp(3.5)),
+      paddingHorizontal: Math.round(sidePad || wp(3.5)),
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
       backgroundColor: '#ffffff',
       borderBottomWidth: 1,
       borderBottomColor: '#eee',
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : Math.round(hp(1)),
+      paddingTop: 0, // topSafe aplicado en SafeAreaView
     },
-    backBtn: { width: Math.round(wp(12)), alignItems: 'flex-start', justifyContent: 'center' },
+    backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
     backArrow: { fontSize: Math.round(clamp(rf(6.6), 22, 36)), color: '#0b58ff', marginLeft: 2 },
     title: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
 

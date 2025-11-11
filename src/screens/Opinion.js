@@ -56,6 +56,7 @@ export default function OpinionScreen({ navigation, route }) {
   const visit = route?.params?.visit ?? null;
   const restauranteId = visit?.restaurante_id ?? visit?.restauranteId ?? visit?.restaurante ?? visit?.restaurant_id ?? null;
   const sucursalId = visit?.sucursal_id ?? visit?.sucursal ?? visit?.sucursalId ?? visit?.branchId ?? null;
+  const saleId = visit?.sale_id ?? visit?.id ?? visit?.saleId ?? null;
   const bannerFromVisit = visit?.bannerImage ?? visit?.banner ?? null;
   const restaurantLogoFromVisit = visit?.restaurantImage ?? visit?.restaurantImageUri ?? visit?.logo ?? null;
 
@@ -128,6 +129,146 @@ export default function OpinionScreen({ navigation, route }) {
           preguntas: Array.isArray(e.preguntas) ? e.preguntas : (Array.isArray(e.questions) ? e.questions : []),
         }));
         setSurveys(arr);
+
+        // --- NUEVO: después de cargar encuestas, consultamos los reportes previos (respuestas hechas por este usuario para cada encuesta)
+        try {
+          // obtener user id desde AsyncStorage
+          let userId = null;
+          try {
+            userId = await AsyncStorage.getItem('user_usuario_app_id');
+            if (!userId) {
+              userId = await AsyncStorage.getItem('user_email') || await AsyncStorage.getItem('email') || null;
+            }
+          } catch (e) {
+            console.warn('OpinionScreen: error reading user id for reports', e);
+            userId = null;
+          }
+
+          if (userId && saleId && sucursalId) {
+            // recorrer encuestas y pedir reportes
+            const accumulatedRatings = {};
+            const accumulatedTexts = {};
+            for (const encuesta of arr) {
+              const encuestaId = encuesta?.id ?? encuesta?.encuesta_id ?? encuesta?.uuid ?? null;
+              if (!encuestaId) continue;
+
+              const repUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/encuestas/${encodeURIComponent(encuestaId)}/reportes?usuario_app_id=${encodeURIComponent(userId)}&sale_id=${encodeURIComponent(saleId)}&sucursal_id=${encodeURIComponent(sucursalId)}`;
+
+              try {
+                const repRes = await fetch(repUrl, {
+                  method: 'GET',
+                  headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+                  },
+                });
+
+                if (!repRes.ok) {
+                  // no abort entire process; sólo log
+                  console.warn('OpinionScreen: fetch reportes failed', repRes.status, encuestaId);
+                  continue;
+                }
+
+                const repJson = await repRes.json();
+
+                // Normalizar posibles estructuras:
+                // - array directo de reportes/respuestas
+                // - { data: [...] } or { reportes: [...] } or { respuestas: [...] }
+                // - array de objetos donde cada objeto contiene campo 'respuestas' (tomamos la primera)
+                let reps = null;
+                if (Array.isArray(repJson)) reps = repJson;
+                else if (Array.isArray(repJson.data)) reps = repJson.data;
+                else if (Array.isArray(repJson.reportes)) reps = repJson.reportes;
+                else if (Array.isArray(repJson.respuestas)) reps = repJson.respuestas;
+                else if (repJson && typeof repJson === 'object') {
+                  // buscar en primer nivel arrays
+                  const keys = Object.keys(repJson);
+                  for (const k of keys) {
+                    if (Array.isArray(repJson[k]) && repJson[k].length > 0) {
+                      // si el array contiene objetos con 'pregunta_id' o 'respuestas', lo usamos
+                      const sample = repJson[k][0];
+                      if (sample && (sample.pregunta_id !== undefined || sample.respuesta !== undefined || sample.respuestas !== undefined || sample.valor_int !== undefined || sample.valor_text !== undefined)) {
+                        reps = repJson[k];
+                        break;
+                      }
+                    }
+                  }
+                  // si no encontramos un array directo, tal vez repJson es { reportes: [{ respuestas: [...] }] }
+                  if (!reps) {
+                    // intentar extraer respuestas desde el primer elemento
+                    if (Array.isArray(repJson.reportes) && repJson.reportes.length > 0 && Array.isArray(repJson.reportes[0].respuestas)) {
+                      reps = repJson.reportes[0].respuestas;
+                    } else if (Array.isArray(repJson.data) && repJson.data.length > 0 && Array.isArray(repJson.data[0].respuestas)) {
+                      reps = repJson.data[0].respuestas;
+                    } else if (Array.isArray(repJson) && repJson.length > 0) {
+                      reps = repJson;
+                    }
+                  }
+                }
+
+                if (!Array.isArray(reps) || reps.length === 0) {
+                  // no hay respuestas previas para esta encuesta
+                  continue;
+                }
+
+                // reps puede ser un array de objetos que representan respuestas individuales
+                // Cada item puede tener: pregunta_id, valor_int, valor_text, valor, respuesta, etc.
+                // Recorremos y mappeamos a ratings/texts
+                for (const r of reps) {
+                  if (!r || typeof r !== 'object') continue;
+                  const pid = r.pregunta_id ?? r.pregunta ?? r.question_id ?? r.id_pregunta ?? r.preguntaId ?? null;
+                  if (!pid) {
+                    // si la estructura es diferente (ej. r.respuestas contiene items), intentar extraer
+                    if (Array.isArray(r.respuestas)) {
+                      for (const rr of r.respuestas) {
+                        const pid2 = rr.pregunta_id ?? rr.pregunta ?? rr.question_id ?? null;
+                        if (!pid2) continue;
+                        if (rr.valor_int !== undefined && rr.valor_int !== null) accumulatedRatings[pid2] = Number(rr.valor_int);
+                        else if (rr.valor_text !== undefined && rr.valor_text !== null) accumulatedTexts[pid2] = String(rr.valor_text);
+                        else if (rr.valor !== undefined && (typeof rr.valor === 'number' || !isNaN(Number(rr.valor)))) accumulatedRatings[pid2] = Number(rr.valor);
+                        else if (rr.valor !== undefined) accumulatedTexts[pid2] = String(rr.valor);
+                      }
+                    }
+                    continue;
+                  }
+
+                  // prioridad: valor_int, valor_text, valor, respuesta
+                  if (r.valor_int !== undefined && r.valor_int !== null) {
+                    accumulatedRatings[pid] = Number(r.valor_int);
+                  } else if (r.valor_text !== undefined && r.valor_text !== null) {
+                    accumulatedTexts[pid] = String(r.valor_text);
+                  } else if (r.valor !== undefined && r.valor !== null) {
+                    // puede ser número o texto
+                    if (typeof r.valor === 'number' || !isNaN(Number(r.valor))) {
+                      accumulatedRatings[pid] = Number(r.valor);
+                    } else {
+                      accumulatedTexts[pid] = String(r.valor);
+                    }
+                  } else if (r.respuesta !== undefined && r.respuesta !== null) {
+                    // campo alternativo
+                    if (typeof r.respuesta === 'number' || !isNaN(Number(r.respuesta))) {
+                      accumulatedRatings[pid] = Number(r.respuesta);
+                    } else {
+                      accumulatedTexts[pid] = String(r.respuesta);
+                    }
+                  } else if (r.valor_texto !== undefined && r.valor_texto !== null) {
+                    accumulatedTexts[pid] = String(r.valor_texto);
+                  }
+                }
+              } catch (err) {
+                console.warn('OpinionScreen: error fetching report for encuesta', encuestaId, err);
+                continue;
+              }
+            } // end for each encuesta
+
+            // aplicar acumulados al estado (merge sin borrar entradas que el usuario ya haya modificado en pantalla)
+            setRatingsMap(prev => ({ ...accumulatedRatings, ...prev })); // priorizamos prev (ya ingresado por usuario) if any
+            setTextsMap(prev => ({ ...accumulatedTexts, ...prev }));
+          } // end if have userId & saleId & sucursalId
+        } catch (err) {
+          console.warn('OpinionScreen: error loading previous reportes', err);
+        }
       } catch (err) {
         console.warn('OpinionScreen load surveys error', err);
         setSurveys([]);
@@ -189,7 +330,6 @@ export default function OpinionScreen({ navigation, route }) {
             if (val > 0) {
               respuestas.push({ pregunta_id: pid, valor_int: val });
             } else if (p.obligatorio) {
-              // toast en vez de alert (mejor UX) PARA VALIDACIÓN OBLIGATORIA
               showToast(`Responde la pregunta obligatoria: "${p.texto ?? 'Pregunta'}"`);
               setSending(false);
               return;
@@ -199,7 +339,6 @@ export default function OpinionScreen({ navigation, route }) {
             if (txt) {
               respuestas.push({ pregunta_id: pid, valor_text: txt });
             } else if (p.obligatorio) {
-              // toast en vez de alert (mejor UX) PARA VALIDACIÓN OBLIGATORIA
               showToast(`Responde la pregunta obligatoria: "${p.texto ?? 'Pregunta'}"`);
               setSending(false);
               return;
@@ -215,6 +354,7 @@ export default function OpinionScreen({ navigation, route }) {
           restaurante_id: restauranteId,
           sucursal_id: sucursalId,
           usuario_app_id: userId,
+          sale_id: saleId, // <-- AGREGADO: ahora incluimos sale_id como el servidor espera
           respuestas,
         };
 
@@ -423,12 +563,6 @@ export default function OpinionScreen({ navigation, route }) {
                 >
                   {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Enviar</Text>}
                 </TouchableOpacity>
-{/*                 <TouchableOpacity
-                  style={styles.btnSecondary}
-                  onPress={() => navigation.goBack()}
-                >
-                  <Text style={styles.btnText}>Volver</Text>
-                </TouchableOpacity> */}
               </View>
             </>
           )}

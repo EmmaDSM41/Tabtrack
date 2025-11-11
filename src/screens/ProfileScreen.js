@@ -18,7 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
-import { launchImageLibrary } from 'react-native-image-picker'; 
+import { launchImageLibrary } from 'react-native-image-picker';
 
 const staticWidth = Dimensions.get('window').width;
 const sampleNotifications = [
@@ -27,9 +27,9 @@ const sampleNotifications = [
   { id: 'n3', text: 'Recuerda calificar tu \u00faltima visita a Caf\u00e9 Central.', read: true }
 ];
 
- const API_URL = 'https://api.tab-track.com';
+const API_URL = 'https://api.tab-track.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
- 
+
 export default function ProfileScreen({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -49,16 +49,21 @@ export default function ProfileScreen({ navigation }) {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // computed responsive sizes
-  const headerHeight = clamp(hp(5), 20, 110);
-  const iconSize = clamp(rf(2.6), 22, 28);
-  const logoSize = clamp(Math.round(width * 0.08), 28, 44);
-  const avatarSize = clamp(Math.round(width * 0.16), 44, 96);
-  const modalWidth = Math.min(width * 0.92, 520);
-  const logoutModalWidth = Math.min(width * 0.86, 440);
-  const basePadding = clamp(Math.round(width * 0.04), 10, 24);
-  const titleFont = clamp(rf(3.8), 20, 22);
-  const sectionTitleFont = clamp(rf(3.6), 15, 20);
-  const optionFont = clamp(rf(3.5), 14, 18);
+  const topSafe = Math.round(insets.top || StatusBar.currentHeight || 0);
+  const bottomSafe = Math.round(insets.bottom || 0);
+
+  // tuned ranges to cover very small -> very large screens
+  const headerHeight = clamp(hp(6), 44, 120);
+  const iconSize = clamp(rf(2.6), 18, 32);
+  const logoSize = clamp(Math.round(width * 0.08), 28, 48);
+  const avatarSize = clamp(Math.round(width * 0.18), 48, 120);
+  const modalWidth = Math.min(Math.round(width * 0.92), 720);
+  const logoutModalWidth = Math.min(Math.round(width * 0.86), 520);
+  const basePadding = clamp(Math.round(width * 0.04), 10, 28);
+  const titleFont = clamp(rf(4.4), 18, 26);
+  const sectionTitleFont = clamp(rf(3.6), 14, 22);
+  const optionFont = clamp(rf(3.6), 14, 20);
+  const smallText = clamp(rf(3.2), 12, 16);
 
   useEffect(() => {
     setNotifications(sampleNotifications);
@@ -180,7 +185,6 @@ export default function ProfileScreen({ navigation }) {
         setProfileLoading(false);
         return;
       }
-      // url que mencionaste (presign_ttl=30), usando API_URL
       const endpoint = `${API_URL}/api/mobileapp/usuarios?mail=${encodeURIComponent(email)}&presign_ttl=30`;
       const headers = getAuthHeaders();
       const res = await fetch(endpoint, { headers });
@@ -197,7 +201,6 @@ export default function ProfileScreen({ navigation }) {
           await AsyncStorage.setItem('user_profile_url', url);
         } catch (e) { /* noop */ }
 
-        // EMITIR evento para pantallas que escuchen cambios de perfil (VisitsScreen, PaymentMethods, etc.)
         try {
           DeviceEventEmitter.emit('profileUpdated', url);
         } catch (e) {
@@ -258,7 +261,6 @@ export default function ProfileScreen({ navigation }) {
       }
 
       const contentType = asset.type || 'image/jpeg';
-      // 1) presign (POST)
       const presignUrl = `${API_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/foto/presign`;
       const presignHeaders = getAuthHeaders();
       const presignRes = await fetch(presignUrl, {
@@ -285,12 +287,10 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
 
-      // 2) obtener blob desde asset.uri
       const uri = asset.uri;
       const fetched = await fetch(uri);
       const blob = await fetched.blob();
 
-      // 3) upload con PUT a la URL presignada (normalmente NO requiere Authorization)
       const putRes = await fetch(uploadUrl, {
         method: uploadMethod,
         headers: {
@@ -307,7 +307,6 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
 
-      // 4) commit (POST) usando key — este endpoint sí requiere Authorization según lo pediste
       const commitUrl = `${API_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/foto/commit`;
       const commitHeaders = getAuthHeaders();
       const commitRes = await fetch(commitUrl, {
@@ -324,7 +323,6 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
 
-      // 5) refresh profile (consulta nuevamente y guarda en AsyncStorage)
       await loadProfileFromApi();
 
       Toast.show('Foto de perfil actualizada', { duration: Toast.durations.SHORT });
@@ -338,7 +336,6 @@ export default function ProfileScreen({ navigation }) {
 
   const removeProfilePhoto = async () => {
     try {
-      // mostrar loader corto (reutilizamos uploading flag)
       setUploading(true);
 
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
@@ -349,7 +346,6 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
 
-      // endpoint DELETE solicitado
       const deleteUrl = `${API_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/foto`;
       const headers = getAuthHeaders();
 
@@ -363,7 +359,6 @@ export default function ProfileScreen({ navigation }) {
           const txt = await res.text().catch(() => null);
           console.warn('Delete profile photo failed', res.status, txt);
           Toast.show('No se pudo eliminar la foto en el servidor', { duration: Toast.durations.SHORT });
-          // aunque falló en servidor, intentamos limpiar caché local para mantener consistencia visual
         } else {
           Toast.show('Foto de perfil eliminada', { duration: Toast.durations.SHORT });
         }
@@ -372,21 +367,18 @@ export default function ProfileScreen({ navigation }) {
         Toast.show('Error al eliminar la foto en el servidor', { duration: Toast.durations.SHORT });
       }
 
-      // limpiar caché local siempre
       try {
         await AsyncStorage.removeItem('user_profile_url').catch(()=>{});
       } catch (e) { /* noop */ }
 
       setProfileUrl(null);
 
-      // EMITIR evento indicando que perfil quedó en null
       try {
         DeviceEventEmitter.emit('profileUpdated', null);
       } catch (e) {
         console.warn('Emit profileUpdated (null) error', e);
       }
 
-      // refrescar estado desde servidor (en caso de que haya efecto secundario)
       try {
         await loadProfileFromApi();
       } catch (_) { /* noop */ }
@@ -409,18 +401,18 @@ export default function ProfileScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top || StatusBar.currentHeight || 0 }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe, paddingBottom: Math.max(12, bottomSafe) }]}>
       {/* Modal de notificaciones */}
       <Modal visible={showNotifications} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { fontSize: clamp(rf(3.8), 16, 20) }]}>Notificaciones</Text>
-              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+              <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <Ionicons name="close" size={iconSize} color="#333" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.modalList}>
+            <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications.map(n => (
                 <View key={n.id} style={[styles.notificationItem, n.read ? styles.read : styles.unread]}>
                   <Text style={[styles.notificationText, { fontSize: clamp(rf(3.6), 13, 16) }]}>{n.text}</Text>
@@ -440,12 +432,12 @@ export default function ProfileScreen({ navigation }) {
           <View style={[styles.logoutModalBox, { width: logoutModalWidth, padding: basePadding }]}>
             <Text style={[styles.logoutTitle, { fontSize: clamp(rf(4.4), 18, 22) }]}>Cerrar sesión</Text>
             <Text style={[styles.logoutMessage, { fontSize: clamp(rf(3.6), 14, 18) }]}>¿Estás seguro de que deseas cerrar sesión?</Text>
-            <View style={styles.logoutButtons}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setShowLogoutModal(false)}>
-                <Text style={[styles.cancelText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Cancelar</Text>
+            <View style={[styles.logoutButtons, { marginTop: Math.round(basePadding / 2) }]}>
+              <TouchableOpacity style={[styles.cancelButton, { paddingVertical: clamp(Math.round(hp(1.6)), 8, 14) }]} onPress={() => setShowLogoutModal(false)}>
+                <Text style={[styles.cancelText, { fontSize: clamp(rf(3.4), 13, 16) }]}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.confirmButton} onPress={handleLogout}>
-                <Text style={[styles.confirmText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Cerrar sesión</Text>
+              <TouchableOpacity style={[styles.confirmButton, { paddingVertical: clamp(Math.round(hp(1.6)), 8, 14) }]} onPress={handleLogout}>
+                <Text style={[styles.confirmText, { fontSize: clamp(rf(3.4), 13, 16) }]}>Cerrar sesión</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -455,35 +447,35 @@ export default function ProfileScreen({ navigation }) {
       {/* Modal opciones avatar */}
       <Modal visible={showAvatarOptions} transparent animationType="fade" onRequestClose={() => setShowAvatarOptions(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.avatarModal, { width: modalWidth * 0.86 }]}>
-            <Text style={[styles.avatarModalTitle]}>Cambiar foto de perfil</Text>
+          <View style={[styles.avatarModal, { width: Math.min(modalWidth * 0.86, 520) }]}>
+            <Text style={[styles.avatarModalTitle, { fontSize: clamp(rf(3.8), 15, 18) }]}>Cambiar foto de perfil</Text>
 
-            <TouchableOpacity style={styles.avatarModalBtn} onPress={onSelectImage}>
-              <Text style={styles.avatarModalBtnText}>Seleccionar desde galería</Text>
+            <TouchableOpacity style={[styles.avatarModalBtn, { paddingVertical: clamp(10, 8, 14) }]} onPress={onSelectImage}>
+              <Text style={[styles.avatarModalBtnText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Seleccionar desde galería</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.avatarModalBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' }]} onPress={removeProfilePhoto}>
-              <Text style={[styles.avatarModalBtnText, { color: '#444' }]}>Eliminar foto</Text>
+            <TouchableOpacity style={[styles.avatarModalBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', marginTop: 10 }]} onPress={removeProfilePhoto}>
+              <Text style={[styles.avatarModalBtnText, { color: '#444', fontSize: clamp(rf(3.6), 13, 16) }]}>Eliminar foto</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.avatarModalBtn, { backgroundColor: '#eee' }]} onPress={() => setShowAvatarOptions(false)}>
-              <Text style={[styles.avatarModalBtnText, { color: '#333' }]}>Cancelar</Text>
+            <TouchableOpacity style={[styles.avatarModalBtn, { backgroundColor: '#eee', marginTop: 10 }]} onPress={() => setShowAvatarOptions(false)}>
+              <Text style={[styles.avatarModalBtnText, { color: '#333', fontSize: clamp(rf(3.6), 13, 16) }]}>Cancelar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(24, hp(4)) }]}>
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(24, hp(4), bottomSafe + 8) }]}>
         <View style={[styles.header, { height: headerHeight, paddingHorizontal: basePadding }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
             <Ionicons name="chevron-back" size={iconSize} color="#0046ff" />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
           <View style={styles.headerRight}>
-            <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.headerButton}>
+            <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
               <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
               {unreadCount > 0 && (
-                <View style={[styles.badge, { right: -2, top: -4 }]}>
+                <View style={[styles.badge, { right: -2, top: -6 }]}>
                   <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 9, 12) }]}>{unreadCount}</Text>
                 </View>
               )}
@@ -494,8 +486,8 @@ export default function ProfileScreen({ navigation }) {
         <View style={[styles.sectionDivider, { marginHorizontal: basePadding }]} />
 
         <View style={[styles.profileSection, { paddingHorizontal: basePadding }]}>
-          {/* Avatar: contenedor con overflow hidden para asegurar que la imagen llene el círculo */}
-          <View style={{ width: avatarSize, height: avatarSize, marginRight: 16 }}>
+          {/* Avatar container */}
+          <View style={{ width: avatarSize, height: avatarSize, marginRight: Math.round(basePadding * 0.6), position: 'relative' }}>
             <View style={{
               width: avatarSize,
               height: avatarSize,
@@ -522,7 +514,7 @@ export default function ProfileScreen({ navigation }) {
               )}
             </View>
 
-            {/* pencil icon overlay (posicionado respecto al avatar container) */}
+            {/* pencil icon overlay */}
             <TouchableOpacity
               onPress={() => setShowAvatarOptions(true)}
               style={[
@@ -532,21 +524,22 @@ export default function ProfileScreen({ navigation }) {
                   bottom: -2,
                   width: Math.round(avatarSize * 0.36),
                   height: Math.round(avatarSize * 0.36),
-                  borderRadius: Math.round(avatarSize * 0.18)
+                  borderRadius: Math.round(avatarSize * 0.18),
                 }
               ]}
+              hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
             >
               {uploading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Ionicons name="pencil" size={Math.round(avatarSize * 0.18)} color="#fff" />
+                <Ionicons name="pencil" size={Math.max(12, Math.round(avatarSize * 0.18))} color="#fff" />
               )}
             </TouchableOpacity>
           </View>
 
-          <View>
-            <Text style={[styles.greeting, { fontSize: clamp(rf(3.6), 14, 18) }]}>Hola :)</Text>
-            <Text style={[styles.username, { fontSize: clamp(rf(4.2), 16, 20) }]}>{username || 'Usuario'}</Text>
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <Text style={[styles.greeting, { fontSize: smallText }]}>Hola :)</Text>
+            <Text style={[styles.username, { fontSize: clamp(rf(4.2), 16, 22) }]} numberOfLines={2}>{username || 'Usuario'}</Text>
           </View>
         </View>
 
@@ -569,7 +562,15 @@ export default function ProfileScreen({ navigation }) {
           <Option icon="log-out-outline" label="Cerrar sesión" onPress={() => setShowLogoutModal(true)} optionFont={optionFont} />
         </View>
 
-        <TouchableOpacity style={[styles.termsButton, { marginTop: Math.max(18, hp(2)), paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34), paddingVertical: clamp(10, 8, 14) }]} onPress={() => navigation.navigate('Terms')}>
+        <TouchableOpacity
+          style={[styles.termsButton, {
+            marginTop: Math.max(18, hp(2)),
+            paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
+            paddingVertical: clamp(10, 8, 14)
+          }]}
+          onPress={() => navigation.navigate('Terms')}
+          hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+        >
           <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Consulta términos y condiciones</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -578,9 +579,10 @@ export default function ProfileScreen({ navigation }) {
 }
 
 function Option({ icon, label, onPress, optionFont = 16 }) {
+  const iconSize = Math.round(optionFont * 1.05);
   return (
-    <TouchableOpacity style={styles.optionRow} onPress={onPress}>
-      <Ionicons name={icon} size={Math.round(optionFont * 1.05)} color="#555" style={styles.optionIcon} />
+    <TouchableOpacity style={styles.optionRow} onPress={onPress} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
+      <Ionicons name={icon} size={iconSize} color="#555" style={styles.optionIcon} />
       <Text style={[styles.optionLabel, { fontSize: optionFont }]}>{label}</Text>
       <View style={styles.optionSeparator} />
     </TouchableOpacity>
@@ -601,7 +603,7 @@ const styles = StyleSheet.create({
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   modalTitle: { fontWeight: '600', color: '#333' },
-  modalList: { maxHeight: 260, paddingHorizontal: 16 },
+  modalList: { paddingHorizontal: 16 },
   notificationItem: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f0f0f0' },
   notificationText: { color: '#333' },
   unread: { backgroundColor: '#eef5ff' },
@@ -625,7 +627,7 @@ const styles = StyleSheet.create({
   // edit avatar button (pencil)
   editAvatarBtn: {
     position: 'absolute',
-    backgroundColor: '#6C5CE7', // morado suave
+    backgroundColor: '#6C5CE7',
     borderWidth: 2,
     borderColor: '#fff',
     alignItems: 'center',

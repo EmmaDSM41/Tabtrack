@@ -12,10 +12,12 @@ import {
   Platform,
   useWindowDimensions,
   PixelRatio,
+  StatusBar,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 const API_TOKEN =  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
@@ -23,6 +25,7 @@ const PRIMARY = '#FEFFFFFF';
 
 export default function ChangePassword() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
   const { width, height } = useWindowDimensions();
   const wp = (p) => (Number(p) / 100) * width;
@@ -32,8 +35,9 @@ export default function ChangePassword() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
- 
-  const styles = makeStyles({ wp, hp, rf, clamp, width, height, Platform });
+
+  // pass insets to styles generator so toast & paddings consider safe area
+  const styles = makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets });
 
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -183,6 +187,9 @@ export default function ChangePassword() {
     }
   };
 
+  // ensure top safe area padding so content doesn't get cut on iOS notch or Android status bar
+  const topPadding = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
+
   return (
     <View style={styles.flex}>
       <LinearGradient
@@ -190,7 +197,7 @@ export default function ChangePassword() {
         locations={[0.35, 0.85]}
         start={{ x: 0, y: 1 }}
         end={{ x: 1, y: 0 }}
-        style={styles.container}
+        style={[styles.container, { paddingTop: topPadding }]}
       >
         <Image
           source={require('../../assets/images/logo.png')}
@@ -258,7 +265,13 @@ export default function ChangePassword() {
 }
 
 // styles dinamicos generados con helpers responsivos
-function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
+function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
+  // compute safe bottom to place toast above home indicator on iOS and above nav bars on Android
+  const safeBottom = Math.round((insets?.bottom ?? 0) + hp(1.6)); // small gap + responsive
+  const iosDefaultBottom = Math.round(hp(9));
+  const androidDefaultBottom = Math.round(hp(6));
+  const toastBottom = Math.max(safeBottom, Platform.OS === 'ios' ? iosDefaultBottom : androidDefaultBottom);
+
   return StyleSheet.create({
     flex: { flex: 1 },
 
@@ -322,7 +335,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
 
     toast: {
       position: 'absolute',
-      bottom: Platform.OS === 'ios' ? Math.round(hp(9)) : Math.round(hp(6)),
+      bottom: toastBottom,
       alignSelf: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
       paddingVertical: Math.round(hp(1.2)),
@@ -338,7 +351,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
     },
     successToast: {
       position: 'absolute',
-      bottom: Platform.OS === 'ios' ? Math.round(hp(9)) : Math.round(hp(6)),
+      bottom: toastBottom,
       alignSelf: 'center',
       backgroundColor: 'rgb(0, 50, 186)',
       paddingVertical: Math.round(hp(1.4)),

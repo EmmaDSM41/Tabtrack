@@ -1,5 +1,6 @@
+// SplashScreen.js
 import React, { useEffect } from 'react';
-import { Image, StyleSheet, Platform, PixelRatio, useWindowDimensions } from 'react-native';
+import { Image, StyleSheet, Platform, PixelRatio, useWindowDimensions, StatusBar } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,13 +11,17 @@ export default function SplashScreen({ navigation }) {
     }, 3000);
   }, [navigation]);
 
-   const { width, height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-   const logoSize = clamp(Math.round(Math.min(width * 0.56, height * 0.4)), rf(90), 360);
-   const verticalPadding = Math.max(insets.top, insets.bottom, Platform.OS === 'android' ? 0 : 0);
+  // --- CORRECCIÓN: usar topInset respetando safe area + StatusBar como fallback ---
+  const topInset = Math.max((insets?.top ?? 0), (StatusBar.currentHeight ?? 0));
+  const bottomInset = insets?.bottom ?? 0;
+  // -------------------------------------------------------------------------------
+
+  const logoSize = clamp(Math.round(Math.min(width * 0.56, height * 0.4)), rf(90), 360);
 
   return (
     <LinearGradient
@@ -24,7 +29,7 @@ export default function SplashScreen({ navigation }) {
       locations={[0.35, 0.85]}
       start={{ x: 0, y: 1 }}
       end={{ x: 1, y: 0 }}
-      style={[styles.container, { paddingTop: verticalPadding, paddingBottom: verticalPadding }]}
+      style={[styles.container, { paddingTop: topInset, paddingBottom: bottomInset }]}
     >
       <Image
         source={require('../../assets/images/logo.png')}
@@ -43,5 +48,5 @@ const styles = StyleSheet.create({
   },
   logo: {
     resizeMode: 'contain',
-   },
+  },
 });

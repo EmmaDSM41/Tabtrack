@@ -1,3 +1,4 @@
+// Branch.js
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
@@ -66,7 +67,7 @@ export default function Branch() {
     if (route.params?.id) return String(route.params.id);
     if (!branchParam) return null;
     return String(
-      branchParam.id ??
+      branchParam.id ?? 
         branchParam.sucursal_id ??
         branchParam.restaurante_id ??
         branchParam._id ??
@@ -430,7 +431,11 @@ export default function Branch() {
   const SLIDER_HEIGHT = clamp(s(250), 160, Math.round(Math.min(width * 0.7, 420)));
   const AVATAR_SIZE = clamp(s(60), 40, 120);
   const DOT_SIZE = clamp(s(8), 6, 12);
-  const HEADER_TOP = Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 + insets.top : 12 + insets.top;
+
+  // topInset robusto para iOS/Android (notch / statusbar)
+  const topInset = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
+  const HEADER_TOP = topInset + 8;
+
   const AVATAR_LEFT = clamp(s(26), 12, Math.round(width * 0.12));
   const CARD_PADDING_H = clamp(s(24), 12, 36);
 
@@ -442,8 +447,11 @@ export default function Branch() {
   const hasInstagram = Boolean(data.url_instagram || data.instagram_url || data.instagram);
   const hasTiktok = Boolean(data.url_tik_tok || data.url_tiktok || data.tiktok);
 
+  // toast bottom robusto con safe-area bottom
+  const toastBottom = Math.max(12, (insets.bottom ?? 0) + 12);
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: topInset }]}>
       <View style={[styles.sliderContainer, { height: SLIDER_HEIGHT }]}>
         <ScrollView
           horizontal
@@ -580,7 +588,7 @@ export default function Branch() {
       </ScrollView>
 
       {toastVisible && (
-        <Animated.View pointerEvents="box-none" style={[styles.toastWrap, { transform: [{ translateY }], opacity }]}>
+        <Animated.View pointerEvents="box-none" style={[styles.toastWrap, { transform: [{ translateY }], opacity, bottom: toastBottom }]}>
           <View style={styles.toast}>
             <Text style={styles.toastText}>{toastMessage}</Text>
             {toastType === 'action' && (
@@ -598,7 +606,7 @@ export default function Branch() {
 const BLUE = "#0046ff";
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0, },
+  container: { flex: 1, backgroundColor: "#fff" },
   loading: { justifyContent: "center", alignItems: "center" },
 
   sliderContainer: { backgroundColor: "#000" },
@@ -607,7 +615,7 @@ const styles = StyleSheet.create({
   dot: { backgroundColor: "#fff70a55" },
   dotActive: { backgroundColor: "#fff" },
 
-  header: { position: "absolute", left: 16, right: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", zIndex: 30, marginTop: -40 },
+  header: { position: "absolute", left: 16, right: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", zIndex: 30 },
   headerLogo: { resizeMode: "contain" },
   headerIcons: { flexDirection: "row" },
   iconSpacing: { marginLeft: 12 },
@@ -657,7 +665,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 12,
     right: 12,
-    bottom: 18,
     zIndex: 60,
     alignItems: 'center',
   },

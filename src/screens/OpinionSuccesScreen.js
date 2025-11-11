@@ -20,11 +20,10 @@ export default function OpinionSuccessScreen() {
   const { width, height } = useWindowDimensions();
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const wp = (p) => (p / 100) * width;
-  const hp = (p) => (p / 100) * height;
+  const wp = (p) => (Number(p) / 100) * width;
+  const hp = (p) => (Number(p) / 100) * height;
   const rf = (p) => {
-    // responsive font-ish helper based on width
-    const size = (p / 100) * width;
+    const size = (Number(p) / 100) * width;
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
 
@@ -35,18 +34,20 @@ export default function OpinionSuccessScreen() {
       <StatusBar barStyle="dark-content" />
       {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityLabel="Volver">
           <Ionicons name="chevron-back" size={styles.iconSize} color="#0033cc" />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Experiencias</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>Experiencias</Text>
 
         <View style={styles.headerRight}>
           <Image
             source={require('../../assets/images/logo.png')}
             style={styles.headerLogo}
+            resizeMode="contain"
+            accessibilityLabel="Logo"
           />
-          <TouchableOpacity onPress={() => {}} style={styles.headerBtn}>
+          <TouchableOpacity onPress={() => {}} style={styles.headerBtn} accessibilityLabel="Notificaciones">
             <Ionicons name="notifications-outline" size={styles.iconSize} color="#0033cc" />
           </TouchableOpacity>
         </View>
@@ -60,16 +61,27 @@ export default function OpinionSuccessScreen() {
         style={styles.gradient}
       >
         <View style={styles.content}>
-          <Text style={styles.emoticon}>:)</Text>
+          <Text style={styles.emoticon} accessible accessibilityLabel="Emoticon">:)</Text>
           <Text style={styles.thanks}>¡Gracias por tu comentario!</Text>
           <Text style={styles.sub}>haz obtenido...</Text>
-          <Text style={styles.points}>24</Text>
-          <Text style={styles.pointsLabel}>Track Points</Text>
+
+          <View style={styles.pointsWrap}>
+            <Text style={styles.points} accessibilityLabel="Puntos obtenidos">24</Text>
+            <Text style={styles.pointsLabel}>Track Points</Text>
+          </View>
+
           <Text style={styles.info}>
             Califica los lugares que visitas para seguir obteniendo Track Points y
             conseguir promociones en nuestros restaurantes afiliados
           </Text>
-          <TouchableOpacity style={styles.button} onPress={() => navigation.goBack()}>
+
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+          >
             <Text style={styles.buttonText}>Volver</Text>
           </TouchableOpacity>
         </View>
@@ -79,20 +91,25 @@ export default function OpinionSuccessScreen() {
 }
 
 function makeStyles({ width, height, clamp, wp, hp, rf }) {
+  // base paddings and sizes
   const basePad = Math.round(clamp(wp(3.5), 10, 24));
   const headerH = Math.round(clamp(hp(8), 56, 96));
   const iconSize = Math.round(clamp(rf(3.6), 18, 28));
   const headerLogoW = Math.round(clamp(wp(22), 72, 120));
 
-  const contentTop = Math.round(clamp(hp(8), 40, 100));
+  // content sizes
+  const contentTop = Math.round(clamp(hp(8), 36, 100));
   const emoticonSize = Math.round(clamp(rf(9), 28, 56));
-  const thanksSize = Math.round(clamp(rf(7.8), 20, 36));
-  const pointsSize = Math.round(clamp(rf(20), 40, 96));
-  const pointsLabelSize = Math.round(clamp(rf(6.8), 16, 28));
+  const thanksSize = Math.round(clamp(rf(7.2), 20, 34));
+  const pointsSize = Math.round(clamp(rf(18), 36, 88));
+  const pointsLabelSize = Math.round(clamp(rf(6.2), 14, 26));
   const infoSize = Math.round(clamp(rf(3.6), 12, 16));
   const buttonPadV = Math.round(clamp(hp(1.6), 8, 16));
   const buttonPadH = Math.round(clamp(wp(6), 16, 40));
   const contentHPad = Math.round(clamp(wp(5), 12, 36));
+
+  // keep max width for long lines
+  const maxTextWidth = Math.min(720, Math.round(wp(88)));
 
   return StyleSheet.create({
     safeArea: {
@@ -112,6 +129,8 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
     },
     headerBtn: {
       padding: Math.round(clamp(wp(1.2), 6, 12)),
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     headerTitle: {
       fontSize: Math.round(clamp(rf(4.6), 16, 22)),
@@ -131,7 +150,7 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       marginRight: Math.round(clamp(wp(1), 6, 12)),
     },
 
-    iconSize,
+    iconSize, // number (for convenience)
 
     gradient: {
       flex: 1,
@@ -164,6 +183,11 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       marginBottom: Math.round(clamp(hp(1), 8, 18)),
       textAlign: 'center',
     },
+
+    pointsWrap: {
+      alignItems: 'center',
+      marginBottom: Math.round(clamp(hp(1.2), 8, 18)),
+    },
     points: {
       fontSize: pointsSize,
       fontFamily: 'Montserrat-Black',
@@ -175,8 +199,8 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       fontSize: pointsLabelSize,
       fontFamily: 'Montserrat-SemiBold',
       color: '#fff',
-      marginBottom: Math.round(clamp(hp(1.8), 12, 28)),
     },
+
     info: {
       fontSize: infoSize,
       fontFamily: 'Montserrat-Regular',
@@ -184,7 +208,7 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       textAlign: 'center',
       lineHeight: Math.round(infoSize * 1.6),
       marginBottom: Math.round(clamp(hp(3), 12, 36)),
-      maxWidth: Math.min(720, Math.round(wp(88))),
+      maxWidth: maxTextWidth,
     },
     button: {
       backgroundColor: '#fff',
@@ -193,6 +217,7 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       paddingHorizontal: buttonPadH,
       alignItems: 'center',
       justifyContent: 'center',
+      minWidth: Math.round(clamp(wp(40), 140, 260)),
     },
     buttonText: {
       fontSize: Math.round(clamp(rf(3.8), 12, 16)),

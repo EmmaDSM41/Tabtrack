@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Image,
   TouchableOpacity,
-  Dimensions,
   StatusBar,
   Platform,
   ScrollView,
@@ -20,8 +19,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: staticWidth } = Dimensions.get('window');
 const logoTabTrack = require('../../assets/images/logo2.png');
 const placeholderMerchant = require('../../assets/images/restaurante.jpeg');
 
@@ -45,17 +44,17 @@ const safeNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
- const pendingKeyForSale = (saleId) => `pending_payment_${saleId}`;
+const pendingKeyForSale = (saleId) => `pending_payment_${saleId}`;
 const localPaidKeyForSale = (saleId) => `local_paid_items_${saleId}`;
 const lastTransactionKeyForSale = (saleId) => `last_transaction_${saleId}`;
 
- const promotePendingToLocal = async (saleId) => {
+const promotePendingToLocal = async (saleId) => {
   if (!saleId) return;
   try {
     const pendKey = pendingKeyForSale(saleId);
     const rawPend = await AsyncStorage.getItem(pendKey);
     if (!rawPend) {
-       return;
+      return;
     }
     let pending = null;
     try {
@@ -64,7 +63,6 @@ const lastTransactionKeyForSale = (saleId) => `last_transaction_${saleId}`;
       pending = null;
     }
     if (!pending || !Array.isArray(pending.ids) || pending.ids.length === 0) {
-      // invalid pending, just remove
       await AsyncStorage.removeItem(pendKey);
       return;
     }
@@ -90,7 +88,6 @@ const lastTransactionKeyForSale = (saleId) => `last_transaction_${saleId}`;
   }
 };
 
-// NUEVO: mergear ids pagados (splits) a local_paid_items y remover de pending
 const mergePaidIdsLocal = async (saleId, ids = []) => {
   if (!saleId || !Array.isArray(ids) || ids.length === 0) return;
   try {
@@ -107,7 +104,7 @@ const mergePaidIdsLocal = async (saleId, ids = []) => {
     }
     const union = Array.from(new Set([...(localArr || []), ...ids.map(String)]));
     await AsyncStorage.setItem(localKey, JSON.stringify(union));
-    // remover esos ids de pending (si estaban)
+
     const pendKey = pendingKeyForSale(saleId);
     try {
       const rawPend = await AsyncStorage.getItem(pendKey);
@@ -133,20 +130,21 @@ const mergePaidIdsLocal = async (saleId, ids = []) => {
   }
 };
 
-// ------------------------------------------------------------------
-
 export default function PaymentScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const params = route?.params ?? {};
 
-  // Log params for debugging (verifica la consola)
   useEffect(() => {
     console.log('PaymentScreen route.params:', params);
   }, [params]);
 
-  // responsive helpers
+  // responsive helpers using window dims & pixel ratio
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const bottomSafe = Math.round(insets.bottom || 0);
+
   const wp = (p) => Math.round((p / 100) * width);
   const hp = (p) => Math.round((p / 100) * height);
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // base 375
@@ -188,8 +186,6 @@ export default function PaymentScreen() {
 
   const items = normalizeItems(rawItems);
 
-  // --- Aquí amplié la lectura de aliases para evitar pérdidas de datos ---
-
   const subtotal = Number(
     params.subtotal ??
     params.monto_subtotal ??
@@ -224,7 +220,6 @@ export default function PaymentScreen() {
     0
   );
 
-  // **totalWithTip**: buscamos en muchos aliases (incluye displayTotal)
   const totalWithTip = Number(
     params.displayTotal ??
     params.display_total ??
@@ -240,8 +235,6 @@ export default function PaymentScreen() {
     0
   );
 
-  // -------------------------
-
   const totalFromItems = items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
   const totalSinPropina = Number(
     params.total ?? params.monto_total ?? params.totalWithoutTip ?? params.total_sin_propina ?? params.monto_subtotal ?? totalFromItems
@@ -250,7 +243,6 @@ export default function PaymentScreen() {
 
   const restaurantImage = params.restaurantImage ?? params.restaurantImageUri ?? null;
 
-  // IDs y metadatos
   const mesa_id = params.mesa_id ?? params.mesaId ?? params.mesa ?? null;
   const sucursal_id = params.sucursal_id ?? params.sucursalId ?? params.sucursal ?? null;
   const sale_id = params.sale_id ?? params.saleId ?? params.venta_id ?? null;
@@ -259,20 +251,16 @@ export default function PaymentScreen() {
   const moneda = params.moneda ?? params.currency ?? 'MXN';
   const mesero = params.mesero ?? params.waiter ?? null;
 
-  // API host & token (prefer params)
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? API_TOKEN_CONST;
   const environment = params.environment ?? 'sandbox';
   const providedReturnUrl = params.return_url ?? params.returnUrl ?? null;
   const providedCancelUrl = params.cancel_url ?? params.cancelUrl ?? null;
 
-  // usuario (params o AsyncStorage)
   const [userEmail, setUserEmail] = useState(params.user_email ?? params.userEmail ?? null);
   const [userFullname, setUserFullname] = useState(params.user_fullname ?? params.userFullname ?? null);
   const [userUsuarioAppId, setUserUsuarioAppId] = useState(params.user_usuario_app_id ?? params.userUsuarioAppId ?? null);
 
-  // --- CAMBIO: loadingKey en lugar de loadingStripe
-  // loadingKey: null | 'stripe' | 'paypal' | 'main' | etc.
   const [loadingKey, setLoadingKey] = useState(null);
   const [loadingInit, setLoadingInit] = useState(true);
 
@@ -316,7 +304,6 @@ export default function PaymentScreen() {
     };
   }, []);
 
-  // utilities
   const buildTransactionUrl = () => {
     const fallback = API_HOST_CONST;
     const host = (apiHost || fallback).trim();
@@ -369,7 +356,6 @@ export default function PaymentScreen() {
     setGatewayModalVisible(true);
   };
 
-  // ---- NUEVO: poll splits endpoint para verificar estados por transaction_id ----
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120 * 1000, intervalMs = 3000) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
     const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
@@ -390,21 +376,16 @@ export default function PaymentScreen() {
         });
         if (res.ok) {
           const json = await res.json();
-          // splits: array
           const splitsArr = Array.isArray(json.splits) ? json.splits : [];
-          // filtrar pagos con estado 'paid'
           const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
           if (paidSplits.length > 0) {
-            // obtener códigos pagados
             const paidCodes = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
-            // persistir en local_paid_items_{sale_id}
             try {
               await mergePaidIdsLocal(sale_id, paidCodes);
             } catch (e) { console.warn('mergePaidIdsLocal error', e); }
             pollingRef.current.running = false;
             return { ok: true, paidCodes, raw: json };
           }
-          // si no hay paid todavía, continuamos
           pollingRef.current.lastResult = { json };
         } else {
           console.warn('pollSplitsUntilPaid - http status', res.status);
@@ -419,9 +400,7 @@ export default function PaymentScreen() {
     return { ok: false, reason: 'timeout', last: pollingRef.current.lastResult ?? null };
   };
 
-  // FLOW: crear transacción -> abrir checkout -> navegar a QRMain -> poll (priorizando splits)
   const startCheckoutAndPoll = async ({ gateway }) => {
-    // CAMBIO: evitar iniciar si ya hay un loadingKey en curso
     if (loadingKey) return;
     if (loadingInit) {
       Alert.alert('Espere', 'Cargando datos de sesión, intente de nuevo en un momento.');
@@ -435,7 +414,6 @@ export default function PaymentScreen() {
       Alert.alert('Usuario no disponible', 'No se encontraron datos del usuario (correo/nombre). Inicia sesión o pásalos en params.');
       return;
     }
-    // Nota: ya no usamos la comprobación de /pagos; sin embargo aún requerimos ids para otros flujos
     if (!sucursal_id || !sale_id || !restaurante_id) {
       Alert.alert('Faltan datos', 'No hay sucursal_id / sale_id / restaurante_id. No es posible verificar el pago automáticamente.');
       return;
@@ -444,7 +422,6 @@ export default function PaymentScreen() {
     const avail = await checkGatewayAvailable(gateway);
     if (avail === false) { showGatewayUnavailableModal(gateway); return; }
 
-    // CAMBIO: marcar la opción presionada como loading
     setLoadingKey(gateway);
 
     const url = buildTransactionUrl();
@@ -455,7 +432,6 @@ export default function PaymentScreen() {
     const monto_subtotal = Number(totalSinPropinaFinal);
     const monto_propina = Number(tipAmount || 0);
 
-    // Construir items_pagados
     const isEqualSplitOrigin = params.groupPeople !== undefined && params.groupPeople !== null;
     const items_pagados = isEqualSplitOrigin
       ? [
@@ -473,8 +449,7 @@ export default function PaymentScreen() {
           precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
         }));
 
-    // consultar plataforma_gestion del restaurante y decidir payment_method_id
-    let resolvedPaymentMethodId = 1; // default
+    let resolvedPaymentMethodId = 1;
     try {
       if (restaurante_id) {
         const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
@@ -528,7 +503,7 @@ export default function PaymentScreen() {
         venta_id: sale_id ?? '',
       },
       mesa_id: mesa_id ?? null,
-      items_pagados, // <-- agregado
+      items_pagados,
       flow: 'checkout',
       ...(providedReturnUrl ? { return_url: providedReturnUrl } : {}),
       ...(providedCancelUrl ? { cancel_url: providedCancelUrl } : {}),
@@ -575,7 +550,6 @@ export default function PaymentScreen() {
         return;
       }
 
-      // Guardar transaction id localmente para consultas posteriores (deep-link / escaneo)
       if (transactionId && sale_id) {
         try {
           await AsyncStorage.setItem(lastTransactionKeyForSale(sale_id), String(transactionId));
@@ -584,25 +558,20 @@ export default function PaymentScreen() {
         }
       }
 
-      // Abrir checkout en navegador
       const opened = await openUrlRobust(checkoutUrl);
-      // limpiar indicador de loading de la opción
       setLoadingKey(null);
 
-      // navegamos inmediatamente al scanner (QRMain) para que el usuario salga de Payment
       navigation.navigate('QRMain');
 
-      // decidir expectedAmount
       const expectedAmount =
         safeNum(params.perPersonAmount ?? params.per_person_amount ?? params.totalToCharge ?? params.total_persona ?? null) ||
         safeNum(totalWithTip) ||
         safeNum(totalSinPropinaFinal);
 
-      // arrancar polling (PRIORIZAMOS splits si tenemos transactionId)
       (async () => {
         pollingRef.current.stopRequested = false;
         if (transactionId) {
-          const result = await pollSplitsUntilPaid(transactionId, 120 * 1000, 3000); // 2 min timeout
+          const result = await pollSplitsUntilPaid(transactionId, 120 * 1000, 3000);
           if (result.ok) {
             console.log('Splits indicate paid:', result);
             try { await promotePendingToLocal(sale_id); } catch (e) { console.warn('promotePendingToLocal after splits', e); }
@@ -610,7 +579,6 @@ export default function PaymentScreen() {
             return;
           } else {
             console.warn('Splits polling finished without paid:', result);
-            // NO fallback a /pagos
             return;
           }
         } else {
@@ -626,7 +594,6 @@ export default function PaymentScreen() {
     }
   };
 
-  // deep-link listener: al volver desde gateway -> intentar confirmar via splits (si hay tx_id)
   useEffect(() => {
     const handler = ({ url }) => {
       console.log('PaymentScreen Linking handler, url:', url);
@@ -679,7 +646,6 @@ export default function PaymentScreen() {
       }
       pollingRef.current.stopRequested = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sale_id, sucursal_id, restaurante_id, totalWithTip, totalSinPropinaFinal, params.perPersonAmount]);
 
   const validateBeforeStripe = () => {
@@ -730,7 +696,7 @@ export default function PaymentScreen() {
   const headerHeight = clamp(hp(10), 64, 112);
   const logoSize = clamp(Math.round(width * 0.28), 80, 160);
   const restaurantImageSize = clamp(Math.round(width * 0.16), 48, 120);
-  const contentWidth = Math.min(Math.round(width - 32), 720);
+  const contentWidth = Math.min(Math.round(width - 32), Math.max(420, Math.round(width * 0.92)));
   const contentPadding = clamp(Math.round(width * 0.04), 12, 28);
   const payButtonHeight = clamp(Math.round(hp(6)), 44, 60);
   const optionRowHeight = clamp(Math.round(hp(6.5)), 48, 72);
@@ -739,17 +705,17 @@ export default function PaymentScreen() {
   const totalNumberFont = clamp(rf(6.0), 20, 40);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <View style={[styles.topBar, { height: headerHeight }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 10, left: 10, right: 10, bottom: 10 }}>
           <Text style={[styles.backArrow, { fontSize: clamp(rf(9), 20, 36) }]}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { fontSize: titleFont }]}>Tu cuenta</Text>
-        <Text style={[styles.topSmall, { fontSize: clamp(rf(1.6), 10, 14) }]}>{dateText}</Text>
+        <Text style={[styles.topSmall, { fontSize: clamp(rf(1.6), 10, 14) }]} numberOfLines={1} ellipsizeMode="tail">{dateText}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: hp(3) }]}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.max(hp(3), bottomSafe + 12) }]}>
         <LinearGradient
           colors={['#FF2FA0', '#7C3AED', '#0046ff']}
           start={{ x: 0, y: 1 }}
@@ -793,6 +759,7 @@ export default function PaymentScreen() {
             onPress={() => {
               Alert.alert('Pagar', 'Seleccione un método de pago en la lista inferior.');
             }}
+            hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
           >
             {loadingKey === 'main' ? <ActivityIndicator color="#fff" style={{ marginRight: 10 }} /> : null}
             <Text style={[styles.payButtonText, { fontSize: clamp(rf(1.8), 14, 18) }]}>{loadingKey === 'main' ? 'Creando pago…' : 'Pagar'}</Text>
@@ -806,6 +773,7 @@ export default function PaymentScreen() {
                 onPress={() => onOptionPress(opt)}
                 activeOpacity={0.7}
                 disabled={loadingKey === opt.key}
+                hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
               >
                 <View style={styles.optionLeft}>
                   <View style={[styles.iconBox, { width: iconBoxSize, height: iconBoxSize, borderRadius: Math.round(iconBoxSize / 6) }]}>
@@ -826,7 +794,6 @@ export default function PaymentScreen() {
         <View style={{ height: Math.max(20, hp(2.5)) }} />
       </ScrollView>
 
-      {/* Modal de gateway no disponible */}
       {gatewayModalVisible && (
         <View style={styles.modalBackdrop}>
           <LinearGradient colors={['#fff']} style={[styles.gatewayModalBox, { width: Math.min(width - 48, 420) }]}>
@@ -838,6 +805,7 @@ export default function PaymentScreen() {
               style={styles.gatewayModalButton}
               onPress={() => setGatewayModalVisible(false)}
               activeOpacity={0.9}
+              hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
             >
               <Text style={[styles.gatewayModalButtonText, { fontSize: clamp(rf(1.6), 13, 16) }]}>Aceptar</Text>
             </TouchableOpacity>
@@ -848,7 +816,9 @@ export default function PaymentScreen() {
   );
 }
 
-/* estilos base (no toco lógica, solo estilos) */
+const BLUE = '#0046ff';
+const DOT_COLOR = '#ccc';
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   topBar: {
@@ -860,10 +830,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 8,
   },
   backBtn: { width: 56, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { fontSize: 32, color: '#0b58ff', marginLeft: 2 },
+  backArrow: { color: '#0b58ff', marginLeft: 2 },
   title: { fontWeight: '800', color: '#0b58ff' },
   topSmall: { color: '#6b7280' },
   container: { alignItems: 'center', paddingBottom: 24, backgroundColor: '#f5f7fb' },
@@ -874,10 +843,10 @@ const styles = StyleSheet.create({
   },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   leftCol: { flex: 1, flexDirection: 'column', alignItems: 'flex-start' },
-  tabtrackLogo: { width: 120, height: 38, marginBottom: 8 },
+  tabtrackLogo: { marginBottom: 8 },
   logoWrap: { marginTop: 6, backgroundColor: 'rgba(255,255,255,0.12)', padding: 8, borderRadius: 10 },
-  restaurantImage: { width: 72, height: 72, borderRadius: 12, backgroundColor: '#fff' },
-  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', maxWidth: 160 },
+  restaurantImage: { backgroundColor: '#fff' },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
   totalLabel: { color: 'rgba(255,255,255,0.95)', marginBottom: 6 },
   totalRow: { flexDirection: 'row', alignItems: 'flex-end' },
   totalNumber: { color: '#fff', fontWeight: '900', letterSpacing: 0.6 },
@@ -885,19 +854,19 @@ const styles = StyleSheet.create({
   rightThanks: { marginTop: 10, alignItems: 'flex-end' },
   thanksText: { color: '#fff', fontWeight: '700' },
   thanksSub: { color: 'rgba(255,255,255,0.95)', marginTop: 6 },
-  content: { width: Math.min(staticWidth - 32, 420), backgroundColor: '#fff', padding: 16, marginTop: 8, borderRadius: 8 },
-  payButton: { backgroundColor: '#0046ff', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  content: { backgroundColor: '#fff', marginTop: 8, borderRadius: 8, alignSelf: 'center' },
+  payButton: { backgroundColor: BLUE, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
   payButtonText: { color: '#fff', fontWeight: '800' },
   optionsList: { borderTopWidth: 1, borderTopColor: '#f0f0f5' },
   optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomColor: '#f0f0f5', borderBottomWidth: 1 },
   optionLeft: { flexDirection: 'row', alignItems: 'center' },
-  iconBox: { width: 40, height: 40, borderRadius: 8, backgroundColor: '#f3f6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  iconBox: { borderRadius: 8, backgroundColor: '#f3f6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   optionLabel: { fontWeight: '700', color: '#222' },
 
   modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: 20 },
-  gatewayModalBox: { width: Math.min(staticWidth - 48, 380), borderRadius: 12, padding: 18, alignItems: 'center' },
-  gatewayModalTitle: { color: '##0046ff', fontWeight: '800', marginBottom: 6 },
-  gatewayModalMessage: { color: '#0046ff', textAlign: 'center', marginBottom: 12 },
-  gatewayModalButton: { marginTop: 6, backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10 },
-  gatewayModalButtonText: { color: '#0046ff', fontWeight: '800' },
+  gatewayModalBox: { borderRadius: 12, padding: 18, alignItems: 'center', backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 8 },
+  gatewayModalTitle: { color: BLUE, fontWeight: '800', marginBottom: 6 },
+  gatewayModalMessage: { color: BLUE, textAlign: 'center', marginBottom: 12 },
+  gatewayModalButton: { marginTop: 6, backgroundColor: BLUE, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10 },
+  gatewayModalButtonText: { color: '#fff', fontWeight: '800' },
 });

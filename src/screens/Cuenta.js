@@ -18,16 +18,19 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
 const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
 const VERIF_URL = 'https://api.tab-track.com/api/mobileapp/usuarios/verification-codes';
 const PRIMARY = '#0046ff';
 
- const DRAFT_KEY = 'cuenta_form_draft_v1';
+const DRAFT_KEY = 'cuenta_form_draft_v1';
 
 export default function Cuenta({ navigation }) {
-   const { width, height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
   const wp = (p) => (Number(p) / 100) * width;
   const hp = (p) => (Number(p) / 100) * height;
   const rf = (p) => {
@@ -36,7 +39,7 @@ export default function Cuenta({ navigation }) {
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-   const [nombre, setNombre] = useState('');
+  const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
   const [mail, setMail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,7 +50,7 @@ export default function Cuenta({ navigation }) {
   const [termsChecked, setTermsChecked] = useState(false);
   const [loading, setLoading] = useState(false);
 
-   const DRAFT_TTL = 3 * 60 * 1000;
+  const DRAFT_TTL = 3 * 60 * 1000;
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -116,7 +119,6 @@ export default function Cuenta({ navigation }) {
     if (!privacyChecked || !termsChecked) {
       return Alert.alert('Debes aceptar privacidad y términos');
     }
-    // ahora solo validamos los campos mínimos necesarios
     if (!nombre || !apellido || !mail || !password || !telefono) {
       return Alert.alert('Completa todos los campos obligatorios');
     }
@@ -200,12 +202,12 @@ export default function Cuenta({ navigation }) {
     }
   };
 
-  // generar estilos responsivos
-  const styles = makeStyles({ wp, hp, rf, clamp, width, height, Platform });
+  // generar estilos responsivos (pasamos insets para notch/status bar)
+  const styles = makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets });
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Tu cuenta</Text>
         </View>
@@ -226,6 +228,7 @@ export default function Cuenta({ navigation }) {
             style={styles.input}
             value={nombre}
             onChangeText={setNombre}
+            returnKeyType="next"
           />
           <TextInput
             placeholder="Apellido"
@@ -233,6 +236,7 @@ export default function Cuenta({ navigation }) {
             style={styles.input}
             value={apellido}
             onChangeText={setApellido}
+            returnKeyType="next"
           />
           <TextInput
             placeholder="Email"
@@ -241,6 +245,8 @@ export default function Cuenta({ navigation }) {
             keyboardType="email-address"
             value={mail}
             onChangeText={setMail}
+            autoCapitalize="none"
+            returnKeyType="next"
           />
           <TextInput
             placeholder="Contraseña"
@@ -249,6 +255,7 @@ export default function Cuenta({ navigation }) {
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+            returnKeyType="next"
           />
           <TextInput
             placeholder="Teléfono"
@@ -257,11 +264,12 @@ export default function Cuenta({ navigation }) {
             keyboardType="phone-pad"
             value={telefono}
             onChangeText={setTelefono}
+            returnKeyType="done"
           />
         </View>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setFirmaDeslinde(v => !v)}>
+          <TouchableOpacity onPress={() => setFirmaDeslinde(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: firmaDeslinde }}>
             <Ionicons
               name={firmaDeslinde ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
@@ -272,7 +280,7 @@ export default function Cuenta({ navigation }) {
         </View>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setPrivacyChecked(p => !p)}>
+          <TouchableOpacity onPress={() => setPrivacyChecked(p => !p)} accessibilityRole="checkbox" accessibilityState={{ checked: privacyChecked }}>
             <Ionicons
               name={privacyChecked ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
@@ -294,7 +302,7 @@ export default function Cuenta({ navigation }) {
         </TouchableOpacity>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setTermsChecked(t => !t)}>
+          <TouchableOpacity onPress={() => setTermsChecked(t => !t)} accessibilityRole="checkbox" accessibilityState={{ checked: termsChecked }}>
             <Ionicons
               name={termsChecked ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
@@ -327,17 +335,19 @@ export default function Cuenta({ navigation }) {
 }
 
 // estilos responsivos generados por makeStyles
-function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
+function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 28)); // padding lateral con límites
   return StyleSheet.create({
     safe: {
       flex: 1,
       backgroundColor: '#fff',
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
+      paddingTop: topSafe,
     },
     container: {
-      paddingHorizontal: Math.round(wp(4)),
+      paddingHorizontal: sidePad,
       paddingTop: Math.round(hp(2)),
-      paddingBottom: Math.round(hp(4)),
+      paddingBottom: Math.round(hp(4) + (insets?.bottom ?? 0)),
     },
     header: {
       flexDirection: 'row',
@@ -361,19 +371,22 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
       height: Math.round(clamp(rf(6.4), 32, 80)),
       resizeMode: 'contain',
       marginLeft: Math.round(wp(1)),
-      marginBottom: Math.round(hp(2.4)),
+      marginBottom: Math.round(hp(2)),
+      alignSelf: 'center',
     },
     stepTitle: {
       fontSize: Math.round(clamp(rf(4.2), 14, 20)),
-      marginLeft: Math.round(wp(3)),
+      marginLeft: 0,
       marginBottom: Math.round(hp(1.6)),
       color: '#333',
+      textAlign: 'center',
     },
     sectionTitle: {
       fontSize: Math.round(clamp(rf(4.2), 14, 18)),
-      marginLeft: Math.round(wp(3)),
+      marginLeft: 0,
       marginBottom: Math.round(hp(1)),
       color: '#555',
+      textAlign: 'left',
     },
     group: {
       borderWidth: 1,
@@ -381,6 +394,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
       borderRadius: Math.round(wp(2)),
       marginBottom: Math.round(hp(2.4)),
       overflow: 'hidden',
+      backgroundColor: 'transparent',
     },
     input: {
       paddingVertical: Math.round(hp(1.4)),
@@ -410,6 +424,8 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
       borderRadius: Math.round(wp(2)),
       alignItems: 'center',
       marginVertical: Math.round(hp(2)),
+      alignSelf: 'center',
+      paddingHorizontal: Math.round(wp(4)),
     },
     termsButtonText: {
       color: '#fff',
@@ -434,6 +450,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform }) {
       paddingVertical: Math.round(hp(1.4)),
       alignItems: 'center',
       marginTop: Math.round(hp(3)),
+      alignSelf: 'stretch',
     },
     continueButtonText: {
       color: PRIMARY,

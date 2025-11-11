@@ -1,5 +1,6 @@
+// WelcomeScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, useWindowDimensions, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, useWindowDimensions, Platform, StatusBar, PixelRatio } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,21 +10,25 @@ export default function WelcomeScreen() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-   const BASE_WIDTH = 375;
+  const BASE_WIDTH = 375;
+  const rf = (size) => Math.round((size * width) / BASE_WIDTH);
+  const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
-   const rf = (size) => Math.round((size * width) / BASE_WIDTH);
-
-   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+  // --- CORRECCIÓN: usar topInset respetando safe area + StatusBar como fallback ---
+  const topInset = Math.max((insets?.top ?? 0), (StatusBar.currentHeight ?? 0));
+  const bottomInset = insets?.bottom ?? 0;
+  // -------------------------------------------------------------------------------
 
   const scaled = {
     paddingVertical: clamp(rf(60), 12, 120),
     logoWidth: clamp(rf(250), 120, Math.round(width * 0.86)),
     logoHeight: clamp(rf(100), 48, Math.round(width * 0.36)),
     titleFont: clamp(rf(34), 18, 44),
-    titleMarginTop: clamp(rf(20), 4, 60),  
+    titleMarginTop: clamp(rf(20), 4, 60),
     caritaFont: clamp(rf(34), 18, 44),
     subtitleFont: clamp(rf(18), 12, 22),
     subtitleLineHeight: clamp(rf(20), 16, 28),
+    // si quieres que el botón se adapte mejor, mantenemos el valor pero el topInset se suma abajo
     buttonContainerMarginTop: clamp(rf(200), 12, Math.round(height * 0.45)),
     buttonVertical: clamp(rf(7), 4, 12),
     buttonPaddingVertical: clamp(rf(12), 8, 18),
@@ -32,7 +37,7 @@ export default function WelcomeScreen() {
     buttonTextSize: clamp(rf(16), 12, 20),
   };
 
-   const titleCaritaSpacing = clamp(Math.round(scaled.titleFont * 0.5), 8, 48);
+  const titleCaritaSpacing = clamp(Math.round(scaled.titleFont * 0.5), 8, 48);
 
   const dynamicStyles = StyleSheet.create({
     container: {
@@ -41,7 +46,9 @@ export default function WelcomeScreen() {
       justifyContent: 'space-around',
       paddingVertical:
         scaled.paddingVertical +
-        (Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : insets.top || 0),
+        // usar topInset para evitar recortes en notch / status bar y funcionar tanto en iOS como Android
+        topInset,
+      paddingBottom: bottomInset,
     },
     logo: {
       width: scaled.logoWidth,
@@ -50,12 +57,12 @@ export default function WelcomeScreen() {
       marginTop: rf(5),
     },
 
-     titleCaritaContainer: {
+    titleCaritaContainer: {
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: scaled.titleMarginTop,
       marginBottom: titleCaritaSpacing,
-       paddingHorizontal: Math.round(Math.min(width * 0.08, 28)),
+      paddingHorizontal: Math.round(Math.min(width * 0.08, 28)),
       width: '100%',
     },
 
@@ -64,13 +71,13 @@ export default function WelcomeScreen() {
       color: '#000',
       textAlign: 'center',
       fontFamily: 'Montserrat-Bold',
-     },
+    },
     carita: {
       fontSize: scaled.caritaFont,
       color: '#000',
       textAlign: 'center',
       fontFamily: 'Montserrat-Bold',
-      marginTop: Math.round(Math.max(6, scaled.titleFont * 0.05)), 
+      marginTop: Math.round(Math.max(6, scaled.titleFont * 0.05)),
     },
     subtitle: {
       fontSize: scaled.subtitleFont,
@@ -126,7 +133,7 @@ export default function WelcomeScreen() {
     >
       <Image source={require('../../assets/images/logo.png')} style={dynamicStyles.logo} />
 
-       <View style={dynamicStyles.titleCaritaContainer}>
+      <View style={dynamicStyles.titleCaritaContainer}>
         <Text style={dynamicStyles.title}>¡Hola!</Text>
         <Text style={dynamicStyles.carita}>:)</Text>
       </View>

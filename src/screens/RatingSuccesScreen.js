@@ -25,33 +25,42 @@ export default function RatingSuccessScreen() {
   const insets = useSafeAreaInsets();
 
   // Responsive helpers
-  const baseWidth = 375; // reference iPhone width
-  const rf = (size) => Math.round((size * width) / baseWidth); // responsive factor
+  const baseWidth = 375; // referencia iPhone
+  const rf = (size) => Math.round(PixelRatio.roundToNearestPixel((size * width) / baseWidth)); // responsive factor
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-  // derived sizes
+  // derived sizes (responsives)
   const headerHeight = clamp(rf(56), 48, 88);
   const logoWidth = clamp(rf(160), 100, Math.round(width * 0.6));
   const logoHeight = Math.round(logoWidth * 0.35);
-  const lottieSize = clamp(rf(140), 96, Math.round(width * 0.42));
-  const contentPaddingHorizontal = clamp(rf(28), 12, 36);
-  const btnMaxWidth = Math.min(340, Math.round(width - 80));
-  const btnHorizontalPadding = clamp(rf(28), 16, 40);
-  const fontLarge = clamp(rf(24), 18, 32);
+  const lottieSize = clamp(rf(140), 88, Math.round(width * 0.46));
+  const contentPaddingHorizontal = clamp(rf(24), 12, 40);
+  const btnMaxWidth = Math.min(520, Math.round(width - contentPaddingHorizontal * 2));
+  const btnHorizontalPadding = clamp(rf(20), 12, 40);
+  const fontLarge = clamp(rf(24), 18, 36);
   const fontMedium = clamp(rf(15), 12, 20);
-  const infoMaxWidth = Math.min(680, Math.round(width - 80));
+  const infoMaxWidth = Math.min(Math.round(width - contentPaddingHorizontal * 2), 760);
 
   useEffect(() => {
-    // reproducir solo una vez al montar
+    // reproducir la animación al montar (si la referencia existe)
     try {
       animRef.current?.play?.();
     } catch (e) {
-      /* silent fallback */
+      // fallback silencioso si no se puede reproducir
     }
   }, []);
 
   return (
-    <SafeAreaView style={[styles.safeArea, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || insets.top) : insets.top }]}>
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        {
+          paddingTop: Platform.OS === 'android'
+            ? (StatusBar.currentHeight || insets.top)
+            : insets.top,
+        },
+      ]}
+    >
       <StatusBar barStyle="dark-content" />
       {/* HEADER */}
       <View style={[styles.header, { height: headerHeight, paddingHorizontal: clamp(rf(12), 8, 20) }]}>
@@ -62,11 +71,6 @@ export default function RatingSuccessScreen() {
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Experiencias</Text>
 
         <View style={styles.headerRight}>
-{/*           <Image
-            source={require('../../assets/images/logo.png')}
-            style={[styles.headerLogo, { width: clamp(rf(90), 60, Math.round(width * 0.28)), height: clamp(rf(28), 18, 36) }]}
-            resizeMode="contain"
-          /> */}
           <TouchableOpacity onPress={() => {}} style={styles.headerBtn}>
             <Ionicons name="notifications-outline" size={clamp(rf(20), 18, 26)} color="#0046ff" />
           </TouchableOpacity>
@@ -80,11 +84,14 @@ export default function RatingSuccessScreen() {
         end={{ x: 0, y: 1 }}
         style={styles.background}
       >
-        <View style={[styles.container, { paddingHorizontal: contentPaddingHorizontal }]}>
+        <View style={[styles.container, { paddingHorizontal: contentPaddingHorizontal, paddingBottom: Math.max(24, insets.bottom || 24) }]}>
           {/* logo grande */}
-          <Image source={require('../../assets/images/logo.png')} style={{ width: logoWidth, height: logoHeight, resizeMode: 'contain', marginBottom: rf(6) }} />
+          <Image
+            source={require('../../assets/images/logo.png')}
+            style={{ width: logoWidth, height: logoHeight, resizeMode: 'contain', marginBottom: rf(6) }}
+          />
 
-          <View style={{ height: rf(12) }} />
+          <View style={{ height: rf(8) }} />
 
           {/* Lottie */}
           <View style={[styles.lottieWrap, { marginBottom: rf(8) }]}>
@@ -100,7 +107,17 @@ export default function RatingSuccessScreen() {
 
           <Text style={[styles.thanks, { fontSize: fontLarge, marginBottom: rf(6) }]}>¡Gracias por tu calificación!</Text>
 
-          <Text style={[styles.info, { fontSize: fontMedium, maxWidth: infoMaxWidth, marginBottom: rf(18), lineHeight: Math.round(fontMedium * 1.6) }]}>
+          <Text
+            style={[
+              styles.info,
+              {
+                fontSize: fontMedium,
+                maxWidth: infoMaxWidth,
+                marginBottom: rf(18),
+                lineHeight: Math.round(fontMedium * 1.6),
+              },
+            ]}
+          >
             Gracias por tu calificación, para nosotros es muy importante. Nos ayuda a mejorar y seguir ofreciéndote un mejor servicio.
           </Text>
 
@@ -154,7 +171,6 @@ const styles = StyleSheet.create({
     color: '#0046ff',
   },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
-  headerLogo: { resizeMode: 'contain', marginRight: 8 },
 
   background: { flex: 1 },
 
@@ -163,10 +179,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 40,
   },
-
-  /* logoLarge handled inline */
 
   /* Lottie */
   lottieWrap: {

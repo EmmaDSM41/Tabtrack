@@ -16,6 +16,7 @@ import {
   TouchableWithoutFeedback,
   Linking,
   PixelRatio,
+  Image,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCodeScanner from 'react-native-qrcode-scanner';
@@ -268,6 +269,14 @@ export default function QRScreen({ navigation }) {
   const innerPanelOpacity = 0.04;
   const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 16, Math.round(height * 0.6));
 
+  // --- LOGO sizing for the new element (responsive and caps) ---
+  const logoMaxWidth = Math.round(Math.min(160, width * 0.36)); // cap absolute
+  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38)); // relative to qrSize but capped
+  const logoHeight = Math.round(logoWidth * 0.5); // aspect ratio (ajustable)
+  // position above hole: leave unaggressive offset so it sits clearly above the QR frame
+  const logoTopPos = Math.max(12, holeTop - logoHeight - Math.round(logoHeight * 0.35));
+  // ------------------------------------------------
+
   useEffect(() => {
     (async () => {
       try {
@@ -497,6 +506,34 @@ export default function QRScreen({ navigation }) {
         <View style={[styles.overlay, { height: CAMERA_HEIGHT }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
+          {/* --- LOGO: ahora sin recuadro blanco, más grande y un poco por encima del recuadro --- */}
+          <View style={{
+            position: 'absolute',
+            top: logoTopPos,
+            left: 0,
+            right: 0,
+            alignItems: 'center',
+            zIndex: 30,
+            pointerEvents: 'none', // no intercepta toques
+          }}>
+            {/* Ajusta la ruta del require si tu logo está en otra carpeta */}
+            <Image
+              source={require('../../assets/images/logo2.png')}
+              style={{
+                width: logoWidth,
+                height: logoHeight,
+                resizeMode: 'contain',
+                // sombra sutil para que destaque sin fondo blanco
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.12,
+                shadowRadius: 4,
+                elevation: 4,
+              }}
+            />
+          </View>
+          {/* ------------------------------------------------------------------------------- */}
+
           <View style={{ flexDirection: 'row' }}>
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
@@ -636,7 +673,6 @@ const styles = StyleSheet.create({
 
   zero: { height: 0, flex: 0 },
 
-  /* legacy modal fallback styles (no se usan pero las dejo por compatibilidad) */
   statusModalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.45)' },
   statusModalBox: { width: '86%', backgroundColor: '#fff', borderRadius: 12, padding: 18, alignItems: 'flex-start' },
   statusTitle: { fontSize: 18, fontWeight: '700', color: '#0046ff', marginBottom: 8 },

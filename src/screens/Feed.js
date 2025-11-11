@@ -22,8 +22,9 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Picker } from '@react-native-picker/picker';
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
- const logo = require('../../assets/images/logo.png');
+const logo = require('../../assets/images/logo.png');
 const defaultImage = require('../../assets/images/restaurante.jpeg');
 
 const API_URL = 'https://api.tab-track.com/api/restaurantes';
@@ -31,7 +32,7 @@ const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6
 const FAVORITES_OBJS_KEY = 'favorites_objs';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
 
- const getUserIdentifier = async () => {
+const getUserIdentifier = async () => {
   try {
     const uid = await AsyncStorage.getItem('user_usuario_app_id');
     if (uid) return String(uid);
@@ -89,6 +90,7 @@ const parsePriceRange = (raw) => {
 export default function RestaurantsScreen() {
   const navigation = useNavigation();
   const { width, wp, hp, rf, clamp } = useResponsive();
+  const insets = useSafeAreaInsets();
 
   const [restaurants, setRestaurants]         = useState([]); // ahora contendrá sucursales
   const [filteredData, setFilteredData]       = useState([]);
@@ -452,8 +454,12 @@ export default function RestaurantsScreen() {
     }
   };
 
+  // safe area adjustments
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const bottomSafe = Math.round(insets.bottom || 0);
+
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
       <View style={[styles.header, { paddingHorizontal: horizPad, height: headerHeight }]}>
         {/* logo left removed as requested */}
         <Text style={{ width: 6 }} />
@@ -479,7 +485,7 @@ export default function RestaurantsScreen() {
       <FlatList
         data={filteredData}
         keyExtractor={item => String(item.id)}
-        contentContainerStyle={[styles.list, { paddingBottom: Math.max(16, hp(3)) }]}
+        contentContainerStyle={[styles.list, { paddingBottom: Math.max(16, hp(3)) + bottomSafe }]}
         renderItem={({ item }) => (
           <RestaurantCard
             restaurant={item}
@@ -589,6 +595,7 @@ export default function RestaurantsScreen() {
           style={[
             styles.toastWrap,
             {
+              bottom: 18 + bottomSafe,
               transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) }],
               opacity: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
             }
@@ -784,7 +791,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 12,
     right: 12,
-    bottom: 18,
     zIndex: 60,
     alignItems: 'center',
   },

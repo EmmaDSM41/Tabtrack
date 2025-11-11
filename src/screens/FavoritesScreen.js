@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BLUE = '#0046ff';
 const logo = require('../../assets/images/logo.png');
@@ -37,7 +38,6 @@ const getUserIdentifier = async () => {
 const userFavoritesKey = async () => `favorites_${await getUserIdentifier()}`;
 const userFavoritesObjsKey = async () => `favorites_objs_${await getUserIdentifier()}`;
 
-/* ---------------- RESPONSIVE helper (no depende de librerías) ---------------- */
 function useResponsive() {
   const { width, height } = useWindowDimensions();
   const wp = (percent) => {
@@ -58,38 +58,21 @@ function useResponsive() {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   return { width, height, wp, hp, rf, clamp };
 }
-/* --------------------------------------------------------------------------- */
 
-/**
- * Normaliza una URL para que Image pueda cargarla.
- * - si ya empieza con http(s) devuelve tal cual
- * - si empieza con '//' la convierte a 'https://...'
- * - si empieza con '/' la convierte a `${API_BASE_URL.replace(/\/$/, '')}${ruta}`
- * - si parece ser solo host/path (sin esquema) le pone https://
- */
 function normalizeUrl(raw) {
   try {
     if (!raw) return null;
     const s = String(raw).trim();
     if (!s) return null;
-    // si ya tiene http(s)
     if (/^https?:\/\//i.test(s)) return s;
-    // protocolo esquemático (//host/path)
     if (/^\/\//.test(s)) return `https:${s}`;
-    // ruta absoluta en el servidor (/uploads/...)
     if (/^\//.test(s)) return `${API_BASE_URL.replace(/\/$/, '')}${s}`;
-    // si solo es host/path sin esquema, prefijar https://
     return /^.+\..+/.test(s) ? `https://${s}` : null;
   } catch (e) {
     return null;
   }
 }
 
-/**
- * Normalizer helper:
- * crea un objeto 'visit' limpio (solo campos serializables y útiles para DetailScreen)
- * convierte y normaliza URLs para logo/banner
- */
 function buildVisitFromFav(item) {
   try {
     if (!item || typeof item !== 'object') {
@@ -121,7 +104,6 @@ function buildVisitFromFav(item) {
       };
     }
 
-    // intentar múltiples campos
     const rawRestaurantImage =
       item.restaurantImage ??
       item.restaurant_image ??
@@ -130,7 +112,7 @@ function buildVisitFromFav(item) {
       item.logo ??
       item.logo_url ??
       item.image_logo ??
-      item.image_url ?? // preview from toggleFavorite
+      item.image_url ??
       item.image ??
       item.imagen ??
       null;
@@ -212,7 +194,6 @@ function buildVisitFromFav(item) {
       total: item.total ?? item.amount ?? null,
       moneda: item.moneda ?? 'MXN',
 
-      // incluimos el preview original por compatibilidad ligera (no es el raw completo)
       preview: {
         id: item.id ?? null,
         name: item.name ?? item.restaurantName ?? null,
@@ -254,6 +235,7 @@ function buildVisitFromFav(item) {
 
 export default function FavoritesScreen({ route, navigation }) {
   const { width, wp, hp, rf, clamp } = useResponsive(); /* RESPONSIVE */
+  const insets = useSafeAreaInsets();
 
   const { favorites: initialFavorites } = route.params ?? {};
   const [favorites, setFavorites] = useState(initialFavorites ?? []);
@@ -273,6 +255,10 @@ export default function FavoritesScreen({ route, navigation }) {
   const metaFontSize = clamp(rf(3), 12, 16);
   const emptyIconSize = clamp(rf(7.2), 40, 68);
   const listPaddingBottom = Math.max(16, hp(4));
+
+  // top safe area: usa inset top (notch) o statusbar height en Android si es mayor
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  const flatlistPaddingBottom = Math.round((insets.bottom || 0) + listPaddingBottom);
 
   useEffect(() => {
     (async () => {
@@ -308,7 +294,7 @@ export default function FavoritesScreen({ route, navigation }) {
     const q = search.toLowerCase();
     setDisplayed(
       favorites.filter(item =>
-        ( (item.name ?? item.restaurantName ?? item.restaurant ?? '') + '' ).toLowerCase().includes(q)
+        (((item.name ?? item.restaurantName ?? item.restaurant ?? '') + '')).toLowerCase().includes(q)
       )
     );
   }, [search, favorites]);
@@ -348,7 +334,6 @@ export default function FavoritesScreen({ route, navigation }) {
   const onPressNavigateToRestaurant = (item) => {
     try {
       const visit = buildVisitFromFav(item);
-      // ENVIAR varias formas por compatibilidad con DetailScreen:
       navigation.navigate('Restaurant', { visit, id: visit.id, restaurant: visit });
     } catch (e) {
       console.warn('onPressNavigateToRestaurant error', e);
@@ -357,7 +342,6 @@ export default function FavoritesScreen({ route, navigation }) {
   };
 
   const renderCard = ({ item }) => {
-    // resolver imagen para la tarjeta (normalizada)
     const bannerRaw = item.bannerImage ?? item.imagen_banner_url ?? item.image_url ?? item.image ?? item.banner ?? null;
     const bannerUri = normalizeUrl(bannerRaw);
 
@@ -400,7 +384,7 @@ export default function FavoritesScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
       <View style={[styles.header, { paddingHorizontal: horizPadding, paddingVertical: headerPaddingV }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={clamp(rf(5.2), 20, 30)} color={BLUE} />
@@ -423,7 +407,7 @@ export default function FavoritesScreen({ route, navigation }) {
       </View>
 
       {(!displayed || displayed.length === 0) ? (
-        <View style={styles.emptyContainer}>
+        <View style={[styles.emptyContainer, { paddingTop: Math.round(hp(12)) }]}>
           <Ionicons
             name="heart-dislike-outline"
             size={emptyIconSize}
@@ -438,7 +422,7 @@ export default function FavoritesScreen({ route, navigation }) {
           data={displayed}
           keyExtractor={item => String(item.id)}
           renderItem={renderCard}
-          contentContainerStyle={[styles.list, { paddingBottom: listPaddingBottom, paddingHorizontal: horizPadding / 2 }]}
+          contentContainerStyle={[styles.list, { paddingBottom: flatlistPaddingBottom, paddingHorizontal: horizPadding / 2 }]}
         />
       )}
     </SafeAreaView>
@@ -486,7 +470,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 80,
   },
   emptyText: {
     marginTop: 8,

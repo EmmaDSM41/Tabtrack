@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -13,39 +14,40 @@ import {
   Pressable,
   Animated,
   Easing,
-  Dimensions,
   Platform,
-  useWindowDimensions,
   Keyboard,
+  useWindowDimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ToastLib from 'react-native-root-toast';
 
-const { width: WIDTH_STATIC } = Dimensions.get('window');
 const BLUE = '#0046ff';
 const DOT_COLOR = '#ccc';
-
-const API_BASE_URL = 'https://api.tab-track.com/api/mobileapp/usuarios'; 
+const API_BASE_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
 
 export default function InfoPersonal({ navigation }) {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  // responsive helpers
   const wp = (p) => (width * Number(p)) / 100;
   const hp = (p) => (height * Number(p)) / 100;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // responsive values
   const iconSize = clamp(Math.round(width * 0.055), 18, 28);
   const headerPadV = clamp(Math.round(hp(3)), 8, 36);
   const headerPadH = clamp(Math.round(wp(4)), 8, 30);
-  const logoW = clamp(Math.round(wp(18)), 64, 140);
   const avatarSize = clamp(Math.round(wp(6.5)), 32, 56);
   const fieldFont = clamp(Math.round(width * 0.036), 13, 16);
   const labelFont = clamp(Math.round(width * 0.038), 13, 18);
   const modalWidth = Math.min(Math.round(width * 0.9), 720);
   const titleFont = clamp(Math.round(width * 0.038), 20, 22);
 
+  // state
   const [user, setUser] = useState({
     nombre: '',
     apellido: '',
@@ -73,7 +75,12 @@ export default function InfoPersonal({ navigation }) {
   const currentInputRef = useRef(null);
   const keyboardListenerRef = useRef(null);
 
-   useEffect(() => {
+  // combine safe area top with StatusBar height for Android
+  const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
+  // bottom safe for toast placement
+  const bottomSafe = Math.round(insets.bottom || 0);
+
+  useEffect(() => {
     (async () => {
       const id = await AsyncStorage.getItem('user_usuario_app_id');
       if (!id) return navigation.replace('Login');
@@ -87,10 +94,8 @@ export default function InfoPersonal({ navigation }) {
         const telefono = await AsyncStorage.getItem('user_telefono') || '';
         const tipo_comida = await AsyncStorage.getItem('user_tipo_comida') || '';
 
-        // inicializa con lo que haya en AsyncStorage (si existe)
         setUser({ nombre, apellido, cumpleanos, direccion, mail, telefono, tipo_comida });
 
-        // <-- AÑADIDO: leer url de foto de perfil cacheada y guardarla en el estado local
         try {
           const cachedUrl = await AsyncStorage.getItem('user_profile_url');
           if (cachedUrl) setProfileUrl(cachedUrl);
@@ -98,7 +103,7 @@ export default function InfoPersonal({ navigation }) {
           console.warn('Error leyendo user_profile_url desde AsyncStorage', e);
         }
 
-        // ---------- AÑADIDO: consulta a la API por mail para obtener la info oficial del usuario ----------
+        // fetch official user info by email if available
         try {
           const mailToQuery = mail || '';
           if (mailToQuery) {
@@ -157,7 +162,6 @@ export default function InfoPersonal({ navigation }) {
         } catch (errApi) {
           console.warn('InfoPersonal: error fetching usuarios by mail', errApi);
         }
-        // ----------------------------------------------------------------------------------------------
       } catch (e) {
         ToastLib.show('Error al cargar datos', { duration: 2000 });
       } finally {
@@ -166,11 +170,10 @@ export default function InfoPersonal({ navigation }) {
     })();
   }, [navigation]);
 
-  // Keyboard listener: cuando el teclado se oculta, finalizamos la edición inline
+  // Keyboard listener: when keyboard hides finish inline edit
   useEffect(() => {
     const onHide = () => {
       if (editingKey) {
-        // guardamos el campo que estaba en edición
         finishInlineEdit(editingKey);
       }
     };
@@ -203,7 +206,7 @@ export default function InfoPersonal({ navigation }) {
     });
   };
 
-  // openModal (se deja por compatibilidad pero ya no se usa para editar inline)
+  // openModal (kept for compatibility)
   const openModal = (key, label) => {
     setFieldKey(key);
     setFieldLabel(label);
@@ -211,30 +214,24 @@ export default function InfoPersonal({ navigation }) {
     setModalVisible(true);
   };
 
-  // saveField (mantener para modal compatibilidad)
   const saveField = () => {
     const updatedUser = { ...user, [fieldKey]: fieldValue };
     setUser(updatedUser);
     setModalVisible(false);
-
-    // Guardar automáticamente en AsyncStorage
     AsyncStorage.setItem(`user_${fieldKey}`, fieldValue);
   };
 
-  // Nuevo: guardar inline cuando termina edición (onBlur, onSubmitEditing o al pulsar fuera)
+  // finish inline edit: blur + save to AsyncStorage
   const finishInlineEdit = async (key) => {
     if (!key) {
       setEditingKey(null);
       return;
     }
     try {
-      // blur keyboard explicitly
       try { currentInputRef.current && currentInputRef.current.blur(); } catch (_) { Keyboard.dismiss(); }
       const val = user[key] ?? '';
       await AsyncStorage.setItem(`user_${key}`, val);
       setEditingKey(null);
-      // feedback opcional (comentado para no spamear)
-      // showToast('Cambios locales guardados', null, styles.successToast, 900);
     } catch (e) {
       console.warn('Error guardando campo inline', e);
       showToast('No se pudo guardar localmente', null, styles.toast, 1500);
@@ -242,10 +239,8 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
-  // Al presionar la fila: entrar en edición inline y focus al input
   const enterInlineEdit = (key) => {
     setEditingKey(key);
-    // focus after render
     requestAnimationFrame(() => {
       try {
         if (currentInputRef.current && typeof currentInputRef.current.focus === 'function') {
@@ -258,7 +253,6 @@ export default function InfoPersonal({ navigation }) {
   };
 
   const handleSave = async () => {
-    // asegúrate de finalizar cualquier edición pendiente antes de enviar
     if (editingKey) {
       await finishInlineEdit(editingKey);
     }
@@ -301,7 +295,7 @@ export default function InfoPersonal({ navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
         <ActivityIndicator size="large" color={BLUE} style={{ marginTop: 50 }} />
       </SafeAreaView>
     );
@@ -326,18 +320,20 @@ export default function InfoPersonal({ navigation }) {
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" />
-
-      {/* HEADER */}
-      <View style={[
-        styles.header,
-        { paddingVertical: headerPadV, paddingHorizontal: headerPadH }
-      ]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+      <View style={[styles.header, { paddingVertical: headerPadV, paddingHorizontal: headerPadH }]}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 12, left: 12, right: 12, bottom: 12 }}
+          accessibilityLabel="Regresar"
+        >
           <Ionicons name="arrow-back" size={iconSize} color={BLUE} />
         </TouchableOpacity>
+
         <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
+
         <View style={styles.headerRight}>
           <View style={{
             width: avatarSize,
@@ -348,20 +344,11 @@ export default function InfoPersonal({ navigation }) {
             marginHorizontal: 8
           }}>
             {profileUrl ? (
-              <Image
-                source={{ uri: profileUrl }}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="cover"
-              />
+              <Image source={{ uri: profileUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             ) : (
-              <View style={{
-                width: '100%',
-                height: '100%',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
+              <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={[styles.avatarInitials, { fontSize: Math.round(avatarSize * 0.36) }]}>
-                  {getInitials(user.nombre || 'Usuario' ) || '👤'}
+                  {getInitials(user.nombre || 'Usuario') || '👤'}
                 </Text>
               </View>
             )}
@@ -373,7 +360,10 @@ export default function InfoPersonal({ navigation }) {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: Math.min(36, Math.round(wp(6))) }]} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: Math.min(36, Math.round(wp(6))) }]}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.sectionHeader}>
           <Ionicons name="person-outline" size={Math.max(18, iconSize)} color={BLUE} />
           <Text style={[styles.sectionTitle, { fontSize: labelFont }]}>Información Personal</Text>
@@ -381,7 +371,6 @@ export default function InfoPersonal({ navigation }) {
 
         {fields.map(([key, label], idx) => (
           <View key={key}>
-            {/* la fila completa es tocable para entrar en edición */}
             <TouchableOpacity
               activeOpacity={0.9}
               onPress={() => enterInlineEdit(key)}
@@ -392,7 +381,7 @@ export default function InfoPersonal({ navigation }) {
               <View style={styles.fieldValueRow}>
                 {editingKey === key ? (
                   <TextInput
-                    ref={currentInputRef}
+                    ref={(r) => { currentInputRef.current = r; }}
                     value={user[key] ?? ''}
                     onChangeText={(t) => setUser(prev => ({ ...prev, [key]: t }))}
                     onBlur={() => finishInlineEdit(key)}
@@ -408,7 +397,6 @@ export default function InfoPersonal({ navigation }) {
                 ) : (
                   <Text style={[styles.fieldValue, { fontSize: fieldFont }]}>{user[key] || 'No especificado'}</Text>
                 )}
-                {/* Mantengo el espacio del botón visualmente pero sin funcionalidad para que el diseño no se rompa */}
                 <View style={{ width: 8 }} />
               </View>
             </TouchableOpacity>
@@ -426,8 +414,7 @@ export default function InfoPersonal({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal (se mantiene por compatibilidad; ya no se usa para la edición inline) */}
-      <Modal transparent visible={modalVisible} animationType="fade">
+      <Modal transparent visible={modalVisible} animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalBackground}>
           <View style={[styles.modalContainer, { width: modalWidth, padding: Math.max(12, Math.round(wp(3))) }]}>
             <Text style={[styles.modalTitle, { fontSize: clamp(Math.round(width * 0.044), 14, 18) }]}>Editar {fieldLabel}</Text>
@@ -448,17 +435,15 @@ export default function InfoPersonal({ navigation }) {
         </View>
       </Modal>
 
-      {/* Toast animado */}
+      {/* Animated toast - respect bottom safe area */}
       <Animated.View
         pointerEvents="none"
         style={[
           toastStyle,
           {
             opacity: toastAnim,
-            transform: [
-              { translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
-            ],
-            bottom: Platform.OS === 'ios' ? Math.max(70, hp(8)) : Math.max(40, hp(4))
+            transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+            bottom: (Platform.OS === 'ios' ? Math.max(70, bottomSafe + 10) : Math.max(40, bottomSafe + 6))
           }
         ]}
       >
@@ -470,20 +455,18 @@ export default function InfoPersonal({ navigation }) {
   );
 }
 
-// Tus estilos base (se mantienen; valores dinámicos se aplican por merge)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: BLUE },
-  headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold', },
+  headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold' },
   headerRight: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
   profileAvatar: { width: 32, height: 32, borderRadius: 16, marginHorizontal: 8 },
   username: { fontSize: 16, color: '#000', marginRight: 16, fontFamily: 'Montserrat-Regular' },
   backButton: { marginRight: -5 },
-  logo: { width: 80, height: 24, resizeMode: 'contain' },
   scrollContent: { paddingTop: 16, paddingBottom: 32 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: BLUE, marginLeft: 8, fontFamily: 'Montserrat-Bold' },
-  fieldRow: { /* marginVertical dynamic */ },
+  fieldRow: {},
   fieldLabel: { fontSize: 15, color: '#333', marginBottom: 4, fontFamily: 'Montserrat-Regular' },
   fieldValueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   fieldValue: { fontSize: 13, color: '#000', flex: 1, marginRight: 12, fontFamily: 'Montserrat-Regular' },
@@ -493,7 +476,7 @@ const styles = StyleSheet.create({
   saveButton: { alignSelf: 'flex-start', backgroundColor: BLUE, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   saveButtonText: { color: '#fff', fontSize: 14, fontWeight: '600', fontFamily: 'Montserrat-Bold' },
   modalBackground: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContainer: { width: WIDTH_STATIC * 0.8, backgroundColor: '#fff', borderRadius: 8, padding: 16 },
+  modalContainer: { width: 320, backgroundColor: '#fff', borderRadius: 8, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Montserrat-Regular', color: '#000' },
   modalInput: { borderWidth: 1, borderColor: DOT_COLOR, borderRadius: 6, padding: 8, fontSize: 14, marginBottom: 16, fontFamily: 'Montserrat-Regular', color: '#000', width: '100%' },
   modalButtons: { flexDirection: 'row', justifyContent: 'flex-end' },

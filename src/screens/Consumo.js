@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN =  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
@@ -34,6 +35,7 @@ export default function Consumo() {
   const navigation = useNavigation();
   const route = useRoute();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const wp = (p) => (Number(p) / 100) * width;
   const hp = (p) => (Number(p) / 100) * height;
@@ -132,7 +134,7 @@ export default function Consumo() {
 
   const totalStr = formatMoney(total);
   const baseTotalFont = totalFontSizeFor(totalStr);
-  const scaleFactor = Math.max(0.9, Math.min(1.4, width / 360)); 
+  const scaleFactor = Math.max(0.9, Math.min(1.4, width / 360));
   const totalFont = Math.round(baseTotalFont * scaleFactor);
 
   if (loading || !items) {
@@ -179,10 +181,10 @@ export default function Consumo() {
 
   const addTipLabel = tipApplied ? 'Añadir/editar propina' : 'Añadir propina';
 
-  const styles = makeStyles({ wp, hp, rf, clamp, width, height, totalFont });
+  const styles = makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets });
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { paddingTop: 0 }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}><Text style={styles.backArrow}>{'‹'}</Text></TouchableOpacity>
@@ -292,14 +294,18 @@ const stylesBase = StyleSheet.create({
 });
 
 /* responsive styles generator */
-function makeStyles({ wp, hp, rf, clamp, width, height, totalFont }) {
+function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
+  // safe top to avoid notch/statusbar overlap
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const contentMaxWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
+
   return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f5f7fb' },
+    safe: { flex: 1, backgroundColor: '#f5f7fb', paddingTop: topSafe },
     loaderWrap: { flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#f5f7fb' },
 
     topBar: {
       width: '100%',
-      height: Math.round(hp(9.6)), // ~88 on 915 height
+      height: Math.round(hp(9.6)),
       paddingHorizontal: Math.round(wp(3.5)),
       alignItems: 'center',
       flexDirection: 'row',
@@ -307,13 +313,13 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont }) {
       backgroundColor: '#fff',
       borderBottomWidth: 1,
       borderBottomColor: '#eee',
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : Math.round(hp(1)),
+      paddingTop: Math.round(Math.max(6, insets?.top ?? 6)),
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
     backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
     title: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
 
-    container: { alignItems: 'center', paddingBottom: Math.round(hp(3)), paddingTop: Math.round(hp(1)) },
+    container: { alignItems: 'center', paddingBottom: Math.round(hp(3) + (insets?.bottom ?? 0)), paddingTop: Math.round(hp(1)) },
 
     headerGradient: {
       width: '100%',
@@ -345,7 +351,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont }) {
     thanksText: { color: '#fff', fontWeight: '700', fontSize: Math.round(clamp(rf(3.2), 12, 16)) },
     thanksSub: { color: 'rgba(255,255,255,0.95)', fontSize: Math.round(clamp(rf(2.8), 10, 14)), marginTop: Math.round(hp(0.6)), textAlign: 'right' },
 
-    content: { width: Math.round(Math.min(width - Math.round(wp(8)), 520)), backgroundColor: '#fff', padding: Math.round(wp(4)), marginTop: 0 },
+    content: { width: contentMaxWidth, backgroundColor: '#fff', padding: Math.round(wp(4)), marginTop: 0 },
 
     sectionTitleLarge: { fontSize: Math.round(clamp(rf(6.6), 18, 32)), fontWeight: '700', marginBottom: Math.round(hp(1)), color: '#000' },
 
