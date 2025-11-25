@@ -91,6 +91,9 @@ export default function Dividir() {
   };
   const hideStyledAlert = () => setStyledAlertVisible(false);
 
+  // CHECK: flag que indica si debemos ocultar el botón "Partes iguales"
+  const hideEqualButtonFlag = !!route?.params?.hideEqualButton;
+
   const parsePrice = (v) => {
     if (v === undefined || v === null) return 0;
     if (typeof v === 'number') return v;
@@ -261,7 +264,7 @@ export default function Dividir() {
         }
 
         const rawItems = Array.isArray(json.items) ? json.items : (json.data?.items ?? json.result?.items ?? []);
-        const mapped = (Array.isArray(rawItems) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+        const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
         if (mounted) {
           setItems(mapped);
           if (allowPaymentsCheck) {
@@ -558,9 +561,18 @@ export default function Dividir() {
     const pIva = round2(pTotal / 1.16 * 0.16);
     const pSubtotal = round2(pTotal - pIva);
 
+    // MAPEO DE ITEMS: asegurarnos de enviar campos de precio comunes para evitar 0 en la pantalla objetivo
+    const payloadForEqual = payload.map(it => ({
+      ...it,
+      price: Number(it.price || 0),
+      unitPrice: Number(it.price || it.unitPrice || it.lineTotal || 0),
+      lineTotal: Number(it.price || it.lineTotal || it.unitPrice || 0),
+      precio_item: Number(it.price || 0),
+    }));
+
     navigation.navigate('EqualSplit', {
       ...sharedHiddenFields(),
-      items: payload,
+      items: payloadForEqual,
       total_comensales: totalComensales,
       fromToken: token,
       subtotal: pSubtotal,
@@ -569,6 +581,7 @@ export default function Dividir() {
       total_consumo: pTotal,
       total_from_dividir: pTotal,
     });
+    return;
   };
 
   const handleOneExhibicion = () => {
@@ -577,42 +590,42 @@ export default function Dividir() {
       return;
     }
 
-  const payloadItems = anySelected ? selectedItems : items.filter(it => !it.locked);
+    const payloadItems = anySelected ? selectedItems : items.filter(it => !it.locked);
 
-  if (usesExternalTotal && !anySelected) {
+    if (usesExternalTotal && !anySelected) {
+      navigation.navigate('OneExhibicion', {
+        token,
+        items: payloadItems,
+        subtotal,
+        iva,
+        total,
+        total_comensales: totalComensales,
+        restaurantImage: null,
+        ...sharedHiddenFields(),
+      });
+      return;
+    }
+
+    const pTotalRaw = payloadItems.reduce((s, it) => s + Number(it.price || 0), 0);
+    const pTotal = round2(pTotalRaw);
+    const pIva = round2(pTotal / 1.16 * 0.16);
+    const pSubtotal = round2(pTotal - pIva);
+
+    if (anySelected && saleId && selectedIdsArray.length > 0) {
+      savePendingLocal(saleId, selectedIdsArray, pTotal).catch(e => console.warn('savePendingLocal error', e));
+    }
+
     navigation.navigate('OneExhibicion', {
       token,
       items: payloadItems,
-      subtotal,
-      iva,
-      total,
+      subtotal: pSubtotal,
+      iva: pIva,
+      total: pTotal,
       total_comensales: totalComensales,
       restaurantImage: null,
       ...sharedHiddenFields(),
     });
-    return;
-  }
-
-  const pTotalRaw = payloadItems.reduce((s, it) => s + Number(it.price || 0), 0);
-  const pTotal = round2(pTotalRaw);
-  const pIva = round2(pTotal / 1.16 * 0.16);
-  const pSubtotal = round2(pTotal - pIva);
-
-  if (anySelected && saleId && selectedIdsArray.length > 0) {
-    savePendingLocal(saleId, selectedIdsArray, pTotal).catch(e => console.warn('savePendingLocal error', e));
-  }
-
-  navigation.navigate('OneExhibicion', {
-    token,
-    items: payloadItems,
-    subtotal: pSubtotal,
-    iva: pIva,
-    total: pTotal,
-    total_comensales: totalComensales,
-    restaurantImage: null,
-    ...sharedHiddenFields(),
-  });
-};
+  };
 
   const handleBack = () => navigation.canGoBack?.() ? navigation.goBack() : null;
 
@@ -647,10 +660,22 @@ export default function Dividir() {
   }
 
   // computed sizes used inline
-  const shareBtnWidth = Math.round(Math.min(width - sidePad * 2, 420));
   const rightColWidth = Math.round(Math.min(360, width * 0.72));
   const whiteContentWidth = contentMaxWidth;
   const modalBoxWidth = Math.round(Math.min(width - 48, 420));
+
+  // FIX: asegurar que los botones (shareBtnWidth) no sean más anchos que el contenedor blanco
+  const whiteContentPad = Math.round(wp(4)) * 2; // paddingHorizontal * 2 (left+right)
+  const shareBtnWidth = Math.round(
+    Math.max(
+      120,
+      Math.min(
+        (whiteContentWidth || (width - sidePad * 2)) - whiteContentPad,
+        width - sidePad * 2 - whiteContentPad,
+        420
+      )
+    )
+  );
 
   // memoize styles (no recreación cada render)
   const styles = useMemo(() => makeStyles({
@@ -673,23 +698,33 @@ export default function Dividir() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
-        <LinearGradient colors={['#FF2FA0', '#7C3AED', '#0046ff']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.0 }} locations={[0, 0.5, 1]} style={styles.bigGradient}>
-          <View style={[styles.gradientContentRow, isNarrow ? { flexDirection: 'column' } : { flexDirection: 'row' }]}>
-            <View style={styles.leftGradientCol}>
-              <Image source={require('../../assets/images/logo2.png')} style={styles.tabtrackLogo} resizeMode="contain" />
-              <View style={styles.circleWrap}>
-                <Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantCircle} resizeMode="cover" />
+
+        {/* Ajuste: header similar al que me pasaste (logo arriba + imagen, pregunta a la derecha) */}
+        <LinearGradient
+          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.0 }}
+          locations={[0, 0.45, 1]}
+          style={[styles.headerGradient, { paddingHorizontal: Math.max(sidePad, wp(4)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}
+        >
+          <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
+            <View style={[styles.leftCol]}>
+              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: Math.round(Math.min(120, wp(28))), height: Math.round(Math.min(48, wp(28) * 0.32)), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
+              <View style={[styles.logoWrap, { marginTop: Math.max(6, hp(0.6)), padding: Math.max(6, wp(1.5)), borderRadius: Math.max(8, wp(2)) }]}>
+                <Image source={require('../../assets/images/restaurante.jpeg')} style={[styles.restaurantImage, { width: Math.round(Math.min(96, wp(16))), height: Math.round(Math.min(96, wp(16))), borderRadius: Math.round(Math.min(96, wp(16)) * 0.16) }]} />
               </View>
             </View>
 
-            <View style={[styles.rightGradientCol, { width: rightColWidth }]}>
-              <Text style={styles.divideTitle}>{'¿Cómo desea\ndividir la cuenta?'}</Text>
+            <View style={[styles.rightCol, { maxWidth: rightColWidth, marginRight: Math.max(12, wp(3)) }]}>
+              {/* Pregunta: ahora un poco más chica */}
+              <Text style={[styles.divideTitle]}>{'¿Cómo desea\ndividir la cuenta?'}</Text>
 
               <View style={styles.stackButtons}>
-                {/* Solo Partes iguales en el degradado */}
-                <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Text style={styles.ghostButtonText}>Partes iguales</Text>
-                </TouchableOpacity>
+                { !hideEqualButtonFlag && (
+                  <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Text style={styles.ghostButtonText}>Partes iguales</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>
@@ -831,7 +866,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
       backgroundColor: '#ffffff',
       borderBottomWidth: 1,
       borderBottomColor: '#eee',
-      paddingTop: 0, // no usar Platform aquí; topSafe se aplica en SafeAreaView
+      paddingTop: 0,
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
     backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
@@ -840,26 +875,21 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
 
     container: { alignItems: 'center', paddingTop: Math.round(hp(1)), paddingBottom: Math.round(hp(3) + bottomSafe) },
 
-    bigGradient: {
-      width: '100%',
-      paddingHorizontal: Math.round(sidePad || wp(4)),
-      paddingTop: Math.round(hp(2)),
-      paddingBottom: Math.round(hp(3)),
-      borderBottomRightRadius: Math.round(wp(10)),
-      overflow: 'hidden',
-    },
-    gradientContentRow: { justifyContent: 'space-between', alignItems: 'flex-start' },
+    /* headerGradient style taken from your reference layout (Escanear) */
+    headerGradient: { width: '100%', borderBottomRightRadius: Math.round(Math.max(28, wp(8))), overflow: 'hidden' },
+    gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
 
-    leftGradientCol: { flex: 1, flexDirection: 'column', alignItems: 'flex-start' },
-    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 28, 48)), marginBottom: Math.round(hp(0.6)) },
-    circleWrap: { marginTop: Math.round(hp(1.8)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
-    restaurantCircle: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
+    leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+    tabtrackLogo: { },
+    logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
+    restaurantImage: { backgroundColor: '#fff' },
 
-    rightGradientCol: { paddingLeft: Math.round(wp(2.4)), paddingTop: Math.round(hp(0.6)), alignItems: isNarrow ? 'flex-start' : 'flex-end', marginRight: Math.round(wp(2)) },
-    divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.0), 18, 28)), fontWeight: '800', lineHeight: Math.round(clamp(rf(7.5), 22, 34)), marginBottom: Math.round(hp(1)), textAlign: isNarrow ? 'left' : 'right', width: '100%' },
+    rightCol: { alignItems: isNarrow ? 'flex-start' : 'flex-end', justifyContent: 'flex-start', paddingTop: 2 },
+    // Pregunta un poco más pequeña que antes, y alineación responsiva (derecha en pantallas amplias)
+    divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.6), 16, 36)), fontWeight: '900', lineHeight: Math.round(clamp(rf(7.8), 20, 42)), marginBottom: Math.round(hp(1)), textAlign: isNarrow ? 'left' : 'right', width: '100%' },
 
     stackButtons: { width: '100%', alignItems: isNarrow ? 'flex-start' : 'flex-end' },
-    ghostButton: { width: isNarrow ? '100%' : '70%', borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.4)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), marginBottom: Math.round(hp(0.8)), alignSelf: isNarrow ? 'stretch' : 'flex-end' },
+    ghostButton: { width: isNarrow ? '100%' : Math.round(wp(38)), borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.4)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), marginBottom: Math.round(hp(0.8)) },
     ghostButtonText: { color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: Math.round(clamp(rf(3.6), 13, 16)) },
 
     pinkButton: { width: isNarrow ? '100%' : '70%', backgroundColor: '#7F00FF', paddingVertical: Math.round(hp(1.6)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)), alignSelf: isNarrow ? 'stretch' : 'flex-end' },
@@ -887,7 +917,8 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     ivaRow: { paddingTop: 0 },
     ivaText: { fontWeight: '800' },
 
-    shareButton: { backgroundColor: '#0046ff', paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2)), alignItems: 'center', marginTop: Math.round(hp(1)) },
+    // aseguramos que los botones estén centrados dentro del contenedor blanco
+    shareButton: { backgroundColor: '#0046ff', paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2)), alignItems: 'center', marginTop: Math.round(hp(1)), alignSelf: 'center' },
     shareButtonText: { color: '#fff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
 
     socialRow: { flexDirection: 'row', justifyContent: 'center', marginTop: Math.round(hp(1.2)) },
@@ -914,6 +945,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.12,
       shadowRadius: 6,
+      alignSelf: 'center',
     },
 
     shareButtonTouchable: {

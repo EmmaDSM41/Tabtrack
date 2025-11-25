@@ -17,6 +17,7 @@ import {
   Platform,
   Keyboard,
   useWindowDimensions,
+  FlatList,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +28,9 @@ const BLUE = '#0046ff';
 const DOT_COLOR = '#ccc';
 const API_BASE_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+
+// NUEVO: endpoint para tipos de comida
+const FOOD_TYPES_ENDPOINT = 'https://api.tab-track.com/api/catalogos/tipos-comida';
 
 export default function InfoPersonal({ navigation }) {
   const { width, height } = useWindowDimensions();
@@ -74,6 +78,12 @@ export default function InfoPersonal({ navigation }) {
   const [editingKey, setEditingKey] = useState(null);
   const currentInputRef = useRef(null);
   const keyboardListenerRef = useRef(null);
+
+  // NUEVO: estados para selector de tipo de comida
+  const [foodOptions, setFoodOptions] = useState([]);
+  const [foodLoading, setFoodLoading] = useState(false);
+  const [selectorVisible, setSelectorVisible] = useState(false);
+  const [foodFetchError, setFoodFetchError] = useState(null);
 
   // combine safe area top with StatusBar height for Android
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
@@ -166,6 +176,8 @@ export default function InfoPersonal({ navigation }) {
         ToastLib.show('Error al cargar datos', { duration: 2000 });
       } finally {
         setLoading(false);
+        // NUEVO: iniciar fetch de tipos de comida una vez que ya cargó lo local
+        fetchFoodTypes();
       }
     })();
   }, [navigation]);
@@ -239,7 +251,14 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
+  // Modificado: si es tipo_comida abrimos selector, si no usamos inline edit como antes
   const enterInlineEdit = (key) => {
+    if (key === 'tipo_comida') {
+      // abrir selector
+      setSelectorVisible(true);
+      return;
+    }
+
     setEditingKey(key);
     requestAnimationFrame(() => {
       try {
@@ -293,6 +312,37 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
+  // -----------------------
+  // NUEVO: fetch tipos de comida
+  // -----------------------
+  const fetchFoodTypes = async () => {
+    setFoodLoading(true);
+    setFoodFetchError(null);
+    try {
+      const headers = { Accept: 'application/json' };
+      if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+
+      const resp = await fetch(FOOD_TYPES_ENDPOINT, { method: 'GET', headers });
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => null);
+        console.warn('Error fetch tipos-comida', resp.status, txt);
+        setFoodFetchError(`Error ${resp.status}`);
+        setFoodOptions([]);
+        return;
+      }
+      const body = await resp.json();
+      const items = Array.isArray(body.items) ? body.items : [];
+      // Normalize to objects with id + nombre
+      setFoodOptions(items.map(it => ({ id: it.id, nombre: it.nombre })));
+    } catch (err) {
+      console.warn('Network error fetching tipos-comida', err);
+      setFoodFetchError('Error de red');
+      setFoodOptions([]);
+    } finally {
+      setFoodLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
@@ -318,6 +368,20 @@ export default function InfoPersonal({ navigation }) {
     ['telefono', 'Teléfono'],
     ['tipo_comida', 'Tipo de comida']
   ];
+
+  // NUEVO: selecciona una opción del selector y guarda local
+  const onSelectFood = async (option) => {
+    const value = option?.nombre ?? '';
+    const updated = { ...user, tipo_comida: value };
+    setUser(updated);
+    try {
+      await AsyncStorage.setItem('user_tipo_comida', value);
+    } catch (e) {
+      console.warn('Error guardando user_tipo_comida en AsyncStorage', e);
+    }
+    setSelectorVisible(false);
+    showToast(`Seleccionado: ${value}`);
+  };
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
@@ -379,7 +443,7 @@ export default function InfoPersonal({ navigation }) {
               <Text style={[styles.fieldLabel, { fontSize: fieldFont }]}>{label}</Text>
 
               <View style={styles.fieldValueRow}>
-                {editingKey === key ? (
+                {editingKey === key && key !== 'tipo_comida' ? (
                   <TextInput
                     ref={(r) => { currentInputRef.current = r; }}
                     value={user[key] ?? ''}
@@ -395,6 +459,7 @@ export default function InfoPersonal({ navigation }) {
                     blurOnSubmit
                   />
                 ) : (
+                  // si es tipo_comida mostramos el texto actual (y al presionar se abre selector via enterInlineEdit)
                   <Text style={[styles.fieldValue, { fontSize: fieldFont }]}>{user[key] || 'No especificado'}</Text>
                 )}
                 <View style={{ width: 8 }} />
@@ -414,6 +479,7 @@ export default function InfoPersonal({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Generic edit modal kept (unchanged) */}
       <Modal transparent visible={modalVisible} animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalBackground}>
           <View style={[styles.modalContainer, { width: modalWidth, padding: Math.max(12, Math.round(wp(3))) }]}>
@@ -431,6 +497,55 @@ export default function InfoPersonal({ navigation }) {
                 <Text style={[styles.modalButtonText, { color: '#fff', fontSize: fieldFont }]}>Guardar</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NUEVO: Selector modal para tipos de comida */}
+      <Modal visible={selectorVisible} transparent animationType="slide" onRequestClose={() => setSelectorVisible(false)}>
+        <View style={styles.selectorOverlay}>
+          <View style={[styles.selectorContainer, { width: Math.min(modalWidth, Math.round(width * 0.96)) }]}>
+            <View style={styles.selectorHeader}>
+              <Text style={[styles.selectorTitle, { fontSize: Math.max(16, labelFont) }]}>Selecciona tipo de comida</Text>
+              <TouchableOpacity onPress={() => setSelectorVisible(false)}>
+                <Ionicons name="close" size={20} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {foodLoading ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator />
+              </View>
+            ) : foodFetchError ? (
+              <View style={{ padding: 16 }}>
+                <Text style={{ color: '#a00' }}>No se pudieron cargar las opciones ({foodFetchError}).</Text>
+                <TouchableOpacity onPress={fetchFoodTypes} style={{ marginTop: 12 }}>
+                  <Text style={{ color: BLUE }}>Reintentar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={foodOptions}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={({ item }) => {
+                  const selected = (item.nombre === (user.tipo_comida || ''));
+                  return (
+                    <TouchableOpacity
+                      onPress={() => onSelectFood(item)}
+                      style={[styles.selectorItem, selected && styles.selectorItemSelected]}
+                    >
+                      <Text style={[styles.selectorItemText, selected && { fontWeight: '700' }]}>{item.nombre}</Text>
+                      {selected && <Ionicons name="checkmark" size={18} color={BLUE} />}
+                    </TouchableOpacity>
+                  );
+                }}
+                ListEmptyComponent={() => (
+                  <View style={{ padding: 16 }}>
+                    <Text style={{ color: '#666' }}>No hay opciones disponibles.</Text>
+                  </View>
+                )}
+              />
+            )}
           </View>
         </View>
       </Modal>
@@ -487,4 +602,13 @@ const styles = StyleSheet.create({
   successToast: { position: 'absolute', bottom: Platform.OS === 'ios' ? 100 : 60, alignSelf: 'center', backgroundColor: BLUE, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
+
+  // selector styles
+  selectorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
+  selectorContainer: { backgroundColor: '#fff', borderRadius: 12, maxHeight: '80%', overflow: 'hidden' },
+  selectorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderColor: '#eee' },
+  selectorTitle: { fontWeight: '700', color: '#222' },
+  selectorItem: { padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: '#f2f2f2' },
+  selectorItemSelected: { backgroundColor: 'rgba(0,70,255,0.06)' },
+  selectorItemText: { fontSize: 15, color: '#222' },
 });

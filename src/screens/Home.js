@@ -1,4 +1,3 @@
-// Home.js
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -37,7 +36,6 @@ import ResumenPago from './ResumenPago';
 import OneExhibicion from './OneExhibicion';
 import PaymentScreen from './PaymentScreen';
   
-
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -158,4 +156,3 @@ export default function Home() {
     </Tab.Navigator>
   );
 }
-

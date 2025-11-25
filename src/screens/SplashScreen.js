@@ -3,12 +3,40 @@ import React, { useEffect } from 'react';
 import { Image, StyleSheet, Platform, PixelRatio, useWindowDimensions, StatusBar } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SplashScreen({ navigation }) {
   useEffect(() => {
-    setTimeout(() => {
-      navigation.replace('Welcome');
-    }, 3000);
+    let mounted = true;
+
+    const decideAndNavigate = async () => {
+      try {
+        // Comprobamos claves que guarda Login.js para decidir si hay sesión activa.
+        const uid = await AsyncStorage.getItem('user_usuario_app_id');
+        const valid = await AsyncStorage.getItem('user_valid');
+        const email = await AsyncStorage.getItem('user_email');
+
+        const hasSession = !!(uid || (valid && (valid === 'true' || valid === '1')) || email);
+
+        // Mantener el mismo delay visual que ya tenía: 3s
+        setTimeout(() => {
+          if (!mounted) return;
+          navigation.replace(hasSession ? 'Home' : 'Welcome');
+        }, 3000);
+      } catch (err) {
+        // En caso de error, seguir al welcome (pero mantener el splash por 3s)
+        setTimeout(() => {
+          if (!mounted) return;
+          navigation.replace('Welcome');
+        }, 3000);
+      }
+    };
+
+    decideAndNavigate();
+
+    return () => {
+      mounted = false;
+    };
   }, [navigation]);
 
   const { width, height } = useWindowDimensions();

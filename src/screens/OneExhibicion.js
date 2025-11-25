@@ -151,14 +151,31 @@ export default function OneExhibicion() {
 
   const paidSum = useMemo(() => items.reduce((s, it) => s + Number(it.paidAmount || 0), 0), [items]);
 
+  // ------------------ Nuevo: detectar descuento (varias formas comunes) ------------------
+  const discountAmount = Number(
+    params.descuentos_venta?.monto_total ??
+    params.totales_venta?.total_descuentos ??
+    params.total_descuentos ??
+    params.total_descuento ??
+    params.descuento ??
+    params.discount_amount ??
+    params.monto_descuento ??
+    0
+  ) || 0;
+  // ----------------------------------------------------------------------------------------
+
   const pendingFromParams = Number(params.total_pending ?? params.totalPending ?? params.total_pending_amount ?? NaN);
   const hasPendingFromParams = !Number.isNaN(pendingFromParams);
-  const pendingTotalFromItems = +(originalTotal - paidSum).toFixed(2);
+
+  // Si no viene pending desde params, tomamos la suma de items - paidSum - descuento
+  const pendingTotalFromItems = +((originalTotal - paidSum - discountAmount)).toFixed(2);
   const pendingTotal = hasPendingFromParams ? Number(pendingFromParams) : (pendingTotalFromItems >= 0 ? pendingTotalFromItems : 0);
 
+  // IVA y subtotal (estimados) se calculan sobre pendingTotal (ya con descuento aplicado arriba)
   const iva = +(pendingTotal / 1.16 * 0.16).toFixed(2);
   const subtotal = +(pendingTotal - iva).toFixed(2);
 
+  // shownTotal (si hay propina aplicada o totalWithTip en params, lo respetamos)
   const shownTotal = tipApplied?.totalWithTip ?? pTotalWithTip ?? pendingTotal;
 
   const people = (typeof total_comensales === 'number' && total_comensales > 0) ? total_comensales : 1;
@@ -237,6 +254,9 @@ export default function OneExhibicion() {
   };
 
   const handlePay = () => {
+    // --- mantengo el cálculo de itemsToPay por compatibilidad y trazabilidad,
+    // pero NO lo envío en el payload hacia Payment para evitar que el backend
+    // vuelva a sumar items y genere el error "suma de items excede adeudo".
     const itemsToPay = (items || []).map((it) => {
       const line = Number(it.lineTotal || 0);
       if (it.canceled) return null;
@@ -260,24 +280,38 @@ export default function OneExhibicion() {
       };
     }).filter(Boolean);
 
+    // Suma de items (sin descuento)
     const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
-    const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
-    const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
+
+    // aplicamos descuento sobre la suma de items si no hay params que lo indiquen
+    const computedTotalAfterDiscount = +((totalToCharge - discountAmount)).toFixed(2);
+    const safeComputedTotalAfterDiscount = computedTotalAfterDiscount >= 0 ? computedTotalAfterDiscount : 0;
+
+    // IVA/subtotal calculados sobre el total con descuento
+    const ivaToCharge = +(safeComputedTotalAfterDiscount / 1.16 * 0.16).toFixed(2);
+    const subtotalToCharge = +(safeComputedTotalAfterDiscount - ivaToCharge).toFixed(2);
 
     const tipObj = tipApplied ?? params.tipApplied ?? null;
     const tipAmount = tipObj ? Number(tipObj.tipAmount || tipObj.tip_amount || 0) : 0;
     const tipPercent = tipObj ? Number(tipObj.percent || tipObj.tipPercent || 0) : 0;
-    const totalWithTip = tipObj ? Number(tipObj.totalWithTip || tipObj.total_with_tip || (totalToCharge + tipAmount)) : (totalToCharge + tipAmount);
+    const totalWithTip = tipObj ? Number(tipObj.totalWithTip || tipObj.total_with_tip || (safeComputedTotalAfterDiscount + tipAmount)) : (safeComputedTotalAfterDiscount + tipAmount);
 
+    // Preferir valores explicitados en params (si vienen de Escanear/Propina), si no, usar los calculados (que incluyen descuento)
+    const finalSubtotal = Number(params.subtotal ?? pSubtotal ?? subtotalToCharge ?? subtotal);
+    const finalIva = Number(params.iva ?? pIva ?? ivaToCharge ?? iva);
+    const finalTotal = Number(params.total ?? pTotal ?? safeComputedTotalAfterDiscount ?? pendingTotal);
+    const finalTotalWithTip = Number(params.totalWithTip ?? pTotalWithTip ?? (finalTotal + (tipAmount || 0)) ?? totalWithTip);
+
+    // --- AQUI: construyo payload SIN items ni originalItems ---
     const payload = {
       token,
-      items: itemsToPay,
-      subtotal: subtotalToCharge,
-      iva: ivaToCharge,
-      total: totalToCharge,
+      // NOT sending items to avoid backend re-summing them
+      subtotal: finalSubtotal,
+      iva: finalIva,
+      total: finalTotal,
       tipAmount: tipAmount,
       tipPercent: tipPercent,
-      totalWithTip: totalWithTip,
+      totalWithTip: finalTotalWithTip,
       people,
       sale_id,
       saleId: sale_id,
@@ -292,13 +326,15 @@ export default function OneExhibicion() {
       moneda,
       mesero,
       restaurantImage,
-      originalItems: items,
       total_pending: pendingTotal,
+      monto_descuento: discountAmount,
+      descuento: discountAmount,
     };
 
-    payload.displayTotal = shownTotal;
+    // ayuda a Payment a mostrar exactamente lo mismo
+    payload.displayTotal = finalTotalWithTip;
 
-    console.log('OneExhibicion -> navegando a Payment con payload:', JSON.stringify(payload, null, 2));
+    console.log('OneExhibicion -> navegando a Payment con payload (SIN items):', JSON.stringify(payload, null, 2));
     navigation.navigate('Payment', payload);
   };
 
@@ -361,6 +397,14 @@ export default function OneExhibicion() {
             <Text style={styles.label}>IVA (estimado)</Text>
             <Text style={styles.value}>{formatMoney(iva)} MXN</Text>
           </View>
+
+          {/* Mostrar descuento SOLO si existe */}
+          {discountAmount > 0 ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>Descuento</Text>
+              <Text style={styles.value}>-{formatMoney(discountAmount)} MXN</Text>
+            </View>
+          ) : null}
 
           <View style={[styles.row, { marginTop: 8 }]}>
             <Text style={[styles.label, styles.bold]}>Total pendiente</Text>

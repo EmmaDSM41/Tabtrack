@@ -182,7 +182,7 @@ export default function Help({ navigation }) {
           <Ionicons name="arrow-back" size={iconSize} color={styles.headerTitle.color} />
         </TouchableOpacity>
 
-        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(width * 0.055), 16, 24) }]}>Perfil</Text>
+        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(width * 0.050), 16, 24) }]}>Perfil</Text>
 
         <View style={styles.headerRight}>
           {/* Avatar circular */}

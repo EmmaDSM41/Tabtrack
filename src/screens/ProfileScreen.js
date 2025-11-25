@@ -53,14 +53,14 @@ export default function ProfileScreen({ navigation }) {
   const bottomSafe = Math.round(insets.bottom || 0);
 
   // tuned ranges to cover very small -> very large screens
-  const headerHeight = clamp(hp(6), 44, 120);
-  const iconSize = clamp(rf(2.6), 18, 32);
+  const headerHeight = clamp(hp(2), 34, 120);
+  const iconSize = clamp(rf(2.6), 19, 32);
   const logoSize = clamp(Math.round(width * 0.08), 28, 48);
   const avatarSize = clamp(Math.round(width * 0.18), 48, 120);
   const modalWidth = Math.min(Math.round(width * 0.92), 720);
   const logoutModalWidth = Math.min(Math.round(width * 0.86), 520);
   const basePadding = clamp(Math.round(width * 0.04), 10, 28);
-  const titleFont = clamp(rf(4.4), 18, 26);
+  const titleFont = clamp(rf(4.4), 20, 22);
   const sectionTitleFont = clamp(rf(3.6), 14, 22);
   const optionFont = clamp(rf(3.6), 14, 20);
   const smallText = clamp(rf(3.2), 12, 16);
@@ -145,6 +145,22 @@ export default function ProfileScreen({ navigation }) {
       if (keysToRemove.length > 0) {
         await AsyncStorage.multiRemove(keysToRemove);
       }
+
+      // --- ADICIÓN MINIMA: asegurarnos de eliminar las claves que usamos para detectar sesión persistente
+      // (sin cambiar la lógica existente, sólo removemos estas claves para que el splash ya no detecte sesión)
+      try {
+        await AsyncStorage.multiRemove([
+          'user_usuario_app_id',
+          'user_email',
+          'user_valid',
+          'user_fullname',
+          'user_profile_url'
+        ]);
+      } catch (e) {
+        // noop: si falla, no interrumpimos el flujo de logout
+        console.warn('Error removing persistent auth keys on logout', e);
+      }
+      // --- fin de adición ---
 
       navigation.reset({
         index: 0,
@@ -475,8 +491,8 @@ export default function ProfileScreen({ navigation }) {
             <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
               <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
               {unreadCount > 0 && (
-                <View style={[styles.badge, { right: -2, top: -6 }]}>
-                  <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 9, 12) }]}>{unreadCount}</Text>
+                <View style={[styles.badge, { right: 2, top: 2 }]}>
+                  <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 10, 12) }]}>{unreadCount}</Text>
                 </View>
               )}
             </TouchableOpacity>

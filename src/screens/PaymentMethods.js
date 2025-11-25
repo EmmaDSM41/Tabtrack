@@ -315,7 +315,7 @@ export default function PaymentMethods({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Volver">
           <Ionicons name="arrow-back" size={Math.round(clamp(iconSize, 20, 28))} color={BLUE} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(rf(2.6)), 20, 24) }]}>Perfil</Text>
+        <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(rf(2.6)), 20, 22) }]}>Perfil</Text>
 
         <View style={styles.headerRight}>
           <View style={{

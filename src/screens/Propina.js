@@ -1,3 +1,4 @@
+// Propina.js
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   SafeAreaView, View, Text, StyleSheet, TouchableOpacity, Dimensions,
@@ -65,8 +66,6 @@ export default function Propina() {
       } else {
         setSelectedPercent(null); setOtherPercent(String(p || '')); setCustomActive(true);
       }
-    } else {
-      // si no hay tipApplied en params (usuario abrió por primera vez), mantenemos estado inicial
     }
   }, [route?.params?.tipApplied, route?.params?.tip_applied]);
 
@@ -206,7 +205,11 @@ export default function Propina() {
     navigation.navigate('ResumenPago', { tipApplied: payloadTipApplied });
   };
 
+  // ---------- MODIFICACIÓN PUNTUAL: cuando venimos de OneExhibicion NO enviar items a Payment ----------
+  const isFromOneExhibicion = returnScreen === 'OneExhibicion' || params.from === 'OneExhibicion';
+
   const payNow = () => {
+    // Si venimos de EqualSplit con >1 persona, mantenemos el comportamiento actual
     if (comingFromEqualSplit && peopleCount > 1) {
       const payPayload = attachMetaDup({
         token,
@@ -214,17 +217,38 @@ export default function Propina() {
         subtotal: perPersonSubtotal,
         iva: perPersonIva,
         tipAmount: perPersonTipAmount,
-        total: perPersonTotalWithTip,
+        total: perPersonTotal, // total sin propina
         totalWithTip: perPersonTotalWithTip,
         people: 1,
         groupPeople: peopleCount,
         tipPercent: percent,
         restaurantImage,
       });
+      console.log('Propina -> payNow (EqualSplit) payload:', JSON.stringify(payPayload, null, 2));
       navigation.navigate('Payment', payPayload);
       return;
     }
 
+    // Si venimos de OneExhibicion, enviar SOLO montos y metadata, OMITIR items
+    if (isFromOneExhibicion) {
+      const payPayload = attachMetaDup({
+        token,
+        subtotal: round2(groupSubtotal),
+        iva: round2(groupIva),
+        tipAmount: round2(groupTipAmount),
+        total: round2(groupTotal),
+        totalWithTip: round2(groupTotalWithTip),
+        displayTotal: round2(groupTotalWithTip),
+        people,
+        tipPercent: percent,
+        restaurantImage,
+      });
+      console.log('Propina -> payNow (FROM OneExhibicion) payload (NO items):', JSON.stringify(payPayload, null, 2));
+      navigation.navigate('Payment', payPayload);
+      return;
+    }
+
+    // Comportamiento por defecto (no venimos de OneExhibicion): enviar items como antes
     const payload = attachMetaDup({
       token,
       items: normalizedItems,
@@ -237,6 +261,7 @@ export default function Propina() {
       tipPercent: percent,
       restaurantImage,
     });
+    console.log('Propina -> payNow (default) payload:', JSON.stringify(payload, null, 2));
     navigation.navigate('Payment', payload);
   };
 
@@ -282,11 +307,15 @@ export default function Propina() {
       } catch (e) { /* noop */ }
     };
   }, [navigation]);
-  // --------------------------------------------------------
+
+  // IMPORTANT: aseguramos paddingBottom suficiente para que el último botón nunca quede fuera en pantallas pequeñas
+  const ensureBottomPadding = Math.max(insets.bottom || 12, 24) + 140;
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topPadding, paddingBottom: insets.bottom || 12 }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+      {/* --- HEADER restaurado --- */}
       <View style={[styles.topBar, { height: headerHeight, paddingHorizontal: basePadding }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
           <Text style={[styles.backArrow, { fontSize: clampLocal(rf(32), 20, 36) }]}>{'‹'}</Text>
@@ -296,7 +325,7 @@ export default function Propina() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(24, rf(20)) + (insets.bottom || 0), flexGrow: 1 }]}
+        contentContainerStyle={[styles.container, { paddingBottom: ensureBottomPadding, flexGrow: 1, justifyContent: 'flex-start' }]}
         keyboardShouldPersistTaps="handled"
       >
         <LinearGradient

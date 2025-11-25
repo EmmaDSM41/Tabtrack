@@ -215,7 +215,7 @@ export default function EqualSplit() {
           }
           const json = await res.json();
           const rawItems = Array.isArray(json.items) ? json.items : (json.data?.items ?? json.result?.items ?? []);
-          const mapped = (Array.isArray(rawItems) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+          const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
           if (mounted && (!items || items.length === 0)) setItems(mapped);
         } catch (err) {
           console.warn('EqualSplit fetch error:', err);
@@ -235,8 +235,7 @@ export default function EqualSplit() {
     fetchSavedPeopleThenItems();
 
     return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, saleId]);
+   }, [token, saleId]);
 
   const itemsSum = useMemo(() => {
     if (!items || !Array.isArray(items)) return 0;
@@ -316,7 +315,7 @@ export default function EqualSplit() {
 
   const handlePay = () => {
     const itemsToPay = (items || []).map((it) => {
-      const line = Number(it.lineTotal || 0);
+      const line = Number(it.lineTotal || it.price || 0);
       if (it.canceled) return null;
       if (it.paid) return null;
       if (it.paidPartial) {
@@ -336,14 +335,14 @@ export default function EqualSplit() {
       };
     }).filter(Boolean);
 
-    const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
+     const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
     const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
     const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
 
+ 
     const payPayload = {
-      token,
-      items: itemsToPay,
-      subtotal: perPersonSubtotal,
+      ...payloadCommon,
+       subtotal: perPersonSubtotal,
       iva: perPersonIva,
       tipAmount: perPersonTip,
       tipPercent: tipPercent,
@@ -354,10 +353,11 @@ export default function EqualSplit() {
       total_persona: perPersonTotalWithTip,
       people,
       groupPeople: totalComensales,
+       items: itemsToPay,
       originalItems: items,
     };
 
-    console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
+     console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
     navigation.navigate('Payment', payPayload);
   };
 
@@ -452,13 +452,11 @@ export default function EqualSplit() {
     setTotalComensales(1);
   };
 
-  // computed sizes for styles usage
   const headerGradientPaddingH = Math.round(sidePad);
   const contentWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
   const modalWidth = Math.round(Math.min(width - 48, 360));
   const logoSize = Math.round(clamp(rf(12), 64, 140));
 
-  // memoize styles
   const styles = useMemo(() => makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow }), [wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow]);
 
   return (
@@ -474,16 +472,17 @@ export default function EqualSplit() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
-        <LinearGradient colors={['#FF2FA0','#7C3AED','#0046ff']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
-          <View style={[styles.gradientRow, isNarrow ? { flexDirection: 'column' } : { flexDirection: 'row' }]}>
-            <View style={styles.leftCol}>
+         <LinearGradient colors={['#FF2FA0','#7C3AED','#0046ff']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
+           <View style={[styles.gradientRow, { flexDirection: 'row' }]}>
+            <View style={[styles.leftCol, { flex: 0, maxWidth: Math.round(Math.min(logoSize + wp(6), wp(40))) }]}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
               <View style={styles.logoWrap}>
                 <Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantImage} />
               </View>
             </View>
 
-            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start' } : {}]}>
+ 
+            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: Math.round(wp(42)) } : { marginLeft: Math.round(wp(30)) }]}>
               <Text style={styles.totalLabel}>Total</Text>
 
               <View style={styles.totalRow}>

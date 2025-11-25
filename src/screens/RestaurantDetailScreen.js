@@ -539,7 +539,7 @@ export default function RestaurantDetailScreen() {
           ))}
         </View>
 
-        <View style={[styles.header, { top: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 12, left: HEADER_LEFT, right: HEADER_RIGHT }]}>
+        <View style={[styles.header, { top:insets.top ? (StatusBar.currentHeight ?? 24) + 1 : 12, left: HEADER_LEFT, right: HEADER_RIGHT }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top:10,left:10,right:10,bottom:10 }}>
             <Ionicons name="arrow-back" size={ICON_SIZE} color="#fff" />
           </TouchableOpacity>

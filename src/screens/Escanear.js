@@ -25,7 +25,7 @@ const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2U
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
 
-const PENDING_POLL_INTERVAL_MS = 8000; // revisa pendings cada 8s
+const PENDING_POLL_INTERVAL_MS = 8000; 
 
 const formatMoney = (n, currency = 'MXN') =>
   Number.isFinite(n) ? `${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '0.00';
@@ -35,7 +35,6 @@ const safeNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/* ------------------ hook responsive sencillo ------------------ */
 function useResponsive() {
   const { width, height } = useWindowDimensions();
   const wp = (percent) => Math.round(((Number(percent) || 0) / 100) * width);
@@ -44,7 +43,7 @@ function useResponsive() {
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   return { width, height, wp, hp, rf, clamp };
 }
-/* ------------------------------------------------------------- */
+
 
 async function saveVisitToStorage(visit) {
   try {
@@ -197,6 +196,9 @@ export default function Escanear() {
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
+  
+  const [discountAmount, setDiscountAmount] = useState(0);
+
   const checkPendingPromotions = useCallback(async (log = false) => {
     try {
       const rawPend = await AsyncStorage.getItem(PENDING_VISITS_KEY);
@@ -348,6 +350,14 @@ export default function Escanear() {
 
       const neutralItems = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
       if (isMountedRef.current) { setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
+
+
+      try {
+        const montoDesc = safeNum(json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0);
+        if (isMountedRef.current) setDiscountAmount(+montoDesc.toFixed(2));
+      } catch (e) {
+        if (isMountedRef.current) setDiscountAmount(0);
+      }
 
       const sale = json.sale_id ?? json.venta_id ?? json.id ?? null;
       const suc = json.sucursal_id ?? json.sucursal ?? null;
@@ -519,7 +529,7 @@ export default function Escanear() {
               const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
               if (paidSplits.length > 0) {
                 const hasEqualSplitPaid = paidSplits.some(s => {
-                  const code = String(s.codigo_item ?? '').trim();
+                  const code = String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim();
                   const name = String(s.nombre_item ?? s.nombre ?? '').toLowerCase();
                   return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
                 });
@@ -614,7 +624,7 @@ export default function Escanear() {
   const fechaTexto = fechaApertura ? new Date(fechaApertura).toLocaleString('es-MX') : '';
   const fechaCierreTexto = fechaCierre ? new Date(fechaCierre).toLocaleString('es-MX') : '';
 
-  // responsive values
+ 
   const layoutWidth = Math.min(width - (sidePad * 2), 420);
   const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
@@ -745,6 +755,16 @@ export default function Escanear() {
                 <Text style={[styles.itemPrice, styles.ivaText, { fontSize: clamp(rf(3), 12, 16), width: itemPriceWidth }]}>{formatMoney(iva)} {moneda ?? 'MXN'}</Text>
               </View>
 
+
+              {discountAmount > 0 && (
+                <View style={[styles.itemRow, { paddingTop: 6 }]}>
+                  <Text style={[styles.subtotalLabel, { fontSize: subtotalValueFont }]}>Descuento</Text>
+                  <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont }]}>
+                    -{formatMoney(discountAmount)} {moneda ?? 'MXN'}
+                  </Text>
+                </View>
+              )}
+
               <View style={[styles.itemRow, { paddingTop: 6 }]}>
                 <Text style={[styles.subtotalLabel, { fontSize: subtotalValueFont }]}>Total</Text>
                 <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont }]}>{formatMoney(totalConsumo)} {moneda ?? 'MXN'}</Text>
@@ -752,19 +772,55 @@ export default function Escanear() {
             </View>
           </View>
 
+
           <TouchableOpacity style={[styles.primaryButton, { width: layoutWidth, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
             if (equalsSplitPaid) { showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales — no puedes proceder con este método.'); return; }
 
             const paramsToSend = {
-              token, items, subtotal, iva, total: originalTotalConsumo, total_pending: totalConsumo,
-              sale_id: saleId ?? null, total_comensales: totalComensales ?? null, fecha_apertura: fechaApertura ?? null,
-              fecha_cierre: fechaCierre ?? null, restaurantImage: restaurantImageUri ?? null, mesa_id: mesaId ?? null,
-              mesero: mesero ?? null, moneda: moneda ?? 'MXN', restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null,
-              saleId: saleId ?? null, totalComensales: totalComensales ?? null, fechaApertura: fechaApertura ?? null,
+              token,
+              items,
+              subtotal,
+              iva,
+              total: originalTotalConsumo,
+              total_pending: totalConsumo,
+              sale_id: saleId ?? null,
+              total_comensales: totalComensales ?? null,
+              fecha_apertura: fechaApertura ?? null,
+              fecha_cierre: fechaCierre ?? null,
+              restaurantImage: restaurantImageUri ?? null,
+              mesa_id: mesaId ?? null,
+              mesero: mesero ?? null,
+              moneda: moneda ?? 'MXN',
+              restaurante_id: restauranteId ?? null,
+              sucursal_id: sucursalId ?? null,
+              saleId: saleId ?? null,
+              totalComensales: totalComensales ?? null,
+              fechaApertura: fechaApertura ?? null,
+
+
+              descuentos_venta: { monto_total: Number(discountAmount || 0) },
+              totales_venta: { total_descuentos: Number(discountAmount || 0) },
+              total_descuentos: Number(discountAmount || 0),
+              descuento: Number(discountAmount || 0),
+              discount_amount: Number(discountAmount || 0),
+              discountAmount: Number(discountAmount || 0),
+              monto_descuento: Number(discountAmount || 0),
             };
 
             try {
-              const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items };
+              const pending = {
+                sale_id: saleId ?? null,
+                restaurante_id: restauranteId ?? null,
+                sucursal_id: sucursalId ?? null,
+                restaurantImage: restaurantImageUri ?? null,
+                mesa: mesaId ?? null,
+                fecha_iniciado: new Date().toISOString(),
+                total: originalTotalConsumo,
+                moneda,
+                items,
+                
+                monto_descuento: Number(discountAmount || 0),
+              };
               await savePendingVisit(pending);
               const keySale = String(saleId ?? '');
               if (keySale) {
@@ -778,8 +834,20 @@ export default function Escanear() {
             <Text style={[styles.primaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago en una sola exhibición</Text>
           </TouchableOpacity>
 
+      
           <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
-            const paramsDividir = { token, items, total_consumo: originalTotalConsumo, total_comensales: totalComensales ?? null, sale_id: saleId ?? null, sucursal_id: sucursalId ?? null, mesa_id: mesaId ?? null, restaurante_id: restauranteId ?? null, saleId: saleId ?? null };
+            const paramsDividir = {
+              token,
+              items,
+              total_consumo: originalTotalConsumo,
+              total_comensales: totalComensales ?? null,
+              sale_id: saleId ?? null,
+              sucursal_id: sucursalId ?? null,
+              mesa_id: mesaId ?? null,
+              restaurante_id: restauranteId ?? null,
+              saleId: saleId ?? null,
+              hideEqualButton: true, 
+            };
             try {
               const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items };
               await savePendingVisit(pending);
@@ -791,7 +859,45 @@ export default function Escanear() {
             } catch (e) { console.warn('Error saving pending visit before navigate', e); }
             navigation.navigate('Dividir', paramsDividir);
           }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Dividir cuenta</Text>
+            <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pagar por consumo</Text>
+          </TouchableOpacity>
+
+
+          <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, marginTop: 12, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
+            const normalizedItemsForEqual = (items || []).map(it => {
+              const computedPrice = Number(it.unitPrice ?? it.lineTotal ?? it.price ?? 0) || 0;
+              return {
+                ...it,
+                price: Number(it.price ?? computedPrice),
+                unitPrice: Number(it.unitPrice ?? computedPrice),
+                lineTotal: Number(it.lineTotal ?? computedPrice),
+                precio_item: Number(it.precio_item ?? computedPrice),
+              };
+            });
+
+            const paramsEqual = {
+              token,
+              items: normalizedItemsForEqual,
+              total_consumo: originalTotalConsumo,
+              total_comensales: totalComensales ?? null,
+              sale_id: saleId ?? null,
+              sucursal_id: sucursalId ?? null,
+              mesa_id: mesaId ?? null,
+              restaurante_id: restauranteId ?? null,
+              saleId: saleId ?? null,
+            };
+            try {
+              const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items: normalizedItemsForEqual };
+              await savePendingVisit(pending);
+              const keySale = String(saleId ?? '');
+              if (keySale) {
+                const pendingPaymentObj = buildPendingPaymentObj(keySale, normalizedItemsForEqual, originalTotalConsumo);
+                try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+              }
+            } catch (e) { console.warn('Error saving pending visit before navigate', e); }
+            navigation.navigate('EqualSplit', paramsEqual);
+          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago por partes iguales</Text>
           </TouchableOpacity>
 
           <View style={{ height: Math.max(12, hp(1.2)) }} />

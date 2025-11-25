@@ -478,11 +478,13 @@ export default function Branch() {
         </View>
 
         <View style={[styles.header, { top: HEADER_TOP }]}>
-          <Image source={tabtrackLogo} style={[styles.headerLogo, { width: clamp(s(80), 56, 140), height: clamp(s(24), 18, 40) }]} />
-          <View style={styles.headerIcons}>
             <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top:10,left:10,right:10,bottom:10 }}>
               <Ionicons name="arrow-back" size={s(24)} color="#fff" />
             </TouchableOpacity>
+              <View style={styles.headerIcons}>
+{/*             <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top:10,left:10,right:10,bottom:10 }}>
+              <Ionicons name="arrow-back" size={s(24)} color="#fff" />
+            </TouchableOpacity> */}
             <TouchableOpacity onPress={onShare}>
               <Ionicons name="share-social-outline" size={s(22)} color="#fff" style={styles.iconSpacing} />
             </TouchableOpacity>

@@ -657,7 +657,7 @@ export default function Facturacion({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="arrow-back" size={clamp(rf(3.4), 20, 26)} color={styles.headerTitle.color} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { fontSize: clamp(rf(4.5), 20, 28) }]}>Perfil</Text>
+        <Text style={[styles.headerTitle, { fontSize: clamp(rf(4.5), 20, 22) }]}>Perfil</Text>
 
         <View style={styles.headerRight}>
           {/* avatar */}

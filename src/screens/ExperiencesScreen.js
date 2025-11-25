@@ -857,7 +857,7 @@ export default function VisitsScreen({ navigation }) {
             </View>
           )}
         </View>
-        <View style={[styles.greetingContainer, { marginLeft: Math.max(84, cardLeftWidth) + 8, paddingTop: Math.max(8, hp(1.5)) }]}>
+        <View style={[styles.greetingContainer, { marginLeft: Math.max(84, cardLeftWidth) - 8, paddingTop: Math.max(5, hp(1.2)) }]}>
           <Text style={[styles.greeting, { fontSize: clamp(rf(3.2), 14, 18) }]}>Hola :)</Text>
           <Text style={[styles.username, { fontSize: clamp(rf(4), 18, 28), marginTop: 4 }]} numberOfLines={1} ellipsizeMode="tail">{username}</Text>
         </View>
@@ -980,7 +980,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', paddingVertical: 12 },
   headerButton: { padding: 8 },
-  title: { fontWeight: '600', color: '#0046ff' },
+  title: { fontWeight: '600', color: '#0046ff',  marginLeft: 120,  },
   iconsRight: { flexDirection: 'row', alignItems: 'center' },
   tabLogo: { resizeMode: 'contain' },
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },

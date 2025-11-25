@@ -72,7 +72,7 @@ export default function RatingSuccessScreen() {
 
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => {}} style={styles.headerBtn}>
-            <Ionicons name="notifications-outline" size={clamp(rf(20), 18, 26)} color="#0046ff" />
+{/*             <Ionicons name="notifications-outline" size={clamp(rf(20), 18, 26)} color="#0046ff" /> */}
           </TouchableOpacity>
         </View>
       </View>

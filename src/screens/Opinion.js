@@ -463,8 +463,8 @@ export default function OpinionScreen({ navigation, route }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.sectionHeading}>Detalle</Text>
-
+{/*         <Text style={styles.sectionHeading}>Detalle</Text>
+ */}
         <View style={styles.topSection}>
           <View style={styles.logoColumn}>
             <View style={styles.avatarWrapper}>
@@ -584,14 +584,14 @@ const BLUE = '#0046ff';
 function makeStyles({ width, height, wp, hp, rf, clamp, LEFT_COL, SLIDE_HEIGHT }) {
   const basePadding = Math.round(clamp(wp(4), 12, 24));
   const headerHeight = Math.round(clamp(hp(8), 64, 100));
-  const iconSize = Math.round(clamp(rf(3.8), 21, 28));
+  const iconSize = Math.round(clamp(rf(2.6), 19, 32));
   const starSize = Math.round(clamp(rf(4.6), 18, 28)); // un poco más grande
   const slideHeight = SLIDE_HEIGHT;
   const leftCol = LEFT_COL;
   const sliderWidth = Math.round(Math.max(120, width - leftCol - (basePadding * 2) - 24));
   const logoW = Math.round(clamp(width * 0.18, 60, 110));
-  const sectionHeadingSize = Math.round(clamp(rf(6.2), 18, 28));
-  const textSmall = Math.round(clamp(rf(4.2), 10, 16)); // preguntas más grandes
+  const sectionHeadingSize = Math.round(clamp(rf(5.8), 18, 28));
+  const textSmall = Math.round(clamp(rf(3.6), 14, 20)); // preguntas más grandes
   const textRegular = Math.round(clamp(rf(3.8), 12, 16));
   const inputHeight = Math.round(clamp(hp(12), 80, 160));
 
@@ -615,7 +615,7 @@ function makeStyles({ width, height, wp, hp, rf, clamp, LEFT_COL, SLIDE_HEIGHT }
     headerTitle: {
       flex: 1,
       textAlign: 'center',
-      fontSize: Math.round(clamp(rf(5.2), 16, 22)),
+      fontSize: Math.round(clamp(rf(4.4), 19, 22)),
       fontWeight: '600',
       color: BLUE,
       fontFamily: 'Montserrat-Bold',
@@ -629,14 +629,13 @@ function makeStyles({ width, height, wp, hp, rf, clamp, LEFT_COL, SLIDE_HEIGHT }
       top: -6,
       right: -6,
       backgroundColor: '#ff3b30',
-      borderRadius: 10,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      minWidth: 18,
+      borderRadius: 9,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    badgeText: { color: '#fff', fontSize: Math.round(clamp(rf(2.8), 9, 12)), },
+    badgeText: { color: '#fff', fontSize: Math.round(clamp(rf(2.6), 10, 12)), },
 
     modalOverlay: {
       flex: 1,

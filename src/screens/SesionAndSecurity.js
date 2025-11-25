@@ -74,7 +74,7 @@ export default function SesionAndSecurity({ navigation }) {
   const headerVerticalPadding = clamp(rf(18), 8, 36);
   const avatarSize = clamp(rf(44), 28, 96);
   const logoWidth = clamp(Math.round(width * 0.18), 56, 140);
-  const titleFont = clamp(rf(20), 16, 28);
+  const titleFont = clamp(rf(15), 18, 28);
   const sectionTitleFont = clamp(rf(18), 14, 22);
   const bodyFont = clamp(rf(14), 12, 18);
   const rightNameMaxWidth = Math.round(Math.max(90, width * 0.36));
