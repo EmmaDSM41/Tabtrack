@@ -199,7 +199,7 @@ export default function WelcomeScreen() {
                 activeOpacity={0.85}
               >
                 <LinearGradient
-                  colors={['rgb(148, 2, 220)', 'rgb(4, 60, 216)']}
+                  colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={dynamicStyles.buttonInner}

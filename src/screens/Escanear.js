@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
   View,
@@ -20,7 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0'; 
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU'; 
 
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
@@ -187,8 +187,16 @@ export default function Escanear() {
   const [styledAlertTitle, setStyledAlertTitle] = useState('');
   const [styledAlertMessage, setStyledAlertMessage] = useState('');
 
+  // Nuevo modal blanco para alertas de conflicto
+  const [conflictAlertVisible, setConflictAlertVisible] = useState(false);
+  const [conflictAlertTitle, setConflictAlertTitle] = useState('');
+  const [conflictAlertMessage, setConflictAlertMessage] = useState('');
+
   const showStyledAlert = (t, m) => { setStyledAlertTitle(t || 'Aviso'); setStyledAlertMessage(m || ''); setStyledAlertVisible(true); };
   const hideStyledAlert = () => setStyledAlertVisible(false);
+
+  const showConflictAlert = (t, m) => { setConflictAlertTitle(t || 'Aviso'); setConflictAlertMessage(m || ''); setConflictAlertVisible(true); };
+  const hideConflictAlert = () => setConflictAlertVisible(false);
 
   const openErrorModal = (m) => { setErrorModalMessage(m || 'Ocurrió un error'); setErrorModalVisible(true); };
   const closeErrorModal = () => setErrorModalVisible(false);
@@ -624,7 +632,18 @@ export default function Escanear() {
   const fechaTexto = fechaApertura ? new Date(fechaApertura).toLocaleString('es-MX') : '';
   const fechaCierreTexto = fechaCierre ? new Date(fechaCierre).toLocaleString('es-MX') : '';
 
- 
+  // --- cálculo para saber si hay pagos por consumo ---
+  const consumoPaid = useMemo(() => {
+    try {
+      const anyItemPaid = Array.isArray(items) && items.some(it => !!it.paid || safeNum(it.paidAmount) > 0);
+      const diff = Number(originalTotalConsumo) - Number(totalConsumo);
+      const hasDiff = Number.isFinite(diff) && diff > 0.005;
+      return anyItemPaid || hasDiff;
+    } catch (e) {
+      return false;
+    }
+  }, [items, originalTotalConsumo, totalConsumo]);
+
   const layoutWidth = Math.min(width - (sidePad * 2), 420);
   const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
@@ -639,6 +658,11 @@ export default function Escanear() {
   const itemPriceWidth = Math.min(Math.max(wp(28), 90), 140);
   const subtotalValueFont = clamp(rf(3.8), 16, 22);
   const primaryBtnPadding = Math.max(12, hp(1.6));
+
+  // botones deshabilitados (para feedback visual)
+  const primaryDisabled = consumoPaid || equalsSplitPaid; // Pago en una sola: bloquear si consumoPaid o equal paid
+  const pagarConsumoDisabled = equalsSplitPaid; // Pagar por consumo: bloquear si equal paid
+  const equalSplitDisabled = consumoPaid; // Pago por partes iguales: bloquear si consumoPaid
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
@@ -663,7 +687,7 @@ export default function Escanear() {
 
       <Modal visible={errorModalVisible} transparent animationType="fade" onRequestClose={closeErrorModal}>
         <View style={styles.modalBackdrop}>
-          <LinearGradient colors={['#FF2FA0', '#6B2CFF', '#0046ff']} style={[styles.modalBox, { width: Math.min(layoutWidth - 8, wp(94)) }]}>
+          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} style={[styles.modalBox, { width: Math.min(layoutWidth - 8, wp(94)) }]}>
             <Text style={styles.modalTitle}>Aviso</Text>
             <Text style={styles.modalMessage}>{errorModalMessage}</Text>
 
@@ -687,7 +711,7 @@ export default function Escanear() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
-          <LinearGradient colors={['#FF2FA0', '#6B2CFF', '#0046ff']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
+          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
                 <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
@@ -772,131 +796,177 @@ export default function Escanear() {
             </View>
           </View>
 
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              { width: layoutWidth, paddingVertical: primaryBtnPadding },
+              primaryDisabled ? { opacity: 0.6 } : null
+            ]}
+            activeOpacity={0.85}
+            onPress={async () => {
+              // Bloqueos: si hay pago por consumo o pago por partes iguales -> bloquear
+              if (consumoPaid) {
+                showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con este método ahora.');
+                return;
+              }
+              if (equalsSplitPaid) {
+                showConflictAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales — no puedes proceder con este método.');
+                return;
+              }
 
-          <TouchableOpacity style={[styles.primaryButton, { width: layoutWidth, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
-            if (equalsSplitPaid) { showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales — no puedes proceder con este método.'); return; }
-
-            const paramsToSend = {
-              token,
-              items,
-              subtotal,
-              iva,
-              total: originalTotalConsumo,
-              total_pending: totalConsumo,
-              sale_id: saleId ?? null,
-              total_comensales: totalComensales ?? null,
-              fecha_apertura: fechaApertura ?? null,
-              fecha_cierre: fechaCierre ?? null,
-              restaurantImage: restaurantImageUri ?? null,
-              mesa_id: mesaId ?? null,
-              mesero: mesero ?? null,
-              moneda: moneda ?? 'MXN',
-              restaurante_id: restauranteId ?? null,
-              sucursal_id: sucursalId ?? null,
-              saleId: saleId ?? null,
-              totalComensales: totalComensales ?? null,
-              fechaApertura: fechaApertura ?? null,
-
-
-              descuentos_venta: { monto_total: Number(discountAmount || 0) },
-              totales_venta: { total_descuentos: Number(discountAmount || 0) },
-              total_descuentos: Number(discountAmount || 0),
-              descuento: Number(discountAmount || 0),
-              discount_amount: Number(discountAmount || 0),
-              discountAmount: Number(discountAmount || 0),
-              monto_descuento: Number(discountAmount || 0),
-            };
-
-            try {
-              const pending = {
+              const paramsToSend = {
+                token,
+                items,
+                subtotal,
+                iva,
+                total: originalTotalConsumo,
+                total_pending: totalConsumo,
                 sale_id: saleId ?? null,
+                total_comensales: totalComensales ?? null,
+                fecha_apertura: fechaApertura ?? null,
+                fecha_cierre: fechaCierre ?? null,
+                restaurantImage: restaurantImageUri ?? null,
+                mesa_id: mesaId ?? null,
+                mesero: mesero ?? null,
+                moneda: moneda ?? 'MXN',
                 restaurante_id: restauranteId ?? null,
                 sucursal_id: sucursalId ?? null,
-                restaurantImage: restaurantImageUri ?? null,
-                mesa: mesaId ?? null,
-                fecha_iniciado: new Date().toISOString(),
-                total: originalTotalConsumo,
-                moneda,
-                items,
-                
+                saleId: saleId ?? null,
+                totalComensales: totalComensales ?? null,
+                fechaApertura: fechaApertura ?? null,
+                descuentos_venta: { monto_total: Number(discountAmount || 0) },
+                totales_venta: { total_descuentos: Number(discountAmount || 0) },
+                total_descuentos: Number(discountAmount || 0),
+                descuento: Number(discountAmount || 0),
+                discount_amount: Number(discountAmount || 0),
+                discountAmount: Number(discountAmount || 0),
                 monto_descuento: Number(discountAmount || 0),
               };
-              await savePendingVisit(pending);
-              const keySale = String(saleId ?? '');
-              if (keySale) {
-                const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
-                try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
-              }
-            } catch (e) { console.warn('Error saving pending visit before navigate', e); }
 
-            navigation.navigate('OneExhibicion', paramsToSend);
-          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              try {
+                const pending = {
+                  sale_id: saleId ?? null,
+                  restaurante_id: restauranteId ?? null,
+                  sucursal_id: sucursalId ?? null,
+                  restaurantImage: restaurantImageUri ?? null,
+                  mesa: mesaId ?? null,
+                  fecha_iniciado: new Date().toISOString(),
+                  total: originalTotalConsumo,
+                  moneda,
+                  items,
+                  monto_descuento: Number(discountAmount || 0),
+                };
+                await savePendingVisit(pending);
+                const keySale = String(saleId ?? '');
+                if (keySale) {
+                  const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                }
+              } catch (e) { console.warn('Error saving pending visit before navigate', e); }
+
+              navigation.navigate('OneExhibicion', paramsToSend);
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            disabled={primaryDisabled}
+          >
             <Text style={[styles.primaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago en una sola exhibición</Text>
           </TouchableOpacity>
 
       
-          <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
-            const paramsDividir = {
-              token,
-              items,
-              total_consumo: originalTotalConsumo,
-              total_comensales: totalComensales ?? null,
-              sale_id: saleId ?? null,
-              sucursal_id: sucursalId ?? null,
-              mesa_id: mesaId ?? null,
-              restaurante_id: restauranteId ?? null,
-              saleId: saleId ?? null,
-              hideEqualButton: true, 
-            };
-            try {
-              const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items };
-              await savePendingVisit(pending);
-              const keySale = String(saleId ?? '');
-              if (keySale) {
-                const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
-                try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+          <TouchableOpacity
+            style={[
+              styles.secondaryButton,
+              { width: layoutWidth, paddingVertical: primaryBtnPadding },
+              pagarConsumoDisabled ? { opacity: 0.6 } : null
+            ]}
+            activeOpacity={0.85}
+            onPress={async () => {
+              // Bloqueo si equal split ya pagado
+              if (equalsSplitPaid) {
+                showConflictAlert('Pago por partes iguales en curso', 'Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.');
+                return;
               }
-            } catch (e) { console.warn('Error saving pending visit before navigate', e); }
-            navigation.navigate('Dividir', paramsDividir);
-          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+
+              const paramsDividir = {
+                token,
+                items,
+                total_consumo: originalTotalConsumo,
+                total_comensales: totalComensales ?? null,
+                sale_id: saleId ?? null,
+                sucursal_id: sucursalId ?? null,
+                mesa_id: mesaId ?? null,
+                restaurante_id: restauranteId ?? null,
+                saleId: saleId ?? null,
+                hideEqualButton: true, 
+              };
+              try {
+                const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items };
+                await savePendingVisit(pending);
+                const keySale = String(saleId ?? '');
+                if (keySale) {
+                  const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                }
+              } catch (e) { console.warn('Error saving pending visit before navigate', e); }
+              navigation.navigate('Dividir', paramsDividir);
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            disabled={pagarConsumoDisabled}
+          >
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pagar por consumo</Text>
           </TouchableOpacity>
 
 
-          <TouchableOpacity style={[styles.secondaryButton, { width: layoutWidth, marginTop: 12, paddingVertical: primaryBtnPadding }]} activeOpacity={0.85} onPress={async () => {
-            const normalizedItemsForEqual = (items || []).map(it => {
-              const computedPrice = Number(it.unitPrice ?? it.lineTotal ?? it.price ?? 0) || 0;
-              return {
-                ...it,
-                price: Number(it.price ?? computedPrice),
-                unitPrice: Number(it.unitPrice ?? computedPrice),
-                lineTotal: Number(it.lineTotal ?? computedPrice),
-                precio_item: Number(it.precio_item ?? computedPrice),
-              };
-            });
-
-            const paramsEqual = {
-              token,
-              items: normalizedItemsForEqual,
-              total_consumo: originalTotalConsumo,
-              total_comensales: totalComensales ?? null,
-              sale_id: saleId ?? null,
-              sucursal_id: sucursalId ?? null,
-              mesa_id: mesaId ?? null,
-              restaurante_id: restauranteId ?? null,
-              saleId: saleId ?? null,
-            };
-            try {
-              const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items: normalizedItemsForEqual };
-              await savePendingVisit(pending);
-              const keySale = String(saleId ?? '');
-              if (keySale) {
-                const pendingPaymentObj = buildPendingPaymentObj(keySale, normalizedItemsForEqual, originalTotalConsumo);
-                try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+          <TouchableOpacity
+            style={[
+              styles.secondaryButton,
+              { width: layoutWidth, marginTop: 12, paddingVertical: primaryBtnPadding },
+              equalSplitDisabled ? { opacity: 0.6 } : null
+            ]}
+            activeOpacity={0.85}
+            onPress={async () => {
+              // Bloqueo si hay pago por consumo detectado
+              if (consumoPaid) {
+                showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con el pago por partes iguales.');
+                return;
               }
-            } catch (e) { console.warn('Error saving pending visit before navigate', e); }
-            navigation.navigate('EqualSplit', paramsEqual);
-          }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+
+              const normalizedItemsForEqual = (items || []).map(it => {
+                const computedPrice = Number(it.unitPrice ?? it.lineTotal ?? it.price ?? 0) || 0;
+                return {
+                  ...it,
+                  price: Number(it.price ?? computedPrice),
+                  unitPrice: Number(it.unitPrice ?? computedPrice),
+                  lineTotal: Number(it.lineTotal ?? computedPrice),
+                  precio_item: Number(it.precio_item ?? computedPrice),
+                };
+              });
+
+              const paramsEqual = {
+                token,
+                items: normalizedItemsForEqual,
+                total_consumo: originalTotalConsumo,
+                total_comensales: totalComensales ?? null,
+                sale_id: saleId ?? null,
+                sucursal_id: sucursalId ?? null,
+                mesa_id: mesaId ?? null,
+                restaurante_id: restauranteId ?? null,
+                saleId: saleId ?? null,
+              };
+              try {
+                const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items: normalizedItemsForEqual };
+                await savePendingVisit(pending);
+                const keySale = String(saleId ?? '');
+                if (keySale) {
+                  const pendingPaymentObj = buildPendingPaymentObj(keySale, normalizedItemsForEqual, originalTotalConsumo);
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                }
+              } catch (e) { console.warn('Error saving pending visit before navigate', e); }
+              navigation.navigate('EqualSplit', paramsEqual);
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            disabled={equalSplitDisabled}
+          >
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago por partes iguales</Text>
           </TouchableOpacity>
 
@@ -921,6 +991,24 @@ export default function Escanear() {
               <Text style={[styles.gatewayModalButtonText]}>Aceptar</Text>
             </TouchableOpacity>
           </LinearGradient>
+        </View>
+      )}
+
+      {/* Modal blanco con texto negro para alertas de conflicto */}
+      {conflictAlertVisible && (
+        <View style={styles.conflictBackdrop}>
+          <View style={[styles.conflictBox, { width: Math.min(layoutWidth - 48, Math.max(wp(72), 300)) }]}>
+            <Text style={styles.conflictTitle}>{conflictAlertTitle}</Text>
+            <Text style={styles.conflictMessage}>{conflictAlertMessage}</Text>
+
+            <View style={{ height: 12 }} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              <TouchableOpacity onPress={() => hideConflictAlert()} style={styles.conflictBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.conflictBtnText}>Aceptar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -1013,4 +1101,12 @@ const styles = StyleSheet.create({
   gatewayModalButtonText: { color: '#0046ff', fontWeight: '800', fontSize: 15 },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // estilos nuevos para modal blanco (alertas de conflicto)
+  conflictBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.35)' },
+  conflictBox: { backgroundColor: '#fff', borderRadius: 12, padding: 16, alignItems: 'flex-start', elevation: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowOffset: { width: 0, height: 8 }, shadowRadius: 12 },
+  conflictTitle: { fontWeight: '800', color: '#111', fontSize: 16, marginBottom: 6, textAlign: 'left' },
+  conflictMessage: { color: '#111', fontSize: 14, lineHeight: 20 },
+  conflictBtn: { backgroundColor: '#0046ff', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginLeft: 8 },
+  conflictBtnText: { color: '#fff', fontWeight: '800' },
 });

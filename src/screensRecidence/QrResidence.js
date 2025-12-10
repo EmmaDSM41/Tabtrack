@@ -1,3 +1,4 @@
+// QrResidence.js
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
@@ -13,10 +14,10 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  TouchableWithoutFeedback,
   Linking,
   PixelRatio,
   Image,
+  useWindowDimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCodeScanner from 'react-native-qrcode-scanner';
@@ -24,21 +25,20 @@ import { RNCamera } from 'react-native-camera';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 
- 
-const API_BASE_FALLBACK = 'https://api.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
+const API_BASE_FALLBACK = 'https://127.0.0.1';
+const API_TOKEN_FALLBACK = ' ';
 
 const STORAGE_KEYS = {
   API_HOST: 'api_host',
   API_TOKEN: 'api_token',
 };
 
- const WHATSAPP_FULL_URL = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20'; // <-- reemplaza por tu URL completa
+const WHATSAPP_FULL_URL = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
 
- const openWhatsApp = async () => {
+const openWhatsApp = async () => {
   try {
     await Linking.openURL(WHATSAPP_FULL_URL);
     return;
@@ -64,7 +64,7 @@ const STORAGE_KEYS = {
 };
 
 // -----------------------------
-// Helpers (igual que antes)
+// Helpers
 // -----------------------------
 const extractTokenFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
@@ -133,9 +133,8 @@ const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
 };
 
 // -----------------------------
-// Small components: pulsing icon + animated modal
+// Small components: pulsing icon + modal (sin cambios relevantes)
 // -----------------------------
-
 function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false }) {
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -164,7 +163,6 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
   );
 }
 
-// AnimatedStatusModal ahora recibe headerHeight para ubicarse dinámicamente
 function AnimatedStatusModal({ visible, loading, result, onClose, onScan, headerHeight = 56 }) {
   const translateY = useRef(new Animated.Value(-260)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -232,22 +230,20 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
 }
 
 // -----------------------------
-// Componente principal QRScreen (responsive, sin cambiar lógica)
+// Main component QR Screen
 // -----------------------------
-export default function QRScreen({ navigation }) {
+export default function QrResidence({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // responsive helpers
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // Estados UI
   const [hasPermission, setHasPermission] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
   const [flashEnabled, setFlashEnabled] = useState(false);
-  const [allowScan, setAllowScan] = useState(false); // para Escanear QR (manual)
-  const [allowScanForStatus, setAllowScanForStatus] = useState(false); // para Status
+  const [allowScan, setAllowScan] = useState(false);
+  const [allowScanForStatus, setAllowScanForStatus] = useState(false);
   const [statusModalVisible, setStatusModalVisible] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusResult, setStatusResult] = useState(null);
@@ -259,23 +255,45 @@ export default function QRScreen({ navigation }) {
   // UI config (responsive)
   const baseHeader = 56;
   const headerHeight = clamp(rf(baseHeader), 48, 110);
+
+  // gradient card sizes & colors (the new element to add)
+  const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
+  const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14))); // slightly smaller footprint
+  const gradientCardLeftRight = Math.round(Math.max(12, width * 0.06));
+  const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
+
+  // ======= Aquí puedes ajustar para subir/bajar el hole y los botones =======
+  // holeGap controla la separación entre el gradient y el hueco del QR:
+  const holeGap = clamp(rf(45), 45, 90);        // <--- bajar este número para SUBIR el QR
+  // buttonsGap controla la separación entre el hueco del QR y los botones:
+  const buttonsGap = clamp(rf(40), 56, 140);  // <--- bajar este número para SUBIR los botones
+  // =======================================================================
+
+  // QR box sizing & placement
   const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
-  const holeTop = headerHeight + clamp(rf(64), 72, 140);
+  // place the hole below header + gradient card with holeGap (tunable above)
+  const holeTop = headerHeight + gradientCardHeight + holeGap;
   const holeLeft = Math.round((width - qrSize) / 2);
   const cornerArc = clamp(64, 40, 96);
   const cornerThickness = Math.max(8, Math.round((width / 375) * 10));
   const cornerOuterRadius = Math.round(Math.min(qrSize, 320) * 0.06);
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
-  const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 16, Math.round(height * 0.6));
+
+  // camera surface height: ahora la cámara ocupa también la zona bajo el degradado (cambié aquí: quité la resta de gradientCardHeight)
+  const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 24, Math.round(height * 0.48));
 
   // --- LOGO sizing for the new element (responsive and caps) ---
-  const logoMaxWidth = Math.round(Math.min(160, width * 0.36)); // cap absolute
-  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38)); // relative to qrSize but capped
-  const logoHeight = Math.round(logoWidth * 0.5); // aspect ratio (ajustable)
-  // position above hole: leave unaggressive offset so it sits clearly above the QR frame
-  const logoTopPos = Math.max(12, holeTop - logoHeight - Math.round(logoHeight * 0.35));
-  // ------------------------------------------------
+  const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
+  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
+  const logoHeight = Math.round(logoWidth * 0.5);
+  // position logo above hole but respecting gradient height
+  const logoTopPos = Math.max(headerHeight + Math.round(gradientCardHeight * 0.1), holeTop - logoHeight - Math.round(logoHeight * 0.25));
+
+  // compute utilization demo values (these were static in your original file)
+  const consumed = 425.0;
+  const available = 3075.0;
+  const utilization = Math.round((consumed / (consumed + available)) * 1000) / 10;
 
   useEffect(() => {
     (async () => {
@@ -468,7 +486,8 @@ export default function QRScreen({ navigation }) {
     );
   }
 
-  const buttonsTop = holeTop + qrSize + clamp(rf(48), 80, 160);
+  // Buttons lowered a bit more (responsive)
+  const buttonsTop = holeTop + qrSize + buttonsGap;
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: '#000', paddingTop: insets.top }}>
@@ -485,6 +504,49 @@ export default function QRScreen({ navigation }) {
         <TouchableOpacity onPress={toggleFlash} style={styles.iconBtn} activeOpacity={1}>
           <Ionicons name={flashEnabled ? 'flashlight' : 'flashlight-outline'} size={rf(22)} color="#0046ff" />
         </TouchableOpacity>
+      </View>
+
+      {/* Gradiente pegado al header (lo posiciono absolute en la misma coordenada para superponerlo sobre la cámara
+          sin cambiar tamaño, colores ni contenido — solo overlays la cámara) */}
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          top: insets.top + headerHeight, // misma posición visual que antes
+          left: gradientCardLeftRight,
+          right: gradientCardLeftRight,
+          zIndex: 60,
+        }}
+      >
+        <LinearGradient
+          colors={gradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.gradientCardSmall, { height: gradientCardHeight, borderRadius: 14, padding: gradientInnerPad }]}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={styles.gradientSmallLabel}>Consumido</Text>
+              <Text style={styles.gradientSmallValue}>${consumed.toFixed(2)}</Text>
+            </View>
+
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.gradientSmallLabel}>Disponible</Text>
+              <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900' }]}>
+                ${available.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ height: 10 }} />
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={styles.progressTrackSmall}>
+              <View style={[styles.progressFillSmall, { width: `${Math.min(100, Math.max(0, utilization))}%` }]} />
+            </View>
+            <Text style={styles.progressLabelSmall}>{utilization}% utilizado</Text>
+          </View>
+        </LinearGradient>
       </View>
 
       {/* Cámara */}
@@ -506,7 +568,7 @@ export default function QRScreen({ navigation }) {
         <View style={[styles.overlay, { height: CAMERA_HEIGHT }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
-          {/* --- LOGO: ahora sin recuadro blanco, más grande y un poco por encima del recuadro --- */}
+          {/* Logo (por encima del hueco) */}
           <View style={{
             position: 'absolute',
             top: logoTopPos,
@@ -514,16 +576,14 @@ export default function QRScreen({ navigation }) {
             right: 0,
             alignItems: 'center',
             zIndex: 30,
-            pointerEvents: 'none', // no intercepta toques
+            pointerEvents: 'none',
           }}>
-            {/* Ajusta la ruta del require si tu logo está en otra carpeta */}
             <Image
               source={require('../../assets/images/logo2.png')}
               style={{
                 width: logoWidth,
                 height: logoHeight,
                 resizeMode: 'contain',
-                // sombra sutil para que destaque sin fondo blanco
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.12,
@@ -532,7 +592,6 @@ export default function QRScreen({ navigation }) {
               }}
             />
           </View>
-          {/* ------------------------------------------------------------------------------- */}
 
           <View style={{ flexDirection: 'row' }}>
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
@@ -578,7 +637,7 @@ export default function QRScreen({ navigation }) {
           <View style={[styles.overlayRow, { flex: 1, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
         </View>
 
-        {/* Botones flotantes */}
+        {/* Botones - ahora posicionados relativemente con top calculado para dar espacio */}
         <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, width, alignItems: 'center', zIndex: 40 }}>
           <TouchableOpacity activeOpacity={1} onPress={startManualScan} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
@@ -589,10 +648,10 @@ export default function QRScreen({ navigation }) {
 
           <View style={{ height: 12 }} />
 
-          <TouchableOpacity activeOpacity={1} onPress={onStatusPress} style={[styles.floatSecondary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16) }]}>
+          <TouchableOpacity activeOpacity={1} onPress={onStatusPress} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}>
             <View style={styles.actionContent}>
-              <Ionicons name="time-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />
-              <Text style={[styles.secondaryActionText, { fontSize: clamp(rf(15), 13, 17) }]}>Status</Text>
+              <Ionicons name="person-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />
+              <Text style={[styles.primaryActionText, { fontSize: clamp(rf(15), 13, 17) }]}>Miembros</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -615,7 +674,7 @@ export default function QRScreen({ navigation }) {
 }
 
 // -----------------------------
-// Estilos (conservé tus estilos y añadí modalStyles)
+// Estilos (añadí estilos del degradado y pequeñas utilidades)
 // -----------------------------
 const modalStyles = StyleSheet.create({
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, elevation: 9999, zIndex: 9999 },
@@ -662,8 +721,10 @@ const styles = StyleSheet.create({
   overlay: { position: 'absolute', top: 0, left: 0, width: '100%', zIndex: 10 },
   overlayRow: { width: '100%' },
   overlayCol: {},
+
   hole: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', overflow: 'visible' },
 
+  // botones flotantes
   floatPrimary: { backgroundColor: '#0046ff', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   floatSecondary: { backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 0.8, borderColor: 'rgba(255,255,255,0.22)' },
 
@@ -680,4 +741,24 @@ const styles = StyleSheet.create({
   statusDetails: { fontSize: 13, color: '#666', marginBottom: 6 },
   statusBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   statusBtnText: { fontSize: 14, fontWeight: '700' },
+
+  // ---- estilos para el degradado pequeño ----
+  gradientCardSmall: {
+    width: '100%',
+    overflow: 'hidden',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 14,
+  },
+  gradientSmallLabel: { color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: '600' },
+  gradientSmallValue: { color: '#fff', fontWeight: '900', fontSize: 18 },
+
+  progressTrackSmall: { flex: 1, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 12, height: 10, overflow: 'hidden', marginRight: 12 },
+  progressFillSmall: { backgroundColor: '#fff', height: '100%' },
+  progressLabelSmall: { color: 'rgba(255,255,255,0.95)', fontSize: 12 },
+
 });
+
+export { styles as qrStyles };

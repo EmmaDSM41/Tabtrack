@@ -1,4 +1,3 @@
-// Propina.js
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   SafeAreaView, View, Text, StyleSheet, TouchableOpacity, Dimensions,
@@ -69,13 +68,21 @@ export default function Propina() {
     }
   }, [route?.params?.tipApplied, route?.params?.tip_applied]);
 
+  // Limitar el porcentaje a 2 decimales: definimos percentRounded que usaremos en cálculos/payloads
   const percent = useMemo(() => {
     if (customActive) {
+      // parsear otherPercent seguro (puede contener coma)
       const p = parseFloat(String(otherPercent).replace(',', '.')) || 0;
       return p;
     }
     return selectedPercent || 0;
   }, [selectedPercent, otherPercent, customActive]);
+
+  const percentRounded = useMemo(() => {
+    const p = Number(percent || 0);
+    // limitar a 2 decimales en el porcentaje en todas las operaciones/payloads
+    return Number(Number(p).toFixed(2));
+  }, [percent]);
 
   const peopleCount = (typeof people === 'number' && people > 0) ? people : 1;
 
@@ -90,15 +97,16 @@ export default function Propina() {
   const comingFromEqualSplit = returnScreen === 'EqualSplit' || params.from === 'EqualSplit';
   const comingFromConsumo = returnScreen === 'Consumo' || params.from === 'Consumo';
 
+  // Usar percentRounded en cálculos para asegurar 2 decimales de porcentaje
   const groupTipAmount = useMemo(() => {
-    const t = +(groupTotal * (Number(percent || 0) / 100));
+    const t = +(groupTotal * (Number(percentRounded || 0) / 100));
     return Number(t.toFixed(2));
-  }, [groupTotal, percent]);
+  }, [groupTotal, percentRounded]);
 
   const perPersonTipAmount = useMemo(() => {
-    const t = +(perPersonTotal * (Number(percent || 0) / 100));
+    const t = +(perPersonTotal * (Number(percentRounded || 0) / 100));
     return Number(t.toFixed(2));
-  }, [perPersonTotal, percent]);
+  }, [perPersonTotal, percentRounded]);
 
   const groupTotalWithTip = useMemo(() => Number((groupTotal + groupTipAmount).toFixed(2)), [groupTotal, groupTipAmount]);
   const perPersonTotalWithTip = useMemo(() => Number((perPersonTotal + perPersonTipAmount).toFixed(2)), [perPersonTotal, perPersonTipAmount]);
@@ -129,7 +137,7 @@ export default function Propina() {
 
   const applyAndReturn = () => {
     const payloadTipApplied = {
-      percent: Number(percent || 0),
+      percent: percentRounded,
       tipAmount: round2(groupTipAmount),
       totalWithTip: round2(groupTotalWithTip),
       subtotal: round2(groupSubtotal),
@@ -141,7 +149,7 @@ export default function Propina() {
 
     if (comingFromEqualSplit && peopleCount > 1) {
       const payloadPerPerson = {
-        percent: Number(percent || 0),
+        percent: percentRounded,
         tipAmount: perPersonTipAmount,
         totalWithTip: perPersonTotalWithTip,
         subtotal: perPersonSubtotal,
@@ -155,7 +163,7 @@ export default function Propina() {
         groupTipAmount: groupTipAmount,
         groupTotalWithTip: groupTotalWithTip,
         groupPeople: peopleCount,
-        tipPercent: percent,
+        tipPercent: percentRounded,
         ...extraMeta,
         restaurantImage,
       };
@@ -170,7 +178,7 @@ export default function Propina() {
         perPersonSubtotal, perPersonIva, perPersonTipAmount, perPersonTotalWithTip,
         tipApplied: payloadPerPerson,
         groupPeople: peopleCount,
-        tipPercent: percent,
+        tipPercent: percentRounded,
         token,
         items: normalizedItems,
         restaurantImage,
@@ -179,7 +187,7 @@ export default function Propina() {
     }
 
     const payloadToReturn = attachMetaDup({
-      percent: Number(percent || 0),
+      percent: percentRounded,
       tipAmount: round2(groupTipAmount),
       totalWithTip: round2(groupTotalWithTip),
       subtotal: round2(groupSubtotal),
@@ -190,7 +198,7 @@ export default function Propina() {
       people,
       perPersonSubtotal, perPersonIva, perPersonTipAmount, perPersonTotalWithTip,
       groupPeople: peopleCount,
-      tipPercent: percent,
+      tipPercent: percentRounded,
       restaurantImage,
     });
 
@@ -221,7 +229,7 @@ export default function Propina() {
         totalWithTip: perPersonTotalWithTip,
         people: 1,
         groupPeople: peopleCount,
-        tipPercent: percent,
+        tipPercent: percentRounded,
         restaurantImage,
       });
       console.log('Propina -> payNow (EqualSplit) payload:', JSON.stringify(payPayload, null, 2));
@@ -240,7 +248,7 @@ export default function Propina() {
         totalWithTip: round2(groupTotalWithTip),
         displayTotal: round2(groupTotalWithTip),
         people,
-        tipPercent: percent,
+        tipPercent: percentRounded,
         restaurantImage,
       });
       console.log('Propina -> payNow (FROM OneExhibicion) payload (NO items):', JSON.stringify(payPayload, null, 2));
@@ -258,7 +266,7 @@ export default function Propina() {
       totalWithTip: round2(groupTotalWithTip),
       total: groupTotal,
       people,
-      tipPercent: percent,
+      tipPercent: percentRounded,
       restaurantImage,
     });
     console.log('Propina -> payNow (default) payload:', JSON.stringify(payload, null, 2));
@@ -329,7 +337,7 @@ export default function Propina() {
         keyboardShouldPersistTaps="handled"
       >
         <LinearGradient
-          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
           style={[styles.headerGradient, { paddingHorizontal: Math.max(12, basePadding), paddingTop: Math.max(12, rf(14)), paddingBottom: Math.max(12, rf(14)) }]}
@@ -401,8 +409,13 @@ export default function Propina() {
                   keyboardType="numeric"
                   value={otherPercent}
                   onChangeText={(t) => {
-                    const cleaned = t.replace(/[^0-9,.\-]/g, '');
-                    setOtherPercent(cleaned); setCustomActive(true); setSelectedPercent(null); setHasAppliedBefore(true);
+                    // SANITIZE: permitir sólo números y un punto, y limitar a 2 decimales
+                    let cleaned = t.replace(/[^0-9,.\-]/g, '');
+                    cleaned = cleaned.replace(/,/g, '.');
+                    const m = cleaned.match(/^(\d+)(\.(\d{0,2}))?/);
+                    const v = m ? (m[2] ? `${m[1]}${m[2]}` : m[1]) : '';
+                    setOtherPercent(v);
+                    setCustomActive(true); setSelectedPercent(null); setHasAppliedBefore(true);
                   }}
                   style={[styles.otherInput, { height: inputHeight, fontSize: clampLocal(rf(14), 13, 18) }]}
                 />
@@ -419,7 +432,18 @@ export default function Propina() {
           <View style={styles.buttonsWrap}>
             {/* Si quieres activar el botón "Añadir/editar propina" reemplaza el comentario */}
             {/* <TouchableOpacity style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(12)), 10, 18) }]} onPress={applyAndReturn} activeOpacity={0.9}><Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(15), 14, 18) }]}>{buttonLabel}</Text></TouchableOpacity> */}
-            <TouchableOpacity style={[styles.ghostButton, { paddingVertical: clampLocal(Math.round(rf(10)), 10, 16) }]} onPress={payNow} activeOpacity={0.9}><Text style={[styles.ghostButtonText, { fontSize: clampLocal(rf(14), 13, 18) }]}>Pagar</Text></TouchableOpacity>
+
+            {/* BOTÓN PAGAR: ahora con el mismo GRADIENT del encabezado */}
+            <LinearGradient
+              colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+              start={{ x: 0, y: 1 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(10)), 10, 16), marginTop: 12 }]}
+            >
+              <TouchableOpacity onPress={payNow} activeOpacity={0.9} style={{ width: '100%', alignItems: 'center', paddingVertical: 6 }}>
+                <Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(14), 13, 18) }]}>Pagar</Text>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
         </View>
       </ScrollView>

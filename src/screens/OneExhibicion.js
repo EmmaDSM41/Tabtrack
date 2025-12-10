@@ -351,7 +351,7 @@ export default function OneExhibicion() {
       </View>
 
       <ScrollView contentContainerStyle={styles.container}>
-        <LinearGradient colors={['#FF2FA0', '#7C3AED', '#0046ff']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.headerGradient}>
+        <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.headerGradient}>
           <View style={styles.gradientRow}>
             <View style={styles.leftCol}>
               <Image source={require('../../assets/images/logo2.png')} style={styles.tabtrackLogo} resizeMode="contain" />

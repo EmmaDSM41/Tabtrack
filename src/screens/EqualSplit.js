@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
@@ -139,25 +139,8 @@ export default function EqualSplit() {
     const fetchSavedPeopleThenItems = async () => {
       let savedN = null;
 
-      try {
-        if (savedKey) {
-          const raw = await AsyncStorage.getItem(savedKey);
-          if (raw) {
-            const n = Number(raw);
-            if (!Number.isNaN(n) && n > 0) {
-              savedN = n;
-              if (mounted) {
-                setTotalComensales(n);
-                setPeopleInput(String(n));
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('EqualSplit: error reading saved people from AsyncStorage', e);
-      }
-
-      if (savedN == null && saleId) {
+      // NEW: If saleId exists, try server first to get the authoritative (global) number.
+      if (saleId) {
         try {
           const base = API_BASE_URL.replace(/\/$/, '');
           const url = `${base}/api/mesas/comensales/${encodeURIComponent(saleId)}`;
@@ -185,10 +168,33 @@ export default function EqualSplit() {
             }
           }
         } catch (err) {
-          console.warn('EqualSplit: error fetching saved comensales from server', err);
+          // fallthrough to local fallback
+          console.warn('EqualSplit: error fetching saved comensales from server (fallback to local)', err);
         }
       }
 
+      // If we didn't get a valid number from server, try local AsyncStorage (fallback / offline)
+      if (savedN == null) {
+        try {
+          if (savedKey) {
+            const raw = await AsyncStorage.getItem(savedKey);
+            if (raw) {
+              const n = Number(raw);
+              if (!Number.isNaN(n) && n > 0) {
+                savedN = n;
+                if (mounted) {
+                  setTotalComensales(n);
+                  setPeopleInput(String(n));
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('EqualSplit: error reading saved people from AsyncStorage', e);
+        }
+      }
+
+      // Now load items if needed (same logic as before)
       if (items && Array.isArray(items) && items.length > 0) {
         // nothing
       } else {
@@ -339,7 +345,7 @@ export default function EqualSplit() {
     const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
     const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
 
- 
+
     const payPayload = {
       ...payloadCommon,
        subtotal: perPersonSubtotal,
@@ -472,7 +478,7 @@ export default function EqualSplit() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
-         <LinearGradient colors={['#FF2FA0','#7C3AED','#0046ff']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
+         <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
            <View style={[styles.gradientRow, { flexDirection: 'row' }]}>
             <View style={[styles.leftCol, { flex: 0, maxWidth: Math.round(Math.min(logoSize + wp(6), wp(40))) }]}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
@@ -481,7 +487,7 @@ export default function EqualSplit() {
               </View>
             </View>
 
- 
+
             <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: Math.round(wp(42)) } : { marginLeft: Math.round(wp(30)) }]}>
               <Text style={styles.totalLabel}>Total</Text>
 
@@ -494,7 +500,24 @@ export default function EqualSplit() {
 
               <View style={styles.rightThanks}>
                 <Text style={styles.thanksText}>Se divide entre</Text>
-                <Text style={styles.thanksSub}>{people} {people === 1 ? 'persona' : 'personas'}</Text>
+
+                {/* Aquí agregué el lapicito para editar el número de personas */}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.thanksSub}>{people} {people === 1 ? 'persona' : 'personas'}</Text>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      // abrir modal pre-llenado para editar
+                      const curr = totalComensales ?? people;
+                      setPeopleInput(String(curr));
+                      setShowPeopleModal(true);
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={{ marginLeft: 8 }}
+                  >
+                    <Text style={{ fontSize: Math.round(clamp(rf(3.4), 14, 18)), color: 'rgba(255,255,255,0.95)' }}>✏️</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </View>
@@ -567,7 +590,7 @@ export default function EqualSplit() {
               <Text style={styles.primaryButtonText}>Pagar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Dividir', { token })} activeOpacity={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Escanear', { token })} activeOpacity={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.ghostButtonText}>Volver</Text>
             </TouchableOpacity>
           </View>
@@ -577,7 +600,7 @@ export default function EqualSplit() {
       <Modal visible={showPeopleModal} transparent animationType="fade">
         <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', alignItems:'center' }}>
           <View style={{ width: modalWidth, backgroundColor:'#fff', borderRadius:12, padding: Math.round(sidePad) }}>
-            <Text style={{ fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight:'800', marginBottom: Math.round(hp(0.6)) }}>¿Entre cuántas personas?</Text>
+            <Text style={{ fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight:'800', color:'#000', marginBottom: Math.round(hp(0.6)) }}>¿Entre cuántas personas?</Text>
             <Text style={{ color:'#444', marginBottom: Math.round(hp(1)) }}>Ingresa el número de personas para dividir la cuenta. Esto se guardará para esta cuenta y no se volverá a preguntar.</Text>
 
             <TextInput
@@ -585,7 +608,7 @@ export default function EqualSplit() {
               value={peopleInput}
               onChangeText={t => setPeopleInput(t.replace(/[^0-9]/g,''))}
               placeholder="Ej. 3"
-              style={{ borderWidth:1, borderColor:'#e5e7eb', borderRadius:8, padding: Math.round(wp(3)), marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
+              style={{ borderWidth:1, borderColor:'#e5e7eb', borderRadius:8, padding: Math.round(wp(3)),color:'#000', marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
               editable={!modalConfirmLoading}
             />
 

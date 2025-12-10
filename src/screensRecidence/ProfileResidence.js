@@ -28,9 +28,9 @@ const sampleNotifications = [
 ];
 
 const API_URL = 'https://api.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileResidence({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -578,14 +578,14 @@ export default function ProfileScreen({ navigation }) {
             alignItems: 'center',
             justifyContent: 'center'
           }]}
-          onPress={() => navigation.navigate('LoginResidence')}
+          onPress={() => navigation.navigate('Home')}
           hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
         >
           <Image
             source={require('../../assets/images/logo2.png')}
             style={{ width: Math.round(clamp(rf(3.8), 18, 28)), height: Math.round(clamp(rf(3.8), 18, 28)), marginRight: 10, resizeMode: 'contain' }}
           />
-          <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack Residence</Text>
+          <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack</Text>
         </TouchableOpacity>
 
       </ScrollView>

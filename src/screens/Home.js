@@ -3,14 +3,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-// Tabs principales
 import QRScreen from './QRScreen';
 import ProfileScreen from './ProfileScreen';
 import GPSScreen from './GPSScreen';
 import Feed from './Feed';
 import ExperiencesScreen from './ExperiencesScreen';
 
-// Extras
 import RestaurantDetailScreen from './RestaurantDetailScreen';
 import Reservation from './Reservation';
 import Calificar from './Calificar';

@@ -1,4 +1,3 @@
-// Login.js
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -22,7 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 const PRIMARY = '#FEFFFFFF';
 
 export default function Login() {
@@ -251,25 +250,38 @@ export default function Login() {
           style={{ width: '100%', alignItems: 'center' }}
           keyboardVerticalOffset={keyboardVerticalOffset}
         >
-          <TextInput
-            style={[styles.input, styles.inputBorder, dynamic.inputOverride]}
-            placeholder="Correo electrónico"
-            placeholderTextColor="#000"
-            value={mail}
-            onChangeText={setMail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+          <View style={[styles.inputWrapper, dynamic.inputOverride]}>
+            <TextInput
+              style={styles.inputInner}
+              placeholder="Correo electrónico"
+              placeholderTextColor="#000"
+              value={mail}
+              onChangeText={setMail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              underlineColorAndroid="transparent"   // quita subrayado por defecto Android
+              importantForAutofill="yes"
+              textContentType="username"
+              autoComplete="email"
+            />
+          </View>
 
-          <TextInput
-            style={[styles.input, styles.inputBorder, dynamic.inputOverride]}
-            placeholder="Contraseña"
-            placeholderTextColor="#000"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-          />
+          {/* PASSWORD */}
+          <View style={[styles.inputWrapper, dynamic.inputOverride]}>
+            <TextInput
+              style={styles.inputInner}
+              placeholder="Contraseña"
+              placeholderTextColor="#000"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              underlineColorAndroid="transparent"
+              importantForAutofill="yes"
+              textContentType="password"
+              autoComplete="password"
+            />
+          </View>
 
           <TouchableOpacity
             style={[
@@ -325,11 +337,31 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingVertical: 60 },
   logo: { width: 250, height: 100, resizeMode: 'contain', marginTop: 5 },
-  // removidos margins negativos y marginRight que causaban solapamientos
   title: { fontSize: 34, color: '#000', textAlign: 'center', marginTop: 18, fontFamily: 'Montserrat-Bold' },
   carita: { fontSize: 34, color: '#000', textAlign: 'center', marginTop: 6, fontFamily: 'Montserrat-Bold' },
-  input: { width: '80%', height: 40, borderRadius: 20, paddingHorizontal: 10, marginTop: 12, backgroundColor: 'transparent' },
-  inputBorder: { borderColor: '#000', borderWidth: 1, color: '#000' },
+  inputWrapper: {
+    width: '80%',
+    height: 52,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#000',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    marginBottom: 16,
+
+  },
+
+  inputInner: {
+    width: '100%',
+    height: 40,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    backgroundColor: 'transparent',
+    color: '#000',
+  },
+
   inicio: { width: '50%', height: 40, borderRadius: 25, backgroundColor: '#0046ff', marginTop: 18, justifyContent: 'center', alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontFamily: 'Montserrat-Regular' },
   buttonText1: { color: '#000', fontSize: 16, fontFamily: 'Montserrat-Regular' },
@@ -337,7 +369,7 @@ const styles = StyleSheet.create({
   forgotPasswordText: { color: '#000', fontFamily: 'Montserrat-Regular', fontSize: 14, opacity: 0.9 },
   buttonContainer: { width: '80%', marginTop: 18 },
   button: { backgroundColor: '#ffffff', padding: 7, borderRadius: 10, marginVertical: 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#000', borderRadius: 8, },
-  icon: { width: 20, height: 20, marginRight: 10, color:"#000" },
+  icon: { width: 20, height: 20, marginRight: 10, color: "#000" },
   toast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, maxWidth: '85%' },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' },
   successToast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgb(0, 50, 186)', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },

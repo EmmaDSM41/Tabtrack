@@ -55,7 +55,7 @@ export default function OpinionSuccessScreen() {
 
       {/* CONTENT */}
       <LinearGradient
-        colors={['#8E2DE2', '#4A00E0']}
+        colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.gradient}

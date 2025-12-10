@@ -181,7 +181,7 @@ export default function ResumenPago() {
 
       <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: Math.max(24, rf(20)) }}>
         <LinearGradient
-          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
           style={[styles.headerGradient, { paddingTop: rf(18), paddingBottom: rf(18) }]}

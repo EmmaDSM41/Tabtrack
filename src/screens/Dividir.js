@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 
 const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
@@ -520,7 +520,7 @@ export default function Dividir() {
 
     const selected = selectedItems;
     if (!selected || selected.length === 0) {
-      showStyledAlert('Selecciona productos', 'Debes seleccionar al menos un producto para pagar por consumo.');
+      showStyledAlert('Selecciona productos', 'Debes seleccionar al menos un producto para pagar por consumo.', 'Aceptar');
       return;
     }
 
@@ -701,7 +701,7 @@ export default function Dividir() {
 
         {/* Ajuste: header similar al que me pasaste (logo arriba + imagen, pregunta a la derecha) */}
         <LinearGradient
-          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.0 }}
           locations={[0, 0.45, 1]}
@@ -717,7 +717,7 @@ export default function Dividir() {
 
             <View style={[styles.rightCol, { maxWidth: rightColWidth, marginRight: Math.max(12, wp(3)) }]}>
               {/* Pregunta: ahora un poco más chica */}
-              <Text style={[styles.divideTitle]}>{'¿Cómo desea\ndividir la cuenta?'}</Text>
+              <Text style={[styles.divideTitle]}>{'Selecciona\ntus productos'}</Text>
 
               <View style={styles.stackButtons}>
                 { !hideEqualButtonFlag && (
@@ -794,7 +794,7 @@ export default function Dividir() {
 
           {/* Pagar por consumo (estilo igual al botón Compartir) */}
           <LinearGradient
-            colors={['rgb(148, 2, 220)', 'rgb(4, 60, 216)']}
+            colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={[styles.shareButtonGradient, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]}
@@ -805,7 +805,7 @@ export default function Dividir() {
               style={styles.shareButtonTouchable}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.shareButtonText}>Pagar por consumo</Text>
+              <Text style={styles.shareButtonText}>Pagar</Text>
             </TouchableOpacity>
           </LinearGradient>
 
@@ -815,7 +815,7 @@ export default function Dividir() {
           </TouchableOpacity>
 
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+  {/*           <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="logo-whatsapp" size={Math.round(rf(4))} color="#25D366" />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -826,7 +826,7 @@ export default function Dividir() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="logo-instagram" size={Math.round(rf(4))} color="#C13584" />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         </View>
 
@@ -925,12 +925,28 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     iconWrap: { marginHorizontal: Math.round(wp(2.4)), width: Math.round(clamp(rf(8.8), 36, 56)), height: Math.round(clamp(rf(8.8), 36, 56)), borderRadius: Math.round(clamp(rf(8.8), 36, 56) / 2), backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 2, borderWidth: 0.6, borderColor: '#e6eefc' },
 
     modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-    modalBox: { width: modalBoxWidth || Math.round(Math.min(width - 48, 420)), borderRadius: Math.round(wp(3)), padding: Math.round(wp(4)), alignItems: 'center' },
+    modalBox: { width: modalBoxWidth || Math.round(Math.min(width - 48, 420)), borderRadius: Math.round(wp(4)), padding: Math.round(wp(3)), alignItems: 'center' },
     modalTitle: { color: '#fff', fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight: '800', marginBottom: Math.round(hp(1)) },
     modalMessage: { color: '#000', fontSize: Math.round(clamp(rf(3.6), 12, 16)), textAlign: 'center', marginBottom: Math.round(hp(1.4)) },
     modalButtonsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between' },
-    modalBtnPrimary: { flex: 1, paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2.2)), backgroundColor: '#fff', marginRight: Math.round(wp(2)), alignItems: 'center' },
-    modalBtnPrimaryText: { color: '#0046ff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.4), 13, 16)) },
+modalBtnPrimary: {
+ 
+  flex: 1,
+  paddingVertical: Math.round(hp(0.4)),
+  borderRadius: Math.round(wp(2.2)),
+  backgroundColor: '#ffffffff',
+  marginRight: Math.round(wp(2)),
+  alignItems: 'center',
+  justifyContent: 'center',           // centrar verticalmente
+  minHeight: Math.round(hp(4)),       // da espacio para el texto
+  
+},modalBtnPrimaryText: {
+  color: '#0046ff',                       // negro sobre rosa claro está bien
+  fontWeight: '700',                   // '900' a veces falla con fuentes custom
+  fontSize: Math.round(clamp(rf(3.4), 13, 16)) || 14, // fallback seguro
+  includeFontPadding: false,
+  textAlign: 'center',
+},    
     modalBtnGhost: { flex: 1, paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2.2)), backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)', marginLeft: Math.round(wp(2)), alignItems: 'center' },
     modalBtnGhostText: { color: '#000', fontWeight: '700', fontSize: Math.round(clamp(rf(3.4), 13, 16)) },
 

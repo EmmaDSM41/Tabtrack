@@ -16,6 +16,10 @@ import ForgotPassword from './src/screens/ForgotPassword';
 import Home from './src/screens/Home';
 import TermsAndConditions from './src/screens/TermsAndConditions';
 import VerificationScreen from './src/screens/VerificacionScreen';
+import ResidenceLoginScreen from './src/screensRecidence/LoginResidence';
+import CodeResidence from './src/screensRecidence/CodeResidence';
+import HomeResidence from './src/screensRecidence/HomeResidence';
+import SplashResidence from './src/screensRecidence/SplashResidence';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,9 +37,16 @@ export default function App() {
         <Stack.Screen name="ForgotPassword" component={ForgotPassword} />
         <Stack.Screen name="Terms" component={TermsAndConditions} />
         <Stack.Screen name="Verificacion" component={VerificationScreen} />
+        {/* Auth screens Recidence */}
+        <Stack.Screen name="LoginResidence" component={ResidenceLoginScreen} />
+        <Stack.Screen name="CodeResidence" component={CodeResidence} />
+        <Stack.Screen name="SplashResidence" component={SplashResidence} />
+
+ 
  
         {/* Main app con barra */}
         <Stack.Screen name="Home" component={Home} />
+        <Stack.Screen name="HomeResidence" component={HomeResidence} />
       </Stack.Navigator>
     </NavigationContainer>
   );

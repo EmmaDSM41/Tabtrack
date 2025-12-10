@@ -28,7 +28,7 @@ const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
-const API_TOKEN_CONST = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MjE4NzAyOCwianRpIjoiMTdlYTVjYTAtZTE3MC00ZjIzLTllMTgtZmZiZWYyMzg4OTE0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjIxODcwMjgsImV4cCI6MTc2NDc3OTAyOCwicm9sIjoiRWRpdG9yIn0.W_zoGW2YpqCyaxpE1c_hnRXdtw5ty0DDd8jqvDbi6G0';
+const API_TOKEN_CONST = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 
 const AS_KEYS = {
   USER_EMAIL: 'user_email',
@@ -466,21 +466,21 @@ export default function PaymentScreen() {
           const restJson = await restRes.json();
           const plataforma = String(restJson.plataforma_gestion ?? restJson.plataforma ?? '').toLowerCase();
           if (plataforma.includes('eposnow') || plataforma.includes('epos now')) {
-            resolvedPaymentMethodId = 10;
+            resolvedPaymentMethodId = 9;
           } else {
-            resolvedPaymentMethodId = 1;
+            resolvedPaymentMethodId = 3;
           }
         } else {
-          console.warn('startCheckoutAndPoll: no se pudo consultar restaurante (http ' + String(restRes.status) + '). Usando default payment_method_id=1');
-          resolvedPaymentMethodId = 1;
+          console.warn('startCheckoutAndPoll: no se pudo consultar restaurante (http ' + String(restRes.status) + '). Usando default payment_method_id=3');
+          resolvedPaymentMethodId = 3;
         }
       } else {
-        console.warn('startCheckoutAndPoll: restaurante_id no disponible para resolver plataforma_gestion. Usando default payment_method_id=1');
-        resolvedPaymentMethodId = 1;
+        console.warn('startCheckoutAndPoll: restaurante_id no disponible para resolver plataforma_gestion. Usando default payment_method_id=3');
+        resolvedPaymentMethodId = 3;
       }
     } catch (err) {
-      console.warn('Error consultando plataforma_gestion del restaurante:', err, '-> usando default payment_method_id=1');
-      resolvedPaymentMethodId = 1;
+      console.warn('Error consultando plataforma_gestion del restaurante:', err, '-> usando default payment_method_id=3');
+      resolvedPaymentMethodId = 3;
     }
 
     const payment_method_id = params.payment_method_id ?? resolvedPaymentMethodId;
@@ -685,7 +685,6 @@ export default function PaymentScreen() {
   const paymentOptions = [
     { key: 'paypal', label: 'PayPal', icon: 'logo-paypal' },
     { key: 'stripe', label: 'Tarjeta de credito o debito', icon: 'card-outline' },
-    { key: 'transfer', label: 'Openpay', icon: 'swap-vertical-outline' },
     { key: 'cash', label: 'Apple Pay', icon: 'cash-outline' },
   ];
 
@@ -717,7 +716,7 @@ export default function PaymentScreen() {
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.max(hp(3), bottomSafe + 12) }]}>
         <LinearGradient
-          colors={['#FF2FA0', '#7C3AED', '#0046ff']}
+          colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
           style={[styles.headerGradient, { paddingHorizontal: Math.max(12, contentPadding), paddingTop: Math.max(16, hp(2)), paddingBottom: Math.max(18, hp(2)) }]}
