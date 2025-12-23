@@ -1,4 +1,3 @@
-// ExperiencesScreen.js
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -116,13 +115,11 @@ export default function ExperiencesScreen() {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
 
-  // responsive helpers
   const wp = (p) => (p * width) / 100;
   const hp = (p) => (p * height) / 100;
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // layout sizes
   const horizontalPad = Math.round(Math.max(10, wp(2)));
   const gradientHeight = Math.round(clamp(hp(34), 180, 320));
   const cardRadius = Math.round(clamp(rf(3.6), 12, 20));
@@ -133,7 +130,6 @@ export default function ExperiencesScreen() {
   const smallFont = Math.round(clamp(rf(3.4), 12, 16));
   const progressHeight = Math.max(10, Math.round(hp(1.1)));
 
-  // sample computed numbers
   const assignedBalance = 3500.0;
   const consumed = 425.0;
   const available = assignedBalance - consumed;
@@ -141,10 +137,9 @@ export default function ExperiencesScreen() {
 
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
 
-  // bottom sheet state & animation
   const [sheetVisible, setSheetVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
-  const animY = useRef(new Animated.Value(0)).current; // 0 hidden, 1 shown
+  const animY = useRef(new Animated.Value(0)).current; 
 
   useEffect(() => {
     animY.setValue(0);
@@ -171,7 +166,6 @@ export default function ExperiencesScreen() {
     });
   };
 
-  // sheet translate interpolation
   const sheetTranslateY = animY.interpolate({
     inputRange: [0, 1],
     outputRange: [height, Math.max(120, height * 0.12)],
@@ -240,7 +234,6 @@ export default function ExperiencesScreen() {
     );
   };
 
-  // helper to render each transaction in sheet (name + separator + items rows)
   const renderTransaction = (tx) => {
     return (
       <View key={tx.id} style={sheetStyles.txRow}>
@@ -261,7 +254,6 @@ export default function ExperiencesScreen() {
 
           <View style={sheetStyles.itemSeparator} />
 
-          {/* items list as simple rows (no inner box) */}
           {tx.items.map((it) => (
             <View key={it.id} style={sheetStyles.txItemRow}>
               <Text style={sheetStyles.txItemLabel}>{it.label}</Text>
@@ -278,14 +270,12 @@ export default function ExperiencesScreen() {
       <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 36 }}>
         <View style={{ height: Math.round(hp(5)) }} />
 
-        {/* Title */}
         <View style={{ paddingHorizontal: horizontalPad }}>
           <Text style={[styles.pageTitle, { fontSize: titleFont }]}>Experiences</Text>
         </View>
 
         <View style={{ height: 12 }} />
 
-        {/* Gradient card */}
         <View style={{ paddingHorizontal: horizontalPad }}>
           <LinearGradient
             colors={gradientColors}
@@ -341,7 +331,6 @@ export default function ExperiencesScreen() {
           </LinearGradient>
         </View>
 
-        {/* Info box */}
         <View style={{ paddingHorizontal: horizontalPad, marginTop: 14 }}>
           <View style={styles.infoBox}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -358,7 +347,6 @@ export default function ExperiencesScreen() {
           </View>
         </View>
 
-        {/* Pagos header */}
         <View
           style={{
             paddingHorizontal: horizontalPad,
@@ -375,7 +363,6 @@ export default function ExperiencesScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* purple notice */}
         <View style={{ paddingHorizontal: horizontalPad, marginTop: 12 }}>
           <View style={styles.purpleNotice}>
             <Text style={styles.purpleNoticeText}>
@@ -387,7 +374,6 @@ export default function ExperiencesScreen() {
           </View>
         </View>
 
-        {/* payments list */}
         <View style={{ paddingHorizontal: horizontalPad, marginTop: 12 }}>
           <FlatList
             data={SAMPLE_PAYMENTS}
@@ -401,7 +387,6 @@ export default function ExperiencesScreen() {
         <View style={{ height: 36 }} />
       </ScrollView>
 
-      {/* Bottom sheet modal */}
       <Modal visible={sheetVisible} animationType="none" transparent statusBarTranslucent>
         <TouchableWithoutFeedback onPress={closeSheet}>
           <View style={sheetStyles.backdrop} />
@@ -420,7 +405,6 @@ export default function ExperiencesScreen() {
         >
           <View style={sheetStyles.handleRow}>
             <View style={sheetStyles.handle} />
-            {/* X: botón con hitSlop amplio para que responda siempre */}
             <TouchableOpacity
               onPress={closeSheet}
               style={sheetStyles.closeBtnTouchable}
@@ -437,7 +421,6 @@ export default function ExperiencesScreen() {
               {selectedPayment?.title ?? 'Detalle de consumos'}
             </Text>
 
-            {/* total box: ahora más grande */}
             <View style={sheetStyles.totalBox}>
               <View style={{ flex: 1 }}>
                 <Text style={sheetStyles.totalLabel}>Total del periodo</Text>
@@ -448,7 +431,6 @@ export default function ExperiencesScreen() {
 
             <Text style={sheetStyles.sectionHeading}>Detalle de consumos</Text>
 
-            {/* lista de transacciones (cada una con separador e items) */}
             <View style={{ marginTop: 10 }}>
               {(selectedPayment?.details || []).map((tx) => renderTransaction(tx))}
             </View>
@@ -461,7 +443,6 @@ export default function ExperiencesScreen() {
   );
 }
 
-/* main styles (page) */
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#FBFBFD' },
   pageTitle: { textAlign: 'center', color: '#0B61FF', fontWeight: '800' },
@@ -590,7 +571,6 @@ const styles = StyleSheet.create({
   actionBtnText: { color: '#6B21A8', marginLeft: 8, fontWeight: '700' },
 });
 
-/* sheet styles */
 const sheetStyles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.38)' },
   sheetContainer: {

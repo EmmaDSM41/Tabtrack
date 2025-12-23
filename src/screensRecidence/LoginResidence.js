@@ -26,21 +26,17 @@ export default function ResidenceLoginScreen({ navigation }) {
 
   const onContinue = () => {
      navigation.navigate('CodeResidence');
-   /*  console.log('Continuar pressed', { email, password }); */
   };
 
   const onCreateAccount = () => {
-    // navigation.navigate('ResidenceRegister');
     console.log('Crear cuenta pressed');
   };
 
   const onTerms = () => {
-    // navigation.navigate('Terms');
     console.log('Terms pressed');
   };
 
   const onPrivacy = () => {
-    // navigation.navigate('Privacy');
     console.log('Privacy pressed');
   };
 

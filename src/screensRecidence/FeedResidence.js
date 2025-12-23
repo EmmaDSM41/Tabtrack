@@ -1,4 +1,3 @@
-// NoticeBoardScreen.js
 import React from 'react';
 import {
   SafeAreaView,
@@ -18,30 +17,25 @@ export default function FeedResicende() {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
 
-  // helpers responsivos
   const wp = (p) => (p * width) / 100;
   const hp = (p) => (p * height) / 100;
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // layout vars
-  const headerHeight = Math.round(hp(10.5)); // header reducido un poco
-  const outerPad = Math.round(wp(6)); // <-- mayor padding lateral solicitado
+  const headerHeight = Math.round(hp(10.5)); 
+  const outerPad = Math.round(wp(6)); 
   const cardPadding = Math.round(wp(4));
   const cardRadius = Math.round(Math.max(12, wp(3)));
-  // aumenté el tamaño del icono/box en la primera tarjeta
   const iconBoxSize = Math.round(clamp(rf(16), 64, 120));
   const smallText = Math.round(clamp(rf(3.2), 12, 14));
   const titleText = Math.round(clamp(rf(4.6), 18, 22));
   const sectionTitleSize = Math.round(clamp(rf(3.8), 14, 18));
   const payButtonHeight = Math.round(clamp(rf(9), 44, 56));
 
-  // color común de degradado (usado en header, strip y botones)
   const GRADIENT_COLORS = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header: igual degradado (ahora todos usan GRADIENT_COLORS) */}
       <LinearGradient
         colors={GRADIENT_COLORS}
         start={{ x: 0, y: 0 }}
@@ -66,16 +60,13 @@ export default function FeedResicende() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(hp(2)) }}>
-          {/* ---------------- TARJETA 1: CAFETERÍA ---------------- */}
           <View style={[styles.restaurantCardWrap, { borderRadius: cardRadius }]}>
-            {/* franja degradada superior (cabecera) - ahora usa el mismo degradado que el header */}
             <LinearGradient
               colors={GRADIENT_COLORS}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[styles.cardStrip, { height: Math.round(hp(7)), borderTopLeftRadius: cardRadius, borderTopRightRadius: cardRadius }]}
             >
-              {/* icono a la izquierda dentro del strip */}
               <View style={styles.stripContent}>
                 <View
                   style={[
@@ -97,9 +88,7 @@ export default function FeedResicende() {
               </View>
             </LinearGradient>
 
-            {/* contenido blanco debajo de la franja */}
             <View style={[styles.restaurantCardContent, { padding: cardPadding, borderBottomLeftRadius: cardRadius, borderBottomRightRadius: cardRadius }]}>
-              {/* Info: Horario / Estado en la misma fila con labels left / values right */}
               <View style={styles.infoContainer}>
                 <View style={styles.labelsCol}>
                   <Text style={[styles.infoLabel, { fontSize: smallText }]}>Horario</Text>
@@ -117,12 +106,11 @@ export default function FeedResicende() {
                 </View>
               </View>
 
-              {/* Registrar consumo: botón centrado ancho completo (dentro del card blanco) */}
               <TouchableOpacity
                 activeOpacity={0.9}
                 style={[
                   styles.registerBtn,
-                  { borderColor: 'rgba(156, 110, 255, 0.22)' }, // tono morado suave (armoniza con el degradado)
+                  { borderColor: 'rgba(156, 110, 255, 0.22)' }, 
                 ]}
                 onPress={() => navigation.navigate('NoticesResidence')}
               >
@@ -132,13 +120,11 @@ export default function FeedResicende() {
             </View>
           </View>
 
-          {/* ---------------- SECCIÓN: Estado de Pagos ---------------- */}
           <View style={{ marginTop: Math.round(hp(3)), flexDirection: 'row', alignItems: 'center' }}>
             <Ionicons name="document-text-outline" size={18} color="#111827" style={{ marginRight: 8 }} />
             <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize }]}>Estado de Pagos</Text>
           </View>
 
-          {/* ---------------- TARJETA DE PAGO ---------------- */}
           <View style={[styles.paymentCardWrap, { marginTop: Math.round(hp(2)) }]}>
             <View style={[styles.paymentCard, { borderRadius: 12 }]}>
               <View style={styles.paymentHeader}>
@@ -154,7 +140,6 @@ export default function FeedResicende() {
 
               <Text style={styles.paymentDue}>Vence: 30 de noviembre de 2025</Text>
 
-              {/* separador (línea) */}
               <View style={styles.separatorLine} />
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -164,7 +149,6 @@ export default function FeedResicende() {
 
               <View style={{ height: 14 }} />
 
-              {/* Botón pagar con el mismo degradado que el header */}
               <LinearGradient
                 colors={GRADIENT_COLORS}
                 start={{ x: 0, y: 0 }}
@@ -209,7 +193,6 @@ const styles = StyleSheet.create({
 
   scroll: { paddingBottom: 24 },
 
-  /* TARJETA CAFETERÍA: wrapper + franja degradada superior + contenido blanco */
   restaurantCardWrap: {
     overflow: 'hidden',
     backgroundColor: 'transparent',
@@ -242,7 +225,6 @@ const styles = StyleSheet.create({
     width: '100%',
   },
 
-  /* info: labels y valores en columnas */
   infoContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -278,7 +260,6 @@ const styles = StyleSheet.create({
 
   sectionTitle: { color: '#111827', fontWeight: '700' },
 
-  /* TARJETA DE PAGO */
   paymentCardWrap: {},
   paymentCard: {
     backgroundColor: '#fff',

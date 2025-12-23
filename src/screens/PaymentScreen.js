@@ -139,7 +139,6 @@ export default function PaymentScreen() {
     console.log('PaymentScreen route.params:', params);
   }, [params]);
 
-  // responsive helpers using window dims & pixel ratio
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
@@ -147,10 +146,9 @@ export default function PaymentScreen() {
 
   const wp = (p) => Math.round((p / 100) * width);
   const hp = (p) => Math.round((p / 100) * height);
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // base 375
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // items parse
   let rawItems = [];
   if (Array.isArray(params.items)) rawItems = params.items;
   else if (typeof params.itemsJson === 'string') {
@@ -691,7 +689,6 @@ export default function PaymentScreen() {
   const dateText = fecha_apertura ? new Date(fecha_apertura).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' }) : new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
   const totalLabel = useMemo(() => formatMoney(totalWithTip || totalSinPropinaFinal), [totalWithTip, totalSinPropinaFinal]);
 
-  // responsive computed values used inline
   const headerHeight = clamp(hp(10), 64, 112);
   const logoSize = clamp(Math.round(width * 0.28), 80, 160);
   const restaurantImageSize = clamp(Math.round(width * 0.16), 48, 120);
@@ -795,7 +792,7 @@ export default function PaymentScreen() {
 
       {gatewayModalVisible && (
         <View style={styles.modalBackdrop}>
-          <LinearGradient colors={['#fff']} style={[styles.gatewayModalBox, { width: Math.min(width - 48, 420) }]}>
+          <LinearGradient colors={['#fff','#fff']} style={[styles.gatewayModalBox, { width: Math.min(width - 48, 420) }]}>
             <Ionicons name="alert-circle" size={44} color="#0046ff" style={{ marginBottom: 8 }} />
             <Text style={[styles.gatewayModalTitle, { fontSize: clamp(rf(2.2), 16, 20) }]}>Método no disponible</Text>
             <Text style={[styles.gatewayModalMessage, { fontSize: clamp(rf(1.6), 13, 16) }]}>{gatewayModalMessage}</Text>

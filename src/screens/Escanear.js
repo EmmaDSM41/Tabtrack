@@ -308,7 +308,7 @@ export default function Escanear() {
 
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
-      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined }});
+      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined }}); 
       if (!isMountedRef.current) return;
       if (!res.ok) { openErrorModal(`No se pudo obtener el consumo (HTTP ${res.status}).`); if (isMountedRef.current) setLoading(false); return; }
 
@@ -331,10 +331,32 @@ export default function Escanear() {
       else setRestaurantImageUri(null);
 
       const rawItems = Array.isArray(json.items) ? json.items : [];
+
+      // --- NUEVA LÓGICA: detectar si precio_item es precio UNITARIO o TOTAL DE LÍNEA ---
+      const reportedTotalFromJson = safeNum(json.total_consumo ?? json.total ?? json.totales_venta?.total_neto ?? json.totales_venta?.total_neto ?? 0);
+      const sumPrecioFieldNoQty = rawItems.reduce((s, it) => {
+        return s + safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
+      }, 0);
+
+      // Si reportedTotal está presente y coincide (aprox.) con la suma de los campos precio_item **sin** multiplicar por cantidad,
+      // entonces asumimos que esos campos representan el TOTAL de la línea (y por tanto hay que dividir entre cantidad).
+      const EPS = 0.5; // tolerancia en MXN (pequeña)
+      const precioItemRepresentaTotalDeLinea = (reportedTotalFromJson > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalFromJson) <= EPS);
+
       const expandedItems = [];
       rawItems.forEach((it, idx) => {
         const rawQty = Math.max(1, safeNum(it.cantidad ?? it.qty ?? 1));
-        const rawPrecio = safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
+        const rawPrecioField = safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
+
+        // si detectamos que precio_item = total de la línea -> dividir entre cantidad
+        let unitPrice;
+        if (rawQty > 1 && precioItemRepresentaTotalDeLinea && rawPrecioField !== 0) {
+          unitPrice = +(rawPrecioField / rawQty).toFixed(2);
+        } else {
+          // caso por defecto: precio_field es precio unitario (o qty==1), usarlo directamente
+          unitPrice = +Number(rawPrecioField || 0).toFixed(2);
+        }
+
         const originalId = it.codigo_item ?? it.codigo ?? it.id ?? it.item_id ?? `item-${idx}`;
         for (let k = 0; k < rawQty; k++) {
           const unitId = `${String(originalId)}#${idx}#${k+1}`;
@@ -342,8 +364,8 @@ export default function Escanear() {
             id: String(unitId),
             name: it.nombre_item ?? it.nombre ?? it.name ?? `Item ${idx+1}`,
             qty: 1,
-            unitPrice: +Number(rawPrecio || 0).toFixed(2),
-            lineTotal: +Number(rawPrecio || 0).toFixed(2),
+            unitPrice: unitPrice,
+            lineTotal: unitPrice,
             canceled: !!it.canceled || !!it.cancelado,
             raw: it,
             original_line_id: String(originalId),
@@ -352,6 +374,7 @@ export default function Escanear() {
         }
       });
 
+      // reportedTotal: preferimos el total mandado por el servidor si está disponible, sino sumamos
       const reportedTotal = safeNum(json.total_consumo ?? json.total ?? 0);
       const computedTotal = reportedTotal > 0 ? reportedTotal : expandedItems.reduce((s,x)=> s + safeNum(x.lineTotal), 0);
       if (isMountedRef.current) setOriginalTotalConsumo(+computedTotal.toFixed(2));
@@ -712,6 +735,7 @@ export default function Escanear() {
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
           <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
+
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
                 <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />

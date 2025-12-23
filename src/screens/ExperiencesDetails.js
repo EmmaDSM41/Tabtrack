@@ -14,7 +14,7 @@ import {
   Platform,
   Linking,
   Alert,
-  useWindowDimensions, 
+  useWindowDimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const VISITS_STORAGE_KEY = 'user_visits';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';  
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 
 const WHATSAPP_URL_DIRECT = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
 
@@ -46,7 +46,6 @@ const normalize = (v) => {
   }
 };
 
- 
 function matchUserIds(a, b) {
   if (!a || !b) return false;
   const A = normalize(a).toLowerCase();
@@ -89,9 +88,7 @@ function candidateMatchesCodigo(candidateRaw, codigoRaw) {
   return false;
 }
 
-/* -------------------------------------------------------------------- */
-/* RESPONSIVE: pequeño hook utilitario (sin dependencias externas)       */
-/* -------------------------------------------------------------------- */
+
 function useResponsive() {
   const { width, height } = useWindowDimensions();
 
@@ -116,10 +113,9 @@ function useResponsive() {
 
   return { width, height, wp, hp, rf, clamp };
 }
-/* -------------------------------------------------------------------- */
 
 export default function DetailScreen({ navigation, route }) {
-  const { width, wp, hp, rf, clamp } = useResponsive(); // RESPONSIVE hook
+  const { width, wp, hp, rf, clamp } = useResponsive(); 
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -127,17 +123,18 @@ export default function DetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
 
   const [currentUserId, setCurrentUserId] = useState(null);
-  const [filteredItems, setFilteredItems] = useState(null); // null = not attempted, [] = attempted but none found
+  const [filteredItems, setFilteredItems] = useState(null); 
   const [isSplitsLoading, setIsSplitsLoading] = useState(false);
   const [showFull, setShowFull] = useState(false);
 
-  // Nuevo estado: total de propina atribuible al usuario según propinas_por_tx
+  const [fullItems, setFullItems] = useState(null); 
+  const [isFullLoading, setIsFullLoading] = useState(false);
+
   const [userPropinaTotal, setUserPropinaTotal] = useState(0);
 
   useEffect(() => {
     setNotifications(sampleNotifications);
     (async () => {
-      // si nos pasan la visita en params, la usamos directamente
       if (route?.params?.visit) {
         setVisit(route.params.visit);
         setLoading(false);
@@ -145,7 +142,6 @@ export default function DetailScreen({ navigation, route }) {
         return;
       }
 
-      // si nos pasan un id, buscar en storage
       const id = route?.params?.visitId ?? route?.params?.id ?? null;
       if (id) {
         try {
@@ -166,25 +162,18 @@ export default function DetailScreen({ navigation, route }) {
       }
       setLoading(false);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
-  // función tolerantísima para parsear lo que haya en storage bajo VISITS_STORAGE_KEY
   function parseVisitsRaw(raw) {
     if (!raw) return [];
-    // si ya es un array (p. ej. en algunos entornos AsyncStorage puede devolver objeto), manejarlo
     if (Array.isArray(raw)) return raw;
-    // Si raw ya es un objeto serializable (caso raro), convertir a array
     if (typeof raw === 'object' && raw !== null) {
       try {
         return Object.values(raw);
       } catch (e) { return []; }
     }
-
     const str = String(raw).trim();
     if (!str) return [];
-
-    // intento normal JSON.parse
     try {
       const parsed = JSON.parse(str);
       if (Array.isArray(parsed)) return parsed;
@@ -192,10 +181,8 @@ export default function DetailScreen({ navigation, route }) {
         return Object.values(parsed);
       }
     } catch (e) {
-      // intentar recuperar múltiples objetos JSON pegados o líneas con JSON
       const recovered = [];
       try {
-        // buscar bloques JSON con regex (bastante tolerante)
         const matches = str.match(/\{[^}]*\}/g);
         if (matches && matches.length > 0) {
           for (const m of matches) {
@@ -204,8 +191,6 @@ export default function DetailScreen({ navigation, route }) {
           if (recovered.length > 0) return recovered;
         }
       } catch (er) { /* ignore */ }
-
-      // intentar separar por líneas y parsear cada línea
       try {
         const lines = str.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         for (const l of lines) {
@@ -213,8 +198,6 @@ export default function DetailScreen({ navigation, route }) {
         }
         if (recovered.length > 0) return recovered;
       } catch (_) { }
-
-      // como último recurso, si la cadena parece un objeto con comillas simples intentar reemplazar comillas simples por dobles
       if (str.startsWith('{') && str.includes(':')) {
         try {
           const alt = str.replace(/'/g, '"');
@@ -222,26 +205,23 @@ export default function DetailScreen({ navigation, route }) {
           if (p) return [p];
         } catch (err) { /* ignore */ }
       }
-
       return [];
     }
-
     return [];
   }
 
-  // resolveCurrentUserId: lee múltiples keys y soporta casos donde la key contiene JSON
   const resolveCurrentUserId = async () => {
     try {
       const keys = [
         'user_email',
-        'user_usuario_app_id', // <-- prioridad (según tu login)
+        'user_usuario_app_id',
         'user_usuario',
         'email',
         'user_id',
         'userId',
         'user_name',
         'usuario_app_id',
-        'usuario', // por si en storage quedó otro nombre
+        'usuario',
       ];
       for (const k of keys) {
         try {
@@ -249,26 +229,19 @@ export default function DetailScreen({ navigation, route }) {
           if (!raw) continue;
           const trimmed = raw.trim();
           if (!trimmed) continue;
-          // si es JSON con campo usuario_app_id u otros, parsearlo
           if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
             try {
               const parsed = JSON.parse(trimmed);
-              // buscar variantes dentro del objeto
               const candidateFields = [
                 'usuario_app_id', 'user_usuario_app_id', 'user_usuario', 'usuario', 'user_email', 'email', 'id', 'user_id',
               ];
               for (const f of candidateFields) {
                 if (parsed && parsed[f]) return String(parsed[f]).trim();
               }
-            } catch (e) {
-              // no JSON válido, seguir
-            }
+            } catch (e) { /* ignore */ }
           }
-          // si no es JSON, devolver el valor directamente
           return trimmed;
-        } catch (e) {
-          // ignore key read error
-        }
+        } catch (e) { /* ignore */ }
       }
       return null;
     } catch (e) {
@@ -276,7 +249,6 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-  // construir lista de candidatos para emparejar items (codigo, id, sku, nombre)
   const itemCandidatesFromVisitItem = (it) => {
     const raw = it.raw ?? {};
     return [
@@ -294,7 +266,6 @@ export default function DetailScreen({ navigation, route }) {
     ].filter(Boolean);
   };
 
-  // fetch splits y construir filteredItems (lo pagado por el usuario actual)
   const tryFetchSplits = async (theVisit) => {
     if (!theVisit) return;
     const saleId = theVisit.sale_id ?? theVisit.venta_id ?? theVisit.id ?? theVisit.saleId ?? theVisit.ventaId ?? null;
@@ -308,7 +279,6 @@ export default function DetailScreen({ navigation, route }) {
 
     setIsSplitsLoading(true);
 
-    // resolver current user id
     const curUser = normalize(await resolveCurrentUserId());
     setCurrentUserId(curUser || null);
 
@@ -332,7 +302,6 @@ export default function DetailScreen({ navigation, route }) {
 
       const json = await res.json();
 
-      // extraer splits y propinas_por_tx (compatibilidad con distintas formas del endpoint)
       const splitsArr = Array.isArray(json.splits) ? json.splits : (Array.isArray(json.data?.splits) ? json.data.splits : []);
       const propinasArr = Array.isArray(json.propinas_por_tx)
         ? json.propinas_por_tx
@@ -345,7 +314,6 @@ export default function DetailScreen({ navigation, route }) {
         return;
       }
 
-      // quedarnos solo con paid
       const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
       if (paidSplits.length === 0) {
         setFilteredItems([]);
@@ -354,7 +322,6 @@ export default function DetailScreen({ navigation, route }) {
         return;
       }
 
-      // match usuario: usar current user id si lo tenemos, sino fallback a posibles properties en la visita
       const visitCandidateUsers = [
         normalize(theVisit.user_email),
         normalize(theVisit.usuario_app_id),
@@ -367,7 +334,6 @@ export default function DetailScreen({ navigation, route }) {
 
       const matchIdToUse = curUser || visitCandidateUsers[0] || null;
 
-      // si no tenemos matchIdToUse, no podemos filtrar por usuario: devolvemos null (no filtrar)
       if (!matchIdToUse) {
         setFilteredItems(null);
         setUserPropinaTotal(0);
@@ -375,28 +341,24 @@ export default function DetailScreen({ navigation, route }) {
         return;
       }
 
-      // filtrar paid splits por usuario (tolerante)
       const userPaidSplits = paidSplits.filter(p => {
         const uid = normalize(p.usuario_app_id ?? p.usuario ?? p.user ?? p.user_id ?? p.user_email);
         return matchUserIds(uid, matchIdToUse);
       });
 
       if (!userPaidSplits || userPaidSplits.length === 0) {
-        // no hay paid splits para este usuario -> indicar vacío
         setFilteredItems([]);
         setUserPropinaTotal(0);
         setIsSplitsLoading(false);
         return;
       }
 
-      // Construir lista de payment_transaction_id asociados a lo que pagó el usuario
       const txIdSet = new Set();
       for (const s of userPaidSplits) {
         const tx = s.payment_transaction_id ?? s.paymentTransactionId ?? s.payment_transactionId ?? s.transaction_id ?? s.transactionId ?? null;
         if (tx !== undefined && tx !== null && String(tx).trim()) txIdSet.add(String(tx));
       }
 
-      // sumar propinas_por_tx que correspondan a esos transaction ids
       let userTipSum = 0;
       if (Array.isArray(propinasArr) && propinasArr.length > 0 && txIdSet.size > 0) {
         for (const p of propinasArr) {
@@ -410,18 +372,15 @@ export default function DetailScreen({ navigation, route }) {
       userTipSum = +userTipSum.toFixed(2);
       setUserPropinaTotal(userTipSum);
 
-      // construir items desde los splits pagados por el usuario
       const visitItems = Array.isArray(theVisit.items) ? theVisit.items : [];
       const built = [];
 
       for (const s of userPaidSplits) {
         const codigoRaw = normalize(s.codigo_item ?? s.codigo ?? s.item_code ?? s.item_id ?? s.codigoItem ?? null);
-        const codigoBase = codigoRaw ? String(codigoRaw).split('#')[0] : '';
         const cantidad = safeNum(s.cantidad ?? s.quantity ?? 1) || 1;
         const precio = safeNum(s.precio_unitario ?? s.precio ?? s.price ?? s.subtotal ?? 0);
-        const nombre = s.nombre_item ?? s.nombre ?? s.item_name ?? s.title ?? `Item ${codigoBase || ''}`;
+        const nombre = s.nombre_item ?? s.nombre ?? s.item_name ?? s.title ?? `Item ${codigoRaw || ''}`;
 
-        // intentar hacer match con un item de la visita usando matching robusto
         let matched = null;
         if (visitItems && visitItems.length > 0) {
           for (const it of visitItems) {
@@ -431,10 +390,11 @@ export default function DetailScreen({ navigation, route }) {
               matched = it;
               break;
             }
-            if (codigoBase) {
+            if (codigoRaw) {
               const anyBaseMatch = cands.some(c => {
                 const cand = normalize(c).toLowerCase();
                 if (!cand) return false;
+                const codigoBase = String(codigoRaw).split('#')[0];
                 if (cand === codigoBase) return true;
                 if (cand.includes(codigoBase) || codigoBase.includes(cand)) return true;
                 return false;
@@ -447,7 +407,6 @@ export default function DetailScreen({ navigation, route }) {
           }
         }
 
-        // identificar la propina específica de este split (si existe) -> para info detallada
         const thisTx = s.payment_transaction_id ?? s.paymentTransactionId ?? null;
         let thisSplitTip = 0;
         if (thisTx && Array.isArray(propinasArr)) {
@@ -487,7 +446,6 @@ export default function DetailScreen({ navigation, route }) {
         }
       }
 
-      // Agrupar items con mismo name/lineTotal (si se repiten) sumando cantidades y lineTotal y sumando splitTip
       const aggregated = [];
       for (const it of built) {
         const key = `${it.name}||${it.unitPrice}`;
@@ -511,10 +469,137 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-  // ----- aquí colocamos handleOpenWhatsApp dentro del componente para que tenga acceso a `route` y `visit` -----
+
+  const formatDateYMD = (d) => {
+    if (!d) return '';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const fetchFullAccount = async (saleId, sucursalId, dateForRange) => {
+    if (!saleId || !sucursalId) {
+      setFullItems([]);
+      return;
+    }
+    setIsFullLoading(true);
+    try {
+      const desde = formatDateYMD(new Date(dateForRange));
+      const hasta = formatDateYMD(new Date(dateForRange));
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?venta_id=${encodeURIComponent(saleId)}&sucursal_id=${encodeURIComponent(sucursalId)}&desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        console.warn('fetchFullAccount http', res.status);
+        setFullItems([]);
+        setIsFullLoading(false);
+        return;
+      }
+      const json = await res.json().catch(() => null);
+      if (!json) {
+        setFullItems([]);
+        setIsFullLoading(false);
+        return;
+      }
+
+      const gathered = [];
+      const emailsObj = json.emails;
+      if (emailsObj && typeof emailsObj === 'object') {
+        for (const k of Object.keys(emailsObj)) {
+          const arr = Array.isArray(emailsObj[k]) ? emailsObj[k] : [];
+          for (const saleEntry of arr) {
+            const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
+            for (const it of items) {
+              const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
+              const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
+              const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
+              gathered.push({ name: String(name).trim(), qty, unit, lineTotal: +(qty * unit) });
+            }
+          }
+        }
+      } else {
+        const candidateArrays = [];
+        if (Array.isArray(json.data)) candidateArrays.push(...json.data);
+        if (Array.isArray(json.ventas)) candidateArrays.push(...json.ventas);
+        if (Array.isArray(json)) candidateArrays.push(...json);
+        if (candidateArrays.length === 0) {
+          for (const key of Object.keys(json)) {
+            try {
+              const val = json[key];
+              if (Array.isArray(val)) {
+                candidateArrays.push(...val);
+              }
+            } catch (e) { /* ignore */ }
+          }
+        }
+
+        if (candidateArrays.length > 0) {
+          for (const saleEntry of candidateArrays) {
+            const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
+            for (const it of items) {
+              const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
+              const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
+              const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
+              gathered.push({ name: String(name).trim(), qty, unit, lineTotal: +(qty * unit) });
+            }
+          }
+        }
+      }
+
+      if (gathered.length === 0) {
+        const stack = [json];
+        while (stack.length > 0) {
+          const node = stack.pop();
+          if (!node || typeof node !== 'object') continue;
+          if (Array.isArray(node)) {
+            for (const entry of node) stack.push(entry);
+            continue;
+          }
+          if (Array.isArray(node.items_consumidos)) {
+            for (const it of node.items_consumidos) {
+              const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
+              const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
+              const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
+              gathered.push({ name: String(name).trim(), qty, unit, lineTotal: +(qty * unit) });
+            }
+          }
+          for (const k of Object.keys(node)) {
+            try { stack.push(node[k]); } catch (e) { /* ignore */ }
+          }
+        }
+      }
+
+      const aggregated = [];
+      for (const it of gathered) {
+        const key = `${it.name}||${it.unit}`;
+        const idx = aggregated.findIndex(a => a.key === key);
+        if (idx >= 0) {
+          aggregated[idx].qty += safeNum(it.qty);
+          aggregated[idx].lineTotal = +(aggregated[idx].lineTotal + safeNum(it.lineTotal)).toFixed(2);
+        } else {
+          aggregated.push({ key, name: it.name, qty: safeNum(it.qty), unitPrice: safeNum(it.unit), lineTotal: +safeNum(it.lineTotal).toFixed(2) });
+        }
+      }
+
+      setFullItems(aggregated);
+    } catch (err) {
+      console.warn('fetchFullAccount error', err);
+      setFullItems([]);
+    } finally {
+      setIsFullLoading(false);
+    }
+  };
+
   const handleOpenWhatsApp = async () => {
     try {
-      // Prioridad: url pasada en params -> url en la visita -> constante por defecto
       const paramUrl = route?.params?.whatsapp_url ?? route?.params?.whatsappUrl ?? null;
       const visitUrl = (visit && (visit.whatsapp_url ?? visit.whatsappUrl ?? visit.whatsapp)) ?? null;
       const urlToOpen = paramUrl || visitUrl || WHATSAPP_URL_DIRECT;
@@ -524,13 +609,10 @@ export default function DetailScreen({ navigation, route }) {
         return;
       }
 
-      // limpiar/normalizar un poco la URL
       const cleaned = String(urlToOpen).trim().replace(/^"+|"+$/g, '').replace(/^\'+|\'+$/g, '');
 
-      // Intentar abrir (primero canOpenURL por robustez)
       const can = await Linking.canOpenURL(cleaned);
       if (!can) {
-        // fallback: intentar con encodeURI (algunos caracteres podrían romper)
         try {
           const enc = encodeURI(cleaned);
           const can2 = await Linking.canOpenURL(enc);
@@ -578,9 +660,7 @@ export default function DetailScreen({ navigation, route }) {
           <View style={styles.headerIcons}>
             <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 16 }]}>
               <Ionicons name="notifications-outline" size={clamp(rf(2.6), 19, 32)} color="#0051c9" />
-              {unreadCount > 0 && (
-                <View style={styles.badge}><Text style={styles.badgeText}>{unreadCount}</Text></View>
-              )}
+              {unreadCount > 0 && (<View style={styles.badge}><Text style={styles.badgeText}>{unreadCount}</Text></View>)}
             </TouchableOpacity>
           </View>
         </View>
@@ -593,10 +673,8 @@ export default function DetailScreen({ navigation, route }) {
     );
   }
 
-  // Normalización / lectura de valores numéricos para la visita completa
   const total = safeNum(visit.total ?? visit.amount ?? visit.sale_total ?? visit.monto_subtotal ?? 0);
 
-  // propina de la visita (si existe)
   const visitPropina = safeNum(
     visit.monto_propina ??
     visit.propina ??
@@ -607,17 +685,25 @@ export default function DetailScreen({ navigation, route }) {
     0
   );
 
-  // Para CUENTA COMPLETA: calculamos subtotal y iva a partir de visit.total y visitPropina
-  const taxableTotal = Math.max(0, total - visitPropina); // total sin propina
-  const ivaTotal = +(taxableTotal /1.16 * 0.16).toFixed(2); // IVA incluido => IVA = taxableTotal * rate/(1+rate)
-  const subtotalTotal = +(taxableTotal - ivaTotal).toFixed(2); // subtotal = taxableTotal - IVA
+  const taxableTotal = Math.max(0, total - visitPropina); 
+  const ivaTotal = +(taxableTotal / 1.16 * 0.16).toFixed(2); 
+  const subtotalTotal = +(taxableTotal - ivaTotal).toFixed(2); 
+
+  const computeFullTotals = () => {
+    if (!Array.isArray(fullItems) || fullItems.length === 0) return { subtotal: 0, iva: 0, total: 0 };
+    const totalFromItems = fullItems.reduce((s, it) => s + safeNum(it.lineTotal ?? (it.qty * (it.unitPrice ?? 0))), 0);
+    const iva = +( (totalFromItems / 1.16) * 0.16 ).toFixed(2);
+    const subtotal = +(totalFromItems - iva).toFixed(2);
+    return { subtotal, iva, total: +( (subtotal + iva) ).toFixed(2) };
+  };
+  const fullTotals = computeFullTotals();
 
   const shouldShowFiltered = !showFull && Array.isArray(filteredItems) && filteredItems.length > 0;
   const showNoPaidMessage = !showFull && Array.isArray(filteredItems) && filteredItems.length === 0 && filteredItems !== null;
 
   const computeFilteredTotals = () => {
     const totalPaid = shouldShowFiltered ? filteredItems.reduce((s, it) => s + safeNum(it.lineTotal ?? 0), 0) : 0;
-    const ivaFiltered = +(totalPaid /1.16 * 0.16).toFixed(2);
+    const ivaFiltered = +(totalPaid / 1.16 * 0.16).toFixed(2);
     const subtotalFiltered = +(totalPaid - ivaFiltered).toFixed(2);
 
     let propinaFiltered = 0;
@@ -639,9 +725,7 @@ export default function DetailScreen({ navigation, route }) {
 
   const filteredTotals = shouldShowFiltered ? computeFilteredTotals() : null;
 
-  /* RESPONSIVE computed values */
   const contentPadding = Math.max(12, wp(4));
-  const logoSize = clamp(Math.round(wp(18)), 40, 100);
   const totalLogoWrapperSize = clamp(Math.round(wp(20)), 48, 90);
   const totalAmountFont = clamp(rf(7), 18, 34);
   const sectionHeadingFont = clamp(rf(3.6), 16, 22);
@@ -649,6 +733,20 @@ export default function DetailScreen({ navigation, route }) {
   const itemPriceFont = clamp(rf(3), 12, 16);
   const btnPaddingVert = Math.max(8, hp(1.2));
   const modalWidth = Math.min(Math.max(wp(90), 300), 920);
+
+  const handleToggleFull = async () => {
+    const newShow = !showFull;
+    setShowFull(newShow);
+
+    if (newShow) {
+      if (fullItems === null) {
+        const saleId = visit.sale_id ?? visit.venta_id ?? visit.id ?? visit.saleId ?? visit.ventaId ?? null;
+        const sucursalId = visit.sucursal_id ?? visit.sucursalId ?? visit.sucursal ?? visit.branchId ?? null;
+        const dateForRange = visit.fecha ?? new Date();
+        await fetchFullAccount(saleId, sucursalId, dateForRange);
+      }
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
@@ -697,12 +795,11 @@ export default function DetailScreen({ navigation, route }) {
             height: totalLogoWrapperSize,
             borderRadius: Math.round(totalLogoWrapperSize / 2),
             marginRight: Math.max(8, wp(3)),
-            overflow: 'hidden', // <<--- important: clip image to circle
+            overflow: 'hidden',
           }]}>
             {visit.restaurantImage ? (
               <Image
                 source={{ uri: visit.restaurantImage }}
-                // fill the wrapper circle exactly
                 style={{
                   width: '100%',
                   height: '100%',
@@ -726,7 +823,7 @@ export default function DetailScreen({ navigation, route }) {
             <Text style={[styles.totalLabel, { fontSize: clamp(rf(3.2), 14, 18) }]}>{visit.restaurantName ?? 'Restaurante'}</Text>
             <Text style={[styles.totalAmount, { fontSize: totalAmountFont, lineHeight: Math.round(totalAmountFont * 1.05) }]}>${total.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
             <Text style={[styles.totalSubtitle, { fontSize: clamp(rf(2.4), 11, 14) }]}>
-              {shouldShowFiltered ? 'Detalle - lo que pagaste' : 'Cuenta completa'}
+              {showFull ? 'Cuenta completa' : (shouldShowFiltered ? 'Detalle - lo que pagaste' : 'Cuenta completa')}
             </Text>
           </View>
         </View>
@@ -745,7 +842,7 @@ export default function DetailScreen({ navigation, route }) {
         {shouldShowFiltered ? (
           <>
             {filteredItems.map((it, i) => (
-              <View key={i} style={styles.itemRow}>
+              <View key={it.key ?? i} style={styles.itemRow}>
                 <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
                 <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
                   {(Number(it.lineTotal ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
@@ -781,37 +878,76 @@ export default function DetailScreen({ navigation, route }) {
             <Text style={{ color: '#666', marginTop: 6 }}>Pulsa "Ver cuenta completa" para ver la cuenta completa.</Text>
           </View>
         ) : (
-          // Vista completa (comportamiento original)
           <>
-            {Array.isArray(visit.items) && visit.items.length > 0 ? visit.items.map((it, i) => (
-              <View key={i} style={styles.itemRow}>
-                <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name ?? it.nombre ?? `Item ${i + 1}`}</Text>
-                <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
-                  {(Number(it.lineTotal ?? it.unitPrice ?? it.price ?? it.amount ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
-                </Text>
-              </View>
-            )) : (
-              <View style={{ padding: 8 }}><Text style={{ color: '#666' }}>No hay items grabados.</Text></View>
+            {showFull ? (
+              <>
+                {isFullLoading ? (
+                  <View style={{ padding: 12, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#0046ff" />
+                    <Text style={{ marginTop: 8, color: '#444' }}>Obteniendo cuenta completa…</Text>
+                  </View>
+                ) : (
+                  <>
+                    {Array.isArray(fullItems) && fullItems.length > 0 ? (
+                      fullItems.map((it, idx) => (
+                        <View key={it.key ?? `full_${idx}`} style={styles.itemRow}>
+                          <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
+                          <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
+                            {(Number(it.lineTotal ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
+                          </Text>
+                        </View>
+                      ))
+                    ) : (
+                      <View style={{ padding: 8 }}><Text style={{ color: '#666' }}>No se encontraron items en la cuenta completa.</Text></View>
+                    )}
+
+                    <View style={styles.dottedDivider} />
+
+                    <View style={styles.itemRow}>
+                      <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal</Text>
+                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${fullTotals.subtotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                    </View>
+
+                    <View style={styles.itemRow}>
+                      <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
+                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${fullTotals.iva.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                    </View>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {Array.isArray(visit.items) && visit.items.length > 0 ? visit.items.map((it, i) => (
+                  <View key={i} style={styles.itemRow}>
+                    <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name ?? it.nombre ?? `Item ${i + 1}`}</Text>
+                    <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
+                      {(Number(it.lineTotal ?? it.unitPrice ?? it.price ?? it.amount ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
+                    </Text>
+                  </View>
+                )) : (
+                  <View style={{ padding: 8 }}><Text style={{ color: '#666' }}>No hay items grabados.</Text></View>
+                )}
+
+                <View style={styles.dottedDivider} />
+
+                <View style={styles.itemRow}>
+                  <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal</Text>
+                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${subtotalTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                </View>
+
+                <View style={styles.itemRow}>
+                  <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
+                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${ivaTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                </View>
+              </>
             )}
-
-            <View style={styles.dottedDivider} />
-
-            <View style={styles.itemRow}>
-              <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal</Text>
-              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${subtotalTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
-            </View>
-
-            <View style={styles.itemRow}>
-              <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
-              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${ivaTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
-            </View>
           </>
         )}
 
         <View style={[styles.pointsRow, { marginTop: Math.max(18, hp(2.5)) }]}>
           <TouchableOpacity
             style={[styles.verCuentaBtn, { paddingVertical: btnPaddingVert, paddingHorizontal: Math.max(10, wp(3)) }]}
-            onPress={() => setShowFull(prev => !prev)}
+            onPress={handleToggleFull}
           >
             <Text style={[styles.verCuentaBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>
               {showFull ? 'Ver tu consumo' : 'Ver cuenta completa'}
@@ -824,13 +960,7 @@ export default function DetailScreen({ navigation, route }) {
         </View>
 
         <View style={[styles.bottomButtons, { marginTop: Math.max(20, hp(3)), marginBottom: Math.max(18, hp(3)) }]}>
-{/*           <TouchableOpacity style={[styles.bottomBtn, { paddingVertical: btnPaddingVert }]} onPress={() => navigation.goBack()}>
-            <Text style={[styles.bottomBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>Volver</Text>
-          </TouchableOpacity> */}
-{/*           <TouchableOpacity style={[styles.bottomBtn, { paddingVertical: btnPaddingVert }]} onPress={() => navigation.navigate('Calificar', { visit })}>
-            <Text style={[styles.bottomBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>Calificar</Text>
-          </TouchableOpacity> */}
-          <TouchableOpacity style={[styles.bottomBtn, { paddingVertical: btnPaddingVert }]} onPress={() => navigation.navigate('Opinion', { visit })}>
+          <TouchableOpacity style={[styles.bottomBtn, { paddingVertical: btnPaddingVert }]} onPress={() => navigation.navigate('Opinion', { visit, sale_id: visit.sale_id ?? visit.venta_id, sucursal_id: visit.sucursal_id })}>
             <Text style={[styles.bottomBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>Calificar</Text>
           </TouchableOpacity>
         </View>
@@ -883,3 +1013,4 @@ const styles = StyleSheet.create({
   unread: { backgroundColor: '#eef5ff' },
   read: { backgroundColor: '#fff' },
 });
+

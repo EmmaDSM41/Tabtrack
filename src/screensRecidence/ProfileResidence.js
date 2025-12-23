@@ -400,7 +400,6 @@ export default function ProfileResidence({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe, paddingBottom: Math.max(12, bottomSafe) }]}>
-      {/* Modal de notificaciones */}
       <Modal visible={showNotifications} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
@@ -639,7 +638,6 @@ const styles = StyleSheet.create({
   avatar: { width: 60, height: 60, borderRadius: 30, marginRight: 16 },
   avatarPlaceholder: { backgroundColor: '#f3f6ff', alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
-  // edit avatar button (pencil)
   editAvatarBtn: {
     position: 'absolute',
     backgroundColor: '#6C5CE7',
@@ -661,7 +659,6 @@ const styles = StyleSheet.create({
   termsButton: { alignSelf: 'center', backgroundColor: '#0046ff', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, marginTop: 24 },
   termsText: { color: '#fff', fontWeight: '600' },
 
-  // avatar modal styles
   avatarModal: {
     backgroundColor: '#fff',
     borderRadius: 12,

@@ -1,4 +1,3 @@
-// QrResidence.js
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
@@ -63,9 +62,7 @@ const openWhatsApp = async () => {
   );
 };
 
-// -----------------------------
-// Helpers
-// -----------------------------
+
 const extractTokenFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
   const m1 = raw.match(/\/r\/([^\/?#]+)/i);
@@ -132,9 +129,7 @@ const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
   }
 };
 
-// -----------------------------
-// Small components: pulsing icon + modal (sin cambios relevantes)
-// -----------------------------
+
 function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false }) {
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -229,9 +224,7 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
   );
 }
 
-// -----------------------------
-// Main component QR Screen
-// -----------------------------
+
 export default function QrResidence({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -252,26 +245,19 @@ export default function QrResidence({ navigation }) {
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
 
-  // UI config (responsive)
   const baseHeader = 56;
   const headerHeight = clamp(rf(baseHeader), 48, 110);
 
-  // gradient card sizes & colors (the new element to add)
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
-  const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14))); // slightly smaller footprint
+  const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14))); 
   const gradientCardLeftRight = Math.round(Math.max(12, width * 0.06));
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
 
-  // ======= Aquí puedes ajustar para subir/bajar el hole y los botones =======
-  // holeGap controla la separación entre el gradient y el hueco del QR:
-  const holeGap = clamp(rf(45), 45, 90);        // <--- bajar este número para SUBIR el QR
-  // buttonsGap controla la separación entre el hueco del QR y los botones:
-  const buttonsGap = clamp(rf(40), 56, 140);  // <--- bajar este número para SUBIR los botones
-  // =======================================================================
 
-  // QR box sizing & placement
+  const holeGap = clamp(rf(45), 45, 90);       
+  const buttonsGap = clamp(rf(40), 56, 140);  
+
   const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
-  // place the hole below header + gradient card with holeGap (tunable above)
   const holeTop = headerHeight + gradientCardHeight + holeGap;
   const holeLeft = Math.round((width - qrSize) / 2);
   const cornerArc = clamp(64, 40, 96);
@@ -280,17 +266,13 @@ export default function QrResidence({ navigation }) {
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
 
-  // camera surface height: ahora la cámara ocupa también la zona bajo el degradado (cambié aquí: quité la resta de gradientCardHeight)
   const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 24, Math.round(height * 0.48));
 
-  // --- LOGO sizing for the new element (responsive and caps) ---
   const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
   const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
   const logoHeight = Math.round(logoWidth * 0.5);
-  // position logo above hole but respecting gradient height
   const logoTopPos = Math.max(headerHeight + Math.round(gradientCardHeight * 0.1), holeTop - logoHeight - Math.round(logoHeight * 0.25));
 
-  // compute utilization demo values (these were static in your original file)
   const consumed = 425.0;
   const available = 3075.0;
   const utilization = Math.round((consumed / (consumed + available)) * 1000) / 10;
@@ -325,7 +307,6 @@ export default function QrResidence({ navigation }) {
         setHasPermission(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
   useFocusEffect(
@@ -486,14 +467,12 @@ export default function QrResidence({ navigation }) {
     );
   }
 
-  // Buttons lowered a bit more (responsive)
   const buttonsTop = holeTop + qrSize + buttonsGap;
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: '#000', paddingTop: insets.top }}>
       <StatusBar barStyle="light-content" />
 
-      {/* Header */}
       <View style={[styles.header, { height: headerHeight }]}>
         <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
           <Ionicons name="headset-outline" size={rf(22)} color="#0046ff" />
@@ -506,13 +485,12 @@ export default function QrResidence({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Gradiente pegado al header (lo posiciono absolute en la misma coordenada para superponerlo sobre la cámara
-          sin cambiar tamaño, colores ni contenido — solo overlays la cámara) */}
+
       <View
         pointerEvents="box-none"
         style={{
           position: 'absolute',
-          top: insets.top + headerHeight, // misma posición visual que antes
+          top: insets.top + headerHeight, 
           left: gradientCardLeftRight,
           right: gradientCardLeftRight,
           zIndex: 60,
@@ -549,7 +527,6 @@ export default function QrResidence({ navigation }) {
         </LinearGradient>
       </View>
 
-      {/* Cámara */}
       <View style={[styles.cameraWrapper, { height: CAMERA_HEIGHT }]}>
         {scannerActive && (
           <QRCodeScanner
@@ -564,11 +541,9 @@ export default function QrResidence({ navigation }) {
           />
         )}
 
-        {/* Overlay (hueco para QR) */}
         <View style={[styles.overlay, { height: CAMERA_HEIGHT }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
-          {/* Logo (por encima del hueco) */}
           <View style={{
             position: 'absolute',
             top: logoTopPos,
@@ -608,7 +583,6 @@ export default function QrResidence({ navigation }) {
                 }}
               />
 
-              {/* esquinas */}
               <View style={{
                 position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc,
                 borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff',
@@ -637,7 +611,6 @@ export default function QrResidence({ navigation }) {
           <View style={[styles.overlayRow, { flex: 1, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
         </View>
 
-        {/* Botones - ahora posicionados relativemente con top calculado para dar espacio */}
         <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, width, alignItems: 'center', zIndex: 40 }}>
           <TouchableOpacity activeOpacity={1} onPress={startManualScan} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
@@ -657,7 +630,6 @@ export default function QrResidence({ navigation }) {
         </View>
       </View>
 
-      {/* Animated Modal (aparece por encima del header) */}
       <AnimatedStatusModal
         visible={statusModalVisible}
         loading={statusLoading}
@@ -673,9 +645,7 @@ export default function QrResidence({ navigation }) {
   );
 }
 
-// -----------------------------
-// Estilos (añadí estilos del degradado y pequeñas utilidades)
-// -----------------------------
+
 const modalStyles = StyleSheet.create({
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, elevation: 9999, zIndex: 9999 },
   card: { marginHorizontal: 12, borderRadius: 12, padding: 14, borderLeftWidth: 4, shadowColor: '#fff', shadowOpacity: 0.12, shadowOffset: { width: 0, height: 6 }, shadowRadius: 12, elevation: 8 },
@@ -724,7 +694,6 @@ const styles = StyleSheet.create({
 
   hole: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', overflow: 'visible' },
 
-  // botones flotantes
   floatPrimary: { backgroundColor: '#0046ff', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   floatSecondary: { backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 0.8, borderColor: 'rgba(255,255,255,0.22)' },
 
@@ -742,7 +711,6 @@ const styles = StyleSheet.create({
   statusBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   statusBtnText: { fontSize: 14, fontWeight: '700' },
 
-  // ---- estilos para el degradado pequeño ----
   gradientCardSmall: {
     width: '100%',
     overflow: 'hidden',

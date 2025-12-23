@@ -10,18 +10,17 @@ import {
   StatusBar,
   ScrollView,
   Modal,
-  Button,
   ActivityIndicator,
   Platform,
   useWindowDimensions,
-  DeviceEventEmitter,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 function useResponsive() {
   const { width, height } = useWindowDimensions();
@@ -50,29 +49,12 @@ const BLUE = '#0046ff';
 const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
 
-const VISITS_STORAGE_KEY_BASE = 'user_visits';
-const PENDING_VISITS_KEY_BASE = 'pending_visits';
-const BRANCHES_CACHE_PREFIX = 'branches_cache_';
-const VISITS_MAX = 100000;
-
 const sampleNotifications = [
   { id: 'n1', text: 'Tu reserva en La Pizzería fue confirmada.', read: false },
   { id: 'n2', text: 'Nueva oferta: 20% de descuento en Sushi Place.', read: false },
   { id: 'n3', text: 'Recuerda calificar tu última visita a Café Central.', read: true },
 ];
 
-function safeNum(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-function looksClosedOrPaidFlag(v) {
-  if (!v && v !== 0) return false;
-  try {
-    const s = String(v).toUpperCase();
-    return s.includes('CLOS') || s.includes('CERR') || s.includes('CLOSE') || s.includes('CLOSED') ||
-           s.includes('PAG') || s.includes('PAID') || s.includes('COMPLET') || s.includes('FINAL');
-  } catch (e) { return false; }
-}
 function safeJsonParse(raw, fallback = null) {
   if (!raw) return fallback;
   try {
@@ -97,65 +79,101 @@ function getAuthHeaders(extra = {}) {
   return base;
 }
 
-export default function VisitsScreen({ navigation }) {
-  const { width, wp, hp, rf, clamp } = useResponsive(); /* RESPONSIVE */
-  const insets = useSafeAreaInsets();
 
-  // safe paddings (usar insets correctamente para iOS/Android)
+function parseToLocalDate(value) {
+  if (value === undefined || value === null) return null;
+  try {
+    if (value instanceof Date) {
+      if (!Number.isNaN(value.getTime())) return value;
+      return null;
+    }
+
+    const s = String(value).trim();
+    if (!s) return null;
+
+    if (/^\d+$/.test(s)) {
+      if (s.length === 10) return new Date(Number(s) * 1000);
+      if (s.length >= 13) return new Date(Number(s));
+      return new Date(Number(s));
+    }
+
+    const spaceDateTime = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (spaceDateTime) {
+      const year = Number(spaceDateTime[1]);
+      const month = Number(spaceDateTime[2]) - 1;
+      const day = Number(spaceDateTime[3]);
+      const hour = Number(spaceDateTime[4]);
+      const minute = Number(spaceDateTime[5]);
+      const second = Number(spaceDateTime[6] ?? 0);
+      return new Date(year, month, day, hour, minute, second); 
+    }
+
+    const dateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) {
+      const year = Number(dateOnly[1]);
+      const month = Number(dateOnly[2]) - 1;
+      const day = Number(dateOnly[3]);
+      return new Date(year, month, day);
+    }
+
+    const isoLike = s.match(/^\d{4}-\d{2}-\d{2}T/);
+    if (isoLike) {
+      const d = new Date(s);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export default function VisitsScreen(props) {
+  const navigation = useNavigation();
+  const { width, wp, hp, rf, clamp } = useResponsive(); 
+  const insets = useSafeAreaInsets();
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const bottomSafe = Math.round(insets?.bottom ?? 0);
   const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
 
   const [visits, setVisits] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [showNotifications, setShowNotifications] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [fetchingSales, setFetchingSales] = useState(false);
+
   const [username, setUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState(null);
+
+  const [notifications, setNotifications] = useState(sampleNotifications);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  const [desdeDate, setDesdeDate] = useState(new Date()); 
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const branchesMemRef = useRef({});
   const restaurantsMemRef = useRef({});
-  const saveLockRef = useRef(false);
 
-  const pushLog = useCallback((msg, extra) => {
-    try {
-      const t = new Date().toISOString();
-      const full = extra ? `${t} - ${msg} - ${JSON.stringify(extra)}` : `${t} - ${msg}`;
-      console.log(full);
-    } catch (e) {
-      console.log('pushLog error', e);
-    }
-  }, []);
+  const headerGradientHeight = clamp(hp(14), 110, 220);
+  const avatarWrapperSize = clamp(wp(18), 48, 92);
+  const avatarInner = Math.round(avatarWrapperSize * 0.9);
+  const contentPaddingHorizontal = Math.max(12, wp(4));
+  const modalW = Math.min(Math.max(wp(92), 300), 920);
+  const cardLeftWidth = clamp(wp(28), 84, 140);
+  const logoSize = clamp(Math.round(cardLeftWidth * 0.66), 48, 84);
+  const slideWidth = Math.max(Math.round(width - cardLeftWidth - Math.max(24, wp(6))), Math.round(wp(40)));
+  const cardRadius = 12;
 
-  const resolveCurrentUserId = useCallback(async () => {
-    try {
-      const uid = await AsyncStorage.getItem('user_usuario_app_id');
-      const email = await AsyncStorage.getItem('user_email');
-      return uid || email || null;
-    } 
-    catch (e) {
-      return null;
-    }
-  }, []);
+  const MAX_RANGE_DAYS = 31;
 
-  const visitsKeyForUser = (userId) => userId ? `${VISITS_STORAGE_KEY_BASE}_${userId}` : VISITS_STORAGE_KEY_BASE;
-  const pendingKeyForUser = (userId) => userId ? `${PENDING_VISITS_KEY_BASE}_${userId}` : PENDING_VISITS_KEY_BASE;
-
-  function parseDateToTs(d) {
-    if (!d) return 0;
-    try {
-      const dt = new Date(d);
-      const t = dt.getTime();
-      if (!Number.isFinite(t) || t <= 0) {
-        const alt = Date.parse(String(d).replace(' ', 'T'));
-        return Number.isFinite(alt) ? alt : 0;
-      }
-      return t;
-    } catch (e) {
-      return 0;
-    }
-  }
+  const formatDateYMD = (d) => {
+    if (!d) return '';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
 
   const loadProfileFromApi = useCallback(async () => {
     try {
@@ -196,165 +214,28 @@ export default function VisitsScreen({ navigation }) {
     }
   }, []);
 
-  const saveVisitToStorageForUser = useCallback(async (visit, userId = null) => {
-    if (!visit) {
-      pushLog('saveVisitToStorageForUser -> no visit provided');
-      return false;
-    }
-
-    const waitForUnlock = async () => {
-      const MAX_WAIT = 2000;
-      const STEP = 50;
-      let waited = 0;
-      while (saveLockRef.current && waited < MAX_WAIT) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(res => setTimeout(res, STEP));
-        waited += STEP;
-      }
-      return !saveLockRef.current;
-    };
-
-    try {
-      let resolvedUserId = userId;
-      if (!resolvedUserId) resolvedUserId = currentUserId || await resolveCurrentUserId();
-      const keyPerUser = visitsKeyForUser(resolvedUserId || null);
-      const keyGlobal = VISITS_STORAGE_KEY_BASE;
-
-      const normalized = {
-        id: visit.id ?? visit.sale_id ?? `visit_${Date.now()}_${Math.random().toString(36).slice(2,9)}`,
-        sale_id: visit.sale_id ?? null,
-        restaurantName: visit.restaurantName ?? visit.name ?? visit.restaurante ?? visit.restaurant ?? 'Restaurante',
-        restaurantImage: visit.restaurantImage ?? visit.restaurantImageUri ?? visit.logo ?? null,
-        bannerImage: visit.bannerImage ?? null,
-        mesa: visit.mesa ?? visit.mesa_id ?? null,
-        fecha: visit.fecha ? new Date(visit.fecha).toISOString() : new Date().toISOString(),
-        total: Number(visit.total ?? visit.amount ?? 0) || 0,
-        moneda: visit.moneda ?? visit.currency ?? 'MXN',
-        items: Array.isArray(visit.items) ? visit.items : [],
-        restaurante_id: visit.restaurante_id ?? visit.restauranteId ?? visit.restaurante ?? null,
-        sucursal_id: visit.sucursal_id ?? visit.sucursal ?? visit.sucursalId ?? null,
-        monto_propina: Number(visit.monto_propina ?? visit.propina ?? visit.tip ?? 0) || 0,
-        propina: Number(visit.propina ?? visit.monto_propina ?? 0) || 0,
-        branchName: visit.branchName ?? visit.sucursal_nombre ?? null,
-      };
-
-      await waitForUnlock();
-      saveLockRef.current = true;
-      try {
-        // Per-user
-        let rawPer = null;
-        try { rawPer = await AsyncStorage.getItem(keyPerUser); } catch (e) { rawPer = null; pushLog('read per-user key failed', { keyPerUser, err: String(e) }); }
-        let arrPer = safeJsonParse(rawPer, []);
-        if (!Array.isArray(arrPer)) arrPer = [];
-        arrPer = arrPer.filter(a => !(normalized.sale_id && a.sale_id && String(a.sale_id) === String(normalized.sale_id)) && !(a.id && String(a.id) === String(normalized.id)));
-        arrPer.unshift(normalized);
-        if (Number.isFinite(VISITS_MAX) && VISITS_MAX > 0 && arrPer.length > VISITS_MAX) arrPer = arrPer.slice(0, VISITS_MAX);
-        try { await AsyncStorage.setItem(keyPerUser, JSON.stringify(arrPer)); } catch (e) { pushLog('set per-user failed', { keyPerUser, err: String(e) }); }
-
-        // Global backup as compatibility
-        let rawGlob = null;
-        try { rawGlob = await AsyncStorage.getItem(keyGlobal); } catch (e) { rawGlob = null; pushLog('read global key failed', { keyGlobal, err: String(e) }); }
-        let arrGlob = safeJsonParse(rawGlob, []);
-        if (!Array.isArray(arrGlob)) arrGlob = [];
-        arrGlob = arrGlob.filter(a => !(normalized.sale_id && a.sale_id && String(a.sale_id) === String(normalized.sale_id)) && !(a.id && String(a.id) === String(normalized.id)));
-        arrGlob.unshift(normalized);
-        if (Number.isFinite(VISITS_MAX) && VISITS_MAX > 0 && arrGlob.length > VISITS_MAX) arrGlob = arrGlob.slice(0, VISITS_MAX);
-        try { await AsyncStorage.setItem(keyGlobal, JSON.stringify(arrGlob)); } catch (e) { pushLog('set global failed', { keyGlobal, err: String(e) }); }
-
-        // remove pending for this sale in per-user pending & global pending
-        try {
-          if (normalized.sale_id) {
-            const perPendKey = pendingKeyForUser(resolvedUserId || null);
-            let rawPend = null;
-            try { rawPend = await AsyncStorage.getItem(perPendKey); } catch (e) { rawPend = null; pushLog('read perPend failed', { perPendKey, err: String(e) }); }
-            let pend = safeJsonParse(rawPend, []);
-            if (!Array.isArray(pend)) pend = [];
-            pend = pend.filter(p => String(p.sale_id || p.id || '') !== String(normalized.sale_id));
-            try { await AsyncStorage.setItem(perPendKey, JSON.stringify(pend)); } catch (e) { /* ignore */ }
-
-            const globPendKey = PENDING_VISITS_KEY_BASE;
-            let rawPendG = null;
-            try { rawPendG = await AsyncStorage.getItem(globPendKey); } catch (e) { rawPendG = null; }
-            let pendG = safeJsonParse(rawPendG, []);
-            if (!Array.isArray(pendG)) pendG = [];
-            pendG = pendG.filter(p => String(p.sale_id || p.id || '') !== String(normalized.sale_id));
-            try { await AsyncStorage.setItem(globPendKey, JSON.stringify(pendG)); } catch (e) { /* ignore */ }
-          }
-        } catch (e) { /* ignore */ }
-
-        pushLog('saveVisitToStorageForUser -> saved', { keyPerUser, keyGlobal, id: normalized.id, sale_id: normalized.sale_id });
-        return true;
-      } finally {
-        saveLockRef.current = false;
-      }
-    } catch (err) {
-      pushLog('saveVisitToStorageForUser error', { err: String(err) });
-      saveLockRef.current = false;
-      return false;
-    }
-  }, [currentUserId, resolveCurrentUserId, pushLog]);
-
-  const migrateGlobalVisitsIfNeeded = useCallback(async (userId) => {
-    try {
-      if (!userId) return;
-      const targetKey = visitsKeyForUser(userId);
-      const existing = safeJsonParse(await AsyncStorage.getItem(targetKey), null);
-      if (existing) return;
-      const globalRaw = await AsyncStorage.getItem(VISITS_STORAGE_KEY_BASE);
-      if (globalRaw) {
-        const parsed = safeJsonParse(globalRaw, []);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          try {
-            await AsyncStorage.setItem(targetKey, JSON.stringify(parsed));
-            try { await AsyncStorage.removeItem(VISITS_STORAGE_KEY_BASE); } catch (e) { /* ignore */ }
-            pushLog('Migrated global visits to per-user key', { userId, count: parsed.length });
-          } catch (e) {
-            pushLog('migrateGlobalVisitsIfNeeded setItem failed', { err: String(e) });
-          }
-        }
-      }
-    } catch (e) {
-      pushLog('migrateGlobalVisitsIfNeeded error', { err: String(e) });
-    }
-  }, [pushLog]);
-
   async function ensureBranchesForRestaurant(restId, forceNetwork = false, logFn = () => {}) {
-    if (!restId) {
-      logFn('ensureBranchesForRestaurant no restId');
-      return [];
-    }
+    if (!restId) return [];
     const key = String(restId);
-    if (!forceNetwork && branchesMemRef.current[key]) {
-      logFn(`branches cached for ${key} (mem) count=${branchesMemRef.current[key].length}`);
-      return branchesMemRef.current[key];
-    }
+    if (!forceNetwork && branchesMemRef.current[key]) return branchesMemRef.current[key];
 
     try {
-      const rawCache = await AsyncStorage.getItem(BRANCHES_CACHE_PREFIX + key);
+      const rawCache = await AsyncStorage.getItem(`branches_cache_${key}`);
       if (rawCache && !forceNetwork) {
         const parsed = safeJsonParse(rawCache, null);
         const arr = parsed && Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed) ? parsed : []);
         branchesMemRef.current[key] = arr;
-        logFn('Branches cache hit for ' + key + ' count=' + arr.length);
         return arr;
       }
-    } catch (e) {
-      logFn('cache read error', e);
-    }
+    } catch (e) { /* ignore */ }
 
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(restId)}/sucursales`;
-      logFn('fetching branches from ' + url);
       const res = await fetch(url, {
         method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
-        },
+        headers: getAuthHeaders(),
       });
       if (!res.ok) {
-        logFn('ensureBranchesForRestaurant -> fetch failed ' + res.status);
         Toast.show(`No pude obtener sucursales (${res.status}) para rest ${restId}`, { duration: Toast.durations.LONG });
         return [];
       }
@@ -363,420 +244,279 @@ export default function VisitsScreen({ navigation }) {
       if (Array.isArray(json)) arr = json;
       else if (Array.isArray(json.sucursales)) arr = json.sucursales;
       else if (Array.isArray(json.data)) arr = json.data;
-      else if (Array.isArray(json.sucursal)) arr = json.sucursal;
-      else if (Array.isArray(json.sucursales?.data)) arr = json.sucursales.data;
       else arr = [];
-      arr = arr.map(b => (b && typeof b === 'object' ? b : {}));
       branchesMemRef.current[key] = arr;
-      try { await AsyncStorage.setItem(BRANCHES_CACHE_PREFIX + key, JSON.stringify({ data: arr, ts: Date.now() })); } catch (e) { logFn('cache write failed', e); }
-      logFn(`Fetched branches for rest ${restId}: ${arr.length}`);
+      try { await AsyncStorage.setItem(`branches_cache_${key}`, JSON.stringify({ data: arr, ts: Date.now() })); } catch (e) { /* ignore */ }
       return arr;
     } catch (err) {
-      logFn('ensureBranchesForRestaurant error', err);
       Toast.show('Error al obtener sucursales (ver consola)', { duration: Toast.durations.LONG });
       return [];
     }
   }
 
-  async function ensureRestaurantInfo(restId, forceNetwork = false, logFn = () => {}) {
+  async function ensureRestaurantInfo(restId, forceNetwork = false) {
     if (!restId) return null;
     const key = String(restId);
-    if (!forceNetwork && restaurantsMemRef.current[key]) {
-      logFn(`restaurant info cached for ${key}`);
-      return restaurantsMemRef.current[key];
-    }
+    if (!forceNetwork && restaurantsMemRef.current[key]) return restaurantsMemRef.current[key];
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(restId)}`;
-      logFn('fetching restaurant info from ' + url);
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
-        },
-      });
-      if (!res.ok) {
-        logFn('ensureRestaurantInfo -> fetch failed ' + res.status);
-        return null;
-      }
+      const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
+      if (!res.ok) return null;
       const json = await res.json();
       restaurantsMemRef.current[key] = json || null;
       return json || null;
     } catch (err) {
-      logFn('ensureRestaurantInfo error', err);
       return null;
     }
   }
 
-  async function loadVisitsAndEnrich(logFn = () => {}) {
+  function branchGetLogoUrl(b) {
+    return b?.imagen_logo_url ?? b?.imagen_logo ?? b?.logo_url ?? b?.logo ?? b?.imagenLogoUrl ?? null;
+  }
+  function branchGetBannerUrl(b) {
+    return b?.imagen_banner_url ?? b?.imagen_banner ?? b?.banner_url ?? b?.banner ?? null;
+  }
+  function branchGetName(b) {
+    return b?.nombre ?? b?.name ?? b?.title ?? b?.nombre_sucursal ?? null;
+  }
+
+  function computeSaleTotal(saleEntry) {
+    if (!saleEntry) return 0;
+    const candidates = [
+      saleEntry.monto_total_venta,
+      saleEntry.monto_total,
+      saleEntry.total,
+      saleEntry.monto,
+      saleEntry.montoTotal,
+      saleEntry.monto_venta,
+    ];
+    for (const c of candidates) {
+      if (c !== undefined && c !== null && c !== '') {
+        const n = Number(c);
+        if (!Number.isNaN(n)) return n;
+      }
+    }
+    const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
+    if (Array.isArray(items) && items.length > 0) {
+      let sum = 0;
+      for (const it of items) {
+        const qty = Number(it.cantidad ?? it.quantity ?? 1) || 0;
+        const price = Number(it.precio_unitario ?? it.price ?? it.unit_price ?? 0) || 0;
+        sum += qty * price;
+      }
+      if (sum > 0) return sum;
+    }
+    return 0;
+  }
+
+  const fetchVisitsForDesde = useCallback(async (desdeDateParam) => {
+    setFetchingSales(true);
+    setVisits([]);
     try {
-      logFn('loadVisitsAndEnrich: resolving user & reading visits');
-      const userId = currentUserId || await resolveCurrentUserId();
-      setCurrentUserId(userId || null);
+      const email = await AsyncStorage.getItem('user_email');
+      if (!email) {
+        Toast.show('No se encontró email del usuario', { duration: Toast.durations.SHORT });
+        setFetchingSales(false);
+        return;
+      }
+      const desdeCandidate = (desdeDateParam instanceof Date) ? desdeDateParam : new Date(desdeDateParam);
+      const hoy = new Date();
+      const startOfHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+      const diffMs = startOfHoy.getTime() - new Date(desdeCandidate.getFullYear(), desdeCandidate.getMonth(), desdeCandidate.getDate()).getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-      await migrateGlobalVisitsIfNeeded(userId);
-
-      const keyPerUser = visitsKeyForUser(userId);
-      let rawPer = null;
-      try { rawPer = await AsyncStorage.getItem(keyPerUser); } catch (e) { rawPer = null; logFn('read visits per-user error', e); }
-      let arrPer = safeJsonParse(rawPer, []) || [];
-
-      let rawGlob = null;
-      try { rawGlob = await AsyncStorage.getItem(VISITS_STORAGE_KEY_BASE); } catch (e) { rawGlob = null; logFn('read visits global error', e); }
-      let arrGlob = safeJsonParse(rawGlob, []) || [];
-
-      const seen = new Set();
-      const merged = [];
-
-      if (Array.isArray(arrPer)) {
-        for (const v of arrPer) {
-          if (!v) continue;
-          const keyId = v.sale_id ? `s:${String(v.sale_id)}` : `i:${String(v.id)}`;
-          if (seen.has(keyId)) continue;
-          seen.add(keyId);
-          merged.push(v);
-        }
+      if (diffDays > MAX_RANGE_DAYS) {
+        const cappedDate = new Date(startOfHoy.getTime() - (MAX_RANGE_DAYS * 24 * 60 * 60 * 1000));
+        setDesdeDate(cappedDate);
+        Toast.show(`Rango muy grande. Se limita a ${MAX_RANGE_DAYS} días (desde ${formatDateYMD(cappedDate)})`, { duration: Toast.durations.LONG });
+        desdeCandidate.setTime(cappedDate.getTime());
       }
 
-      if (Array.isArray(arrGlob)) {
-        for (const v of arrGlob) {
-          if (!v) continue;
-          const keyId = v.sale_id ? `s:${String(v.sale_id)}` : `i:${String(v.id)}`;
-          if (seen.has(keyId)) continue;
-          seen.add(keyId);
-          merged.push(v);
-        }
-      }
+      const desdeStr = formatDateYMD(desdeCandidate);
+      const hastaStr = formatDateYMD(new Date()); 
 
-      if (!Array.isArray(merged) || merged.length === 0) {
+      const urlVentas = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
+      let resVentas;
+      try {
+        resVentas = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
+      } catch (err) {
+        console.warn('fetch ventas network err', err);
+        Toast.show('Error de red al obtener ventas', { duration: Toast.durations.LONG });
+        setFetchingSales(false);
+        return;
+      }
+      if (!resVentas.ok) {
+        const txt = await resVentas.text().catch(() => '');
+        console.warn('ventas http error', resVentas.status, txt);
+        Toast.show(`Error al consultar ventas (${resVentas.status})`, { duration: Toast.durations.LONG });
+        setFetchingSales(false);
+        return;
+      }
+      const jsonVentas = await resVentas.json().catch(() => ({}));
+      const ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
+      if (!ventaArray.length) {
+        Toast.show('No se encontraron ventas en ese rango', { duration: Toast.durations.SHORT });
         setVisits([]);
-        logFn('No visits found in per-user or global keys', { keyPerUser, globalKey: VISITS_STORAGE_KEY_BASE });
+        setFetchingSales(false);
         return;
       }
 
-      merged.sort((a, b) => parseDateToTs(b.fecha) - parseDateToTs(a.fecha));
+      const visitsMap = new Map();
 
-      const groupedByRest = {};
-      merged.forEach(v => {
-        const restId = v.restaurante_id ?? v.restauranteId ?? v.restaurante ?? v.restaurant_id ?? null;
-        const keyg = (restId !== undefined && restId !== null) ? String(restId) : '__no_rest__';
-        if (!groupedByRest[keyg]) groupedByRest[keyg] = [];
-        groupedByRest[keyg].push(v);
-      });
-
-      const enriched = merged.map(v => ({ ...v }));
-
-      for (const restKey of Object.keys(groupedByRest)) {
-        if (restKey === '__no_rest__') continue;
-        const branches = await ensureBranchesForRestaurant(restKey, false, logFn);
-        if (!Array.isArray(branches) || branches.length === 0) {
-          logFn('no branches for rest ' + restKey);
-          continue;
-        }
-        const restInfo = await ensureRestaurantInfo(restKey, false, logFn);
-        const restNombre = restInfo?.nombre ?? restInfo?.name ?? null;
-
-        const mapById = new Map();
-        for (const b of branches) {
-          try {
-            if (b.id !== undefined && b.id !== null) mapById.set(String(b.id), b);
-            if (b.sucursal_id !== undefined && b.sucursal_id !== null) mapById.set(String(b.sucursal_id), b);
-            if (b.codigo !== undefined && b.codigo !== null) mapById.set(String(b.codigo), b);
-          } catch (e) { /* ignore */ }
-        }
-
-        for (const visitItem of groupedByRest[restKey]) {
-          const visitBranchId = visitItem.sucursal_id ?? visitItem.sucursal ?? visitItem.sucursalId ?? visitItem.branchId ?? null;
-          let found = null;
-
-          if (visitBranchId != null && mapById.has(String(visitBranchId))) {
-            found = mapById.get(String(visitBranchId));
-            logFn('matched by map id', { visitBranchId, foundId: found?.id });
+      for (const v of ventaArray) {
+        try {
+          const ventaId = v?.venta_id ?? v?.sale_id ?? null;
+          const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
+          if (!ventaId || !sucursalId) continue;
+          const urlDetalle = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?venta_id=${encodeURIComponent(ventaId)}&sucursal_id=${encodeURIComponent(sucursalId)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
+          const resDetalle = await fetch(urlDetalle, { method: 'GET', headers: getAuthHeaders() });
+          if (!resDetalle.ok) {
+            console.warn('detalle http not ok', resDetalle.status);
+            continue;
           }
+          const jsonDet = await resDetalle.json().catch(() => null);
+          if (!jsonDet) continue;
 
-          if (!found) {
-            for (const b of branches) {
-              if (!b) continue;
-              const candidates = [b.id, b.sucursal_id, b.codigo];
-              for (const cand of candidates) {
-                if (cand === undefined || cand === null) continue;
-                if (numericEquals(cand, visitBranchId)) {
-                  found = b;
-                  break;
+          const rootVentaId = jsonDet?.venta_id ?? ventaId;
+          const rootSucursalId = jsonDet?.sucursal_id ?? sucursalId;
+          const emailsObj = jsonDet?.emails ?? null;
+
+          const upsertVisit = async (saleEntry) => {
+            const computedTotal = computeSaleTotal(saleEntry);
+            const fechaCierreRaw = saleEntry?.fecha_cierre_venta ?? new Date().toISOString();
+            const fechaCierre = fechaCierreRaw;
+            const key = `${rootVentaId}_${rootSucursalId}`;
+            const candidate = {
+              id: `${rootVentaId}_${rootSucursalId}`, 
+              sale_id: rootVentaId ?? saleEntry?.venta_id ?? saleEntry?.sale_id ?? null,
+              restaurante_id: saleEntry?.restaurante_id ?? saleEntry?.restaurante ?? null,
+              sucursal_id: saleEntry?.sucursal_id ?? rootSucursalId ?? saleEntry?.sucursal ?? null,
+              restaurantName: saleEntry?.nombre_restaurante ?? null,
+              branchName: saleEntry?.nombre_sucursal ?? null,
+              restaurantImage: null,
+              bannerImage: null,
+              fecha: fechaCierre,
+              total: computedTotal,
+              moneda: 'MXN',
+              items: Array.isArray(saleEntry?.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry?.items) ? saleEntry.items : []),
+              pagos: Array.isArray(saleEntry?.pagos) ? saleEntry.pagos : (Array.isArray(jsonDet?.pagos) ? jsonDet.pagos : []),
+            };
+
+            try {
+              if (candidate.restaurante_id) {
+                const restInfo = await ensureRestaurantInfo(candidate.restaurante_id, false);
+                const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, false);
+                let matchedBranch = null;
+                if (Array.isArray(branches) && branches.length > 0) {
+                  for (const b of branches) {
+                    const candidates = [b.id, b.sucursal_id, b.codigo];
+                    for (const cand of candidates) {
+                      if (cand === undefined || cand === null) continue;
+                      if (String(cand) === String(candidate.sucursal_id)) {
+                        matchedBranch = b;
+                        break;
+                      }
+                    }
+                    if (matchedBranch) break;
+                  }
+                  if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
+                }
+                if (matchedBranch) {
+                  candidate.restaurantImage = branchGetLogoUrl(matchedBranch) ? getCacheBustedUrl(branchGetLogoUrl(matchedBranch)) : candidate.restaurantImage;
+                  candidate.bannerImage = branchGetBannerUrl(matchedBranch) ? getCacheBustedUrl(branchGetBannerUrl(matchedBranch)) : candidate.bannerImage;
+                  if (!candidate.branchName) candidate.branchName = branchGetName(matchedBranch);
+                }
+                if (!candidate.restaurantImage && restInfo) {
+                  const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
+                  if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
                 }
               }
-              if (found) break;
-            }
-            if (found) logFn('matched by numericEquals', { visitBranchId, foundId: found?.id });
-          }
+            } catch (e) { /* ignore enrichment errors */ }
 
-          if (!found) {
-            const visitName = visitItem.restaurantName ?? visitItem.restaurant ?? visitItem.name ?? visitItem.nombre ?? null;
-            if (visitName) {
-              const vn = String(visitName).toLowerCase().trim();
-              for (const b of branches) {
-                const bname = String(b?.nombre ?? b?.name ?? '').toLowerCase().trim();
-                if (!bname) continue;
-                if (bname === vn || bname.includes(vn) || vn.includes(bname)) {
-                  found = b;
-                  break;
-                }
+            if (visitsMap.has(key)) {
+              const existing = visitsMap.get(key);
+              const existingTs = new Date(existing.fecha).getTime() || 0;
+              const candTs = new Date(candidate.fecha).getTime() || 0;
+              const chosen = (candTs >= existingTs) ? candidate : existing;
+              chosen.total = Math.max(Number(existing.total || 0), Number(candidate.total || 0));
+              if ((!existing.items || existing.items.length === 0) && (candidate.items && candidate.items.length > 0)) {
+                chosen.items = candidate.items;
+              } else if (existing.items && candidate.items && candidate.items.length > 0 && existing.items.length !== candidate.items.length) {
+                chosen.items = (candidate.items.length > existing.items.length) ? candidate.items : existing.items;
+              } else {
+                chosen.items = existing.items || candidate.items;
               }
-              if (found) logFn('matched by name', { visitName, foundId: found?.id });
+              visitsMap.set(key, chosen);
+            } else {
+              visitsMap.set(key, candidate);
             }
-          }
+          }; 
 
-          if (!found && branches.length === 1) {
-            found = branches[0];
-            logFn('fallback single branch used', { restKey, foundId: found?.id });
-          }
-
-          if (!found) {
-            const forced = await ensureBranchesForRestaurant(restKey, true, logFn);
-            for (const b of forced) {
-              if (!b) continue;
-              if (numericEquals(b.id, visitBranchId) || numericEquals(b.sucursal_id, visitBranchId)) {
-                found = b;
-                break;
+          if (emailsObj && typeof emailsObj === 'object') {
+            for (const emailKey of Object.keys(emailsObj)) {
+              const arrSales = Array.isArray(emailsObj[emailKey]) ? emailsObj[emailKey] : [];
+              for (const saleEntry of arrSales) {
+                await upsertVisit(saleEntry);
               }
-            }
-            if (found) logFn('matched after forced fetch', { visitBranchId, foundId: found?.id });
-          }
-
-          if (found) {
-            const idx = enriched.findIndex(x => (x.sale_id && visitItem.sale_id && String(x.sale_id) === String(visitItem.sale_id)) || x.id === visitItem.id);
-            if (idx >= 0) {
-              const updated = { ...enriched[idx] };
-              const logo = branchGetLogoUrl(found);
-              const banner = branchGetBannerUrl(found);
-              const name = branchGetName(found);
-
-              if (name) updated.branchName = name;
-              if (logo) updated.restaurantImage = logo;
-              if (banner) updated.bannerImage = banner;
-
-              if (restNombre) {
-                const combined = restNombre + (updated.branchName ? ` — ${updated.branchName}` : '');
-                updated.restaurantName = combined;
-                updated.branchName = null;
-              }
-
-              enriched[idx] = updated;
-              logFn('Enriquecida visita', { sale_id: visitItem.sale_id, sucursal_id: visitBranchId, branchName: updated.branchName, logo: !!logo, banner: !!banner });
             }
           } else {
-            logFn('No matched branch for visit', { restKey, visitId: visitItem.id ?? visitItem.sale_id, visitBranchId, branchesCount: branches.length });
-          }
-        }
-      }
-
-      enriched.sort((a, b) => parseDateToTs(b.fecha) - parseDateToTs(a.fecha));
-
-      try {
-        const userId = userId || currentUserId || await resolveCurrentUserId();
-        if (userId) {
-          const key = visitsKeyForUser(userId);
-          await AsyncStorage.setItem(key, JSON.stringify(enriched));
-          logFn('Saved enriched visits to per-user', { key, count: enriched.length });
-        }
-        try { await AsyncStorage.setItem(VISITS_STORAGE_KEY_BASE, JSON.stringify(enriched)); } catch (e) { /* ignore */ }
-      } catch (e) {
-        /* ignore */
-      }
-
-      setVisits(enriched);
-    } catch (err) {
-      pushLog('loadVisitsAndEnrich error', err);
-      setVisits([]);
-    }
-  }
-
-  async function loadAndPromotePending(logFn = () => {}) {
-    try {
-      const userId = currentUserId || await resolveCurrentUserId();
-      setCurrentUserId(userId || null);
-      const pendKey = pendingKeyForUser(userId);
-
-      let rawPend = null;
-      try { rawPend = await AsyncStorage.getItem(pendKey); } catch (e) { rawPend = null; logFn('read pendKey error', e); }
-      let pend = safeJsonParse(rawPend, []);
-      if (!Array.isArray(pend)) pend = [];
-
-      let rawPendG = null;
-      try { rawPendG = await AsyncStorage.getItem(PENDING_VISITS_KEY_BASE); } catch (e) { rawPendG = null; }
-      let pendG = safeJsonParse(rawPendG, []);
-      if (!Array.isArray(pendG)) pendG = [];
-
-      const mergedPend = [];
-      const seen = new Set();
-      for (const p of pend) {
-        if (!p) continue;
-        const key = p.sale_id ? `s:${String(p.sale_id)}` : `i:${String(p.id)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        mergedPend.push(p);
-      }
-      for (const p of pendG) {
-        if (!p) continue;
-        const key = p.sale_id ? `s:${String(p.sale_id)}` : `i:${String(p.id)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        mergedPend.push(p);
-      }
-
-      if (!Array.isArray(mergedPend) || mergedPend.length === 0) return;
-
-      const toKeep = [];
-      for (const p of mergedPend) {
-        const sale = p.sale_id ?? null;
-        const rest = p.restaurante_id ?? null;
-        const suc = p.sucursal_id ?? null;
-        const total = safeNum(p.total ?? 0);
-        let promoted = false;
-
-        if (sale && suc && rest) {
-          try {
-            const paymentsUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(rest)}/sucursales/${encodeURIComponent(suc)}/ventas/${encodeURIComponent(sale)}/pagos`;
-            const payRes = await fetch(paymentsUrl, {
-              method: 'GET',
-              headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
-              },
-            });
-            if (payRes.ok) {
-              const payJson = await payRes.json();
-              const paymentsTotal = (typeof payJson.payments_total === 'number') ? payJson.payments_total
-                : (typeof payJson.paymentsTotal === 'number' ? payJson.paymentsTotal : (Array.isArray(payJson.payments) ? payJson.payments.reduce((s, q) => s + safeNum(q.amount), 0) : safeNum(payJson.payments_total ?? payJson.paymentsTotal ?? 0)));
-              const saleState = (payJson.sale_state ?? payJson.saleState ?? payJson.status ?? payJson.state ?? '').toString().toUpperCase();
-
-              const confirmed = (typeof paymentsTotal === 'number' && paymentsTotal + 0.001 >= total) || looksClosedOrPaidFlag(saleState);
-              if (confirmed) {
-                const visitToSave = {
-                  sale_id: sale,
-                  restaurante_id: rest,
-                  sucursal_id: suc,
-                  restaurantName: p.restaurantName ?? p.restaurant ?? null,
-                  restaurantImage: p.restaurantImage ?? null,
-                  bannerImage: p.bannerImage ?? null,
-                  mesa: p.mesa ?? null,
-                  fecha: new Date().toISOString(),
-                  total: total,
-                  moneda: p.moneda ?? 'MXN',
-                  items: p.items ?? [],
-                  monto_propina: Number(p.monto_propina ?? p.propina ?? p.tip ?? 0) || 0,
-                  propina: Number(p.propina ?? p.monto_propina ?? 0) || 0,
-                };
-                try {
-                  await saveVisitToStorageForUser(visitToSave, userId);
-                  promoted = true;
-                } catch (e) { logFn('promote save err', e); }
+            const arrSalesRoot = Array.isArray(jsonDet?.data) ? jsonDet.data : (Array.isArray(jsonDet?.ventas) ? jsonDet.ventas : null);
+            if (Array.isArray(arrSalesRoot)) {
+              for (const saleEntry of arrSalesRoot) {
+                await upsertVisit(saleEntry);
               }
-            } else {
-              logFn('loadAndPromotePending -> pagos http ' + payRes.status);
             }
-          } catch (err) {
-            logFn('loadAndPromotePending err', err);
           }
+        } catch (err) {
+          console.warn('error processing venta entry', err);
+          continue;
         }
+      } 
 
-        if (!promoted) toKeep.push(p);
-      }
+      const detailedVisits = Array.from(visitsMap.values());
+      detailedVisits.sort((a, b) => {
+        const ta = new Date(a.fecha).getTime() || 0;
+        const tb = new Date(b.fecha).getTime() || 0;
+        return tb - ta;
+      });
 
-      try {
-        const perPendKey = pendingKeyForUser(userId);
-        await AsyncStorage.setItem(perPendKey, JSON.stringify(toKeep));
-        await AsyncStorage.setItem(PENDING_VISITS_KEY_BASE, JSON.stringify(toKeep));
-      } catch (e) {
-        logFn('Error saving pendKey after promotion', e);
-      }
+      setVisits(detailedVisits);
+      if (!detailedVisits.length) Toast.show('No se encontraron detalles para las ventas', { duration: Toast.durations.SHORT });
     } catch (err) {
-      pushLog('loadAndPromotePending error', err);
+      console.warn('fetchVisitsForDesde error', err);
+      Toast.show('Error al obtener visitas (ver consola)', { duration: Toast.durations.LONG });
+    } finally {
+      setFetchingSales(false);
+      setLoading(false);
     }
-  }
-
-  const refreshUserFromApi = useCallback(async () => {
-    await loadProfileFromApi();
-  }, [loadProfileFromApi]);
-
-  useEffect(() => {
-    (async () => {
-      setNotifications(sampleNotifications);
-      try {
-        await refreshUserFromApi();
-      } catch (err) {
-        pushLog('Error refreshing user from API', err);
-        Toast.show('No se pudo actualizar datos de usuario', { duration: Toast.durations.SHORT });
-      }
-
-      try {
-        const uid = await resolveCurrentUserId();
-        setCurrentUserId(uid || null);
-        await migrateGlobalVisitsIfNeeded(uid);
-        await loadAndPromotePending(pushLog);
-        await loadVisitsAndEnrich(pushLog);
-      } catch (e) {
-        pushLog('initial load error', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const listener = DeviceEventEmitter.addListener('profileUpdated', async () => {
-      try {
-        await loadProfileFromApi();
-      } catch (e) {
-        console.warn('profileUpdated listener error', e);
-      }
-    });
-
-    return () => {
-      try { listener.remove(); } catch (e) { /* ignore */ }
-    };
-  }, [loadProfileFromApi]);
+    (async () => {
+      setLoading(true);
+      await loadProfileFromApi();
+      fetchVisitsForDesde(desdeDate);
+      setLoading(false);
+    })();
+  }, []);
 
   useFocusEffect(useCallback(() => {
-    (async () => {
-      await refreshUserFromApi();
-      await loadVisitsAndEnrich(pushLog);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []));
+    fetchVisitsForDesde(desdeDate);
+  }, [desdeDate]));
 
-  const runStorageHealthCheck = async () => {
-    try {
-      const uid = currentUserId || await resolveCurrentUserId();
-      const perKey = visitsKeyForUser(uid);
-      const rawPer = await AsyncStorage.getItem(perKey);
-      const rawGlob = await AsyncStorage.getItem(VISITS_STORAGE_KEY_BASE);
-      const rawPendPer = await AsyncStorage.getItem(pendingKeyForUser(uid));
-      const rawPendG = await AsyncStorage.getItem(PENDING_VISITS_KEY_BASE);
-      const perArr = safeJsonParse(rawPer, []);
-      const globArr = safeJsonParse(rawGlob, []);
-      const pendPerArr = safeJsonParse(rawPendPer, []);
-      const pendGArr = safeJsonParse(rawPendG, []);
-      const msg = `per:${Array.isArray(perArr)?perArr.length:0} global:${Array.isArray(globArr)?globArr.length:0} pendPer:${Array.isArray(pendPerArr)?pendPerArr.length:0} pendG:${Array.isArray(pendGArr)?pendGArr.length:0}`;
-      pushLog('storageHealth', { userId: uid, perKey, msg });
-      Toast.show(msg, { duration: Toast.durations.LONG });
-      if (Array.isArray(perArr) && perArr.length > 0) {
-        const first = perArr[0];
-        pushLog('storageHealth sample per-first', { id: first.id, sale_id: first.sale_id, total: first.total });
-      } else if (Array.isArray(globArr) && globArr.length > 0) {
-        const first = globArr[0];
-        pushLog('storageHealth sample glob-first', { id: first.id, sale_id: first.sale_id, total: first.total });
-      } else {
-        pushLog('storageHealth: no visits present in either key');
-      }
-    } catch (e) {
-      pushLog('runStorageHealthCheck error', e);
-      Toast.show('Health check error (ver consola)', { duration: Toast.durations.SHORT });
+  const onPressDesde = () => setShowDatePicker(true);
+  const onChangeDate = (event, selectedDate) => {
+    setShowDatePicker(Platform.OS === 'ios'); 
+    if (event?.type === 'dismissed') {
+      return;
     }
+    const d = selectedDate || desdeDate;
+    setDesdeDate(d);
+    fetchVisitsForDesde(d);
   };
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
   if (loading) {
     return (
@@ -785,28 +525,6 @@ export default function VisitsScreen({ navigation }) {
       </SafeAreaView>
     );
   }
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-
-  /* RESPONSIVE computed values used in JSX */
-  const headerGradientHeight = clamp(hp(14), 110, 220);
-  const avatarWrapperSize = clamp(wp(18), 48, 92);
-  const avatarInner = Math.round(avatarWrapperSize * 0.9);
-  const contentPaddingHorizontal = Math.max(12, wp(4));
-  const modalW = Math.min(Math.max(wp(92), 300), 920);
-  const cardLeftWidth = clamp(wp(28), 84, 140);
-  const logoSize = clamp(Math.round(cardLeftWidth * 0.66), 48, 84);
-  const slideWidth = Math.max(Math.round(width - cardLeftWidth - Math.max(24, wp(6))), Math.round(wp(40)));
-  const cardRadius = 12;
-
-  const getInitials = (name) => {
-    if (!name) return 'U';
-    const parts = String(name).trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return 'U';
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
-  };
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
@@ -842,12 +560,19 @@ export default function VisitsScreen({ navigation }) {
                 </View>
               ))}
             </ScrollView>
-            <Button title="Marcar todo como leído" onPress={markAllRead} color={BLUE} />
+            <TouchableOpacity onPress={markAllRead} style={{ margin: 8, backgroundColor: BLUE, padding: 10, borderRadius: 6 }}>
+              <Text style={{ color: '#fff', textAlign: 'center' }}>Marcar todo como leído</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} style={[styles.headerGradient, { height: headerGradientHeight, borderBottomLeftRadius: Math.round(cardRadius / 1.5), borderBottomRightRadius: Math.round(cardRadius * 5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+      <LinearGradient
+        colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+        style={[styles.headerGradient, { height: headerGradientHeight, borderBottomLeftRadius: Math.round(cardRadius / 1.5), borderBottomRightRadius: Math.round(cardRadius * 5) }]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+      >
         <View style={[styles.avatarWrapper, { width: avatarWrapperSize, height: avatarWrapperSize, borderRadius: Math.round(avatarWrapperSize / 2), left: Math.max(12, sidePad * 0.7), top: -Math.round(avatarWrapperSize / 3), elevation: 6 }]}>
           {profileUrl ? (
             <Image source={{ uri: profileUrl }} style={[styles.avatar, { width: avatarInner, height: avatarInner, borderRadius: Math.round(avatarInner / 2) }]} />
@@ -863,27 +588,41 @@ export default function VisitsScreen({ navigation }) {
         </View>
       </LinearGradient>
 
-      <View style={[styles.content, { paddingHorizontal: contentPaddingHorizontal, marginTop: Math.max(12, hp(2)) }]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={[styles.sectionTitle, { fontSize: clamp(rf(3.2), 14, 18) }]}>Visitas recientes</Text>
-          <TouchableOpacity onPress={runStorageHealthCheck} accessibilityLabel="Health check" style={{ padding: 6 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            {/* icon opcional */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: contentPaddingHorizontal, marginTop: 12 }}>
+        <Text style={[styles.sectionTitle, { fontSize: clamp(rf(3.2), 14, 18) }]}>Visitas recientes</Text>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ marginRight: 8, color: '#666' }}>Desde:</Text>
+          <TouchableOpacity onPress={onPressDesde} style={{ backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#eee' }}>
+            <Text style= {{ color: "#000"}}>{formatDateYMD(desdeDate)}</Text>
           </TouchableOpacity>
         </View>
+      </View>
 
+      {showDatePicker && (
+        <DateTimePicker
+          value={desdeDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+          maximumDate={new Date()} 
+          onChange={onChangeDate}
+        />
+      )}
+
+      <View style={[styles.content, { paddingHorizontal: contentPaddingHorizontal, marginTop: Math.max(12, hp(2)) }]}>
         {visits.length === 0 ? (
           <View style={{ padding: 20 }}>
-            <Text style={{ color: '#666' }}>No hay visitas registradas todavía.</Text>
+            <Text style={{ color: '#666' }}>{fetchingSales ? 'Buscando visitas...' : 'No hay visitas para las fechas seleccionadas.'}</Text>
           </View>
         ) : (
           <FlatList
             data={visits}
-            keyExtractor={item => String(item.sale_id ?? item.id ?? Math.random())}
-            renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} />}
+            keyExtractor={item => String(item.id ?? `${item.sale_id ?? ''}_${item.sucursal_id ?? ''}`)}
+            renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} /> }
             contentContainerStyle={{ paddingBottom: 24 + bottomSafe }}
-            initialNumToRender={8}
+            initialNumToRender={6}
             maxToRenderPerBatch={12}
-            windowSize={15}
+            windowSize={11}
           />
         )}
       </View>
@@ -891,16 +630,6 @@ export default function VisitsScreen({ navigation }) {
   );
 }
 
-/* ---------------- helpers (sin cambios) ---------------- */
-function branchGetLogoUrl(b) {
-  return b?.imagen_logo_url ?? b?.imagen_logo ?? b?.logo_url ?? b?.logo ?? b?.imagenLogoUrl ?? null;
-}
-function branchGetBannerUrl(b) {
-  return b?.imagen_banner_url ?? b?.imagen_banner ?? b?.banner_url ?? b?.banner ?? null;
-}
-function branchGetName(b) {
-  return b?.nombre ?? b?.name ?? b?.title ?? b?.nombre_sucursal ?? null;
-}
 function numericEquals(a, b) {
   if (a === undefined || b === undefined || a === null || b === null) return false;
   try {
@@ -911,7 +640,13 @@ function numericEquals(a, b) {
     return false;
   } catch (e) { return false; }
 }
-/* ------------------------------------------------------ */
+function getInitials(name) {
+  if (!name) return 'U';
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'U';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+}
 
 function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, logoSize = 64, cardRadius = 12 }) {
   const scrollRef = useRef(null);
@@ -919,9 +654,14 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   let lastVisitText = '—';
   try {
     if (item.fecha) {
-      const dt = new Date(item.fecha);
-      if (!Number.isNaN(dt.getTime())) {
-        lastVisitText = dt.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+      const parsed = parseToLocalDate(item.fecha);
+      if (parsed && !Number.isNaN(parsed.getTime())) {
+        lastVisitText = parsed.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+      } else {
+        const dt = new Date(item.fecha);
+        if (!Number.isNaN(dt.getTime())) {
+          lastVisitText = dt.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+        }
       }
     }
   } catch (e) { lastVisitText = '—'; }
@@ -962,8 +702,8 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
           </View>
           <View style={styles.divider} />
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Calificación</Text>
-            <Text style={styles.infoValue}>—</Text>
+{/*             <Text style={styles.infoLabel}>Calificación</Text>
+            <Text style={styles.infoValue}>—</Text> */}
           </View>
         </View>
 
@@ -1024,4 +764,3 @@ const styles = StyleSheet.create({
   btn: { flex: 1, backgroundColor: '#0046ff', paddingVertical: 10, borderRadius: 4, marginHorizontal: 4 },
   btnText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
 });
-

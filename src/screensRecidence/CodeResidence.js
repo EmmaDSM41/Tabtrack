@@ -1,4 +1,3 @@
-// CodeResidence.js
 import React, { useState } from 'react';
 import {
   SafeAreaView,
@@ -41,7 +40,6 @@ export default function CodeResidence(props) {
       return;
     }
 
-    // Si el padre quiere validar antes, respeta prop onSubmit
     if (props.onSubmit && typeof props.onSubmit === 'function') {
       try {
         setLoading(true);
@@ -55,7 +53,6 @@ export default function CodeResidence(props) {
       return;
     }
 
-    // === Cambio pedido: en lugar de ir directo a Home, vamos a la pantalla de splash ===
     try {
       setLoading(true);
       navigation.navigate('SplashResidence', { residenceCode: trimmed });
@@ -80,7 +77,6 @@ export default function CodeResidence(props) {
         >
           <View style={styles.logoWrap}>
             <Image
-              // Ajusta la ruta si tu logo se llama distinto
               source={require('../../assets/images/logo.png')}
               style={{ width: logoSize, height: Math.round(logoSize * 0.58), resizeMode: 'contain' }}
             />

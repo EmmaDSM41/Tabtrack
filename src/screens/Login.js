@@ -29,7 +29,6 @@ export default function Login() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // Base width used to scale fonts/sizes relative to a reference (mantengo por compatibilidad)
   const BASE_WIDTH = 375;
   const rf = (size) => Math.round((size * width) / BASE_WIDTH);
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -53,28 +52,22 @@ export default function Login() {
     forgotSize: clamp(rf(14), 10, 18),
     buttonContainerWidthPct: '80%',
     buttonContainerMarginTop: clamp(rf(40), 12, Math.round(height * 0.45)),
-    // base toast distances (kept but we will add insets to them)
     toastBottomIOS: clamp(rf(80), 40, 140),
     toastBottomAndroid: clamp(rf(40), 20, 120),
   };
 
-  // compute top inset & header-aware offsets (more robust than magic numbers)
   const topInset = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
-  const headerApprox = 56; // si tienes un header fijo, cámbialo; sirve como referencia para offset teclado
+  const headerApprox = 56; 
   const keyboardVerticalOffset = Platform.OS === 'ios' ? topInset + headerApprox : (StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 20);
 
-  // Toast positions computed using insets.bottom so the toast never overlaps home indicator / safe area
   const toastBottomBase = Platform.OS === 'ios' ? scaled.toastBottomIOS : scaled.toastBottomAndroid;
   const toastBottom = toastBottomBase + (insets.bottom ?? 0);
   const successToastBottom = toastBottom + 20;
 
-  // spacing between title+carita block and inputs/subtitle
   const titleCaritaSpacing = clamp(Math.round(scaled.titleFont * 0.5), 8, 48);
 
-  // dynamic style overrides applied inline / merged with base styles
   const dynamic = StyleSheet.create({
     containerOverride: {
-      // usamos topInset en vez de depender solo de Platform
       paddingVertical: scaled.paddingVertical + topInset,
     },
     logoOverride: {
@@ -110,7 +103,6 @@ export default function Login() {
       width: scaled.buttonContainerWidthPct,
       marginTop: scaled.buttonContainerMarginTop,
     },
-    // mantenemos las propiedades pero calculamos bottom al render para sumar insets
     toastOverride: {
       bottom: toastBottom,
     },
@@ -123,7 +115,7 @@ export default function Login() {
       marginTop: scaled.titleMarginTop,
       marginBottom: titleCaritaSpacing,
       paddingHorizontal: Math.round(Math.min(width * 0.08, 28)),
-      minHeight: Math.round(scaled.titleFont * 1.6), // asegura espacio suficiente en pantallas pequeñas
+      minHeight: Math.round(scaled.titleFont * 1.6), 
       width: '100%',
     },
   });
@@ -183,26 +175,21 @@ export default function Login() {
       if (res.status === 200) {
         const usuario = data.usuario || {};
 
-        // Guardar todos los campos del usuario en AsyncStorage
         for (const [key, value] of Object.entries(usuario)) {
           if (value !== null && value !== undefined) {
             await AsyncStorage.setItem(`user_${key}`, String(value));
           }
         }
 
-        // Guardar el identificador de usuario para usarlo en otras pantallas
         if (usuario.usuario_app_id) {
           await AsyncStorage.setItem('user_usuario_app_id', usuario.usuario_app_id);
         }
 
-        // Guardar campo 'valid' si lo deseas
         await AsyncStorage.setItem('user_valid', String(data.valid));
 
-        // Guardar nombre completo
         const fullname = `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim();
         await AsyncStorage.setItem('user_fullname', fullname);
 
-        // Guardar email por separado
         if (usuario.mail) {
           await AsyncStorage.setItem('user_email', usuario.mail);
         }
@@ -238,13 +225,11 @@ export default function Login() {
           style={[styles.logo, dynamic.logoOverride]}
         />
 
-        {/* Agrupado: title + carita en contenedor para evitar solapamiento */}
         <View style={dynamic.titleCaritaContainer}>
           <Text style={[styles.title, dynamic.titleOverride]}>¡Hola!</Text>
           <Text style={[styles.carita, dynamic.caritaOverride]}>:)</Text>
         </View>
 
-        {/* KeyboardAvoidingView sólo para la zona de inputs + botones */}
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ width: '100%', alignItems: 'center' }}
@@ -259,14 +244,13 @@ export default function Login() {
               onChangeText={setMail}
               keyboardType="email-address"
               autoCapitalize="none"
-              underlineColorAndroid="transparent"   // quita subrayado por defecto Android
+              underlineColorAndroid="transparent" 
               importantForAutofill="yes"
               textContentType="username"
               autoComplete="email"
             />
           </View>
 
-          {/* PASSWORD */}
           <View style={[styles.inputWrapper, dynamic.inputOverride]}>
             <TextInput
               style={styles.inputInner}
@@ -301,13 +285,12 @@ export default function Login() {
 
           <TouchableOpacity
             style={styles.forgotPasswordContainer}
-            onPress={() => navigation.navigate('ForgotPassword')}
+            onPress={() => navigation.navigate('SendEmail')}
           >
             <Text style={[styles.forgotPasswordText, dynamic.forgotOverride]}>¿Se te olvidó tu contraseña?</Text>
           </TouchableOpacity>
 
           <View style={[styles.buttonContainer, dynamic.buttonContainerOverride]}>
-            {/* botones sociales comentados en original */}
           </View>
         </KeyboardAvoidingView>
       </LinearGradient>

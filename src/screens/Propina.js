@@ -44,7 +44,6 @@ export default function Propina() {
   const normalizedItems = normalizeItems(items);
   const presetPercentages = [10, 15, 20, 25];
 
-  // Si nos pasaron tipApplied (viniendo de EqualSplit u otra), úsalo como estado inicial.
   const incomingTipApplied = params.tipApplied ?? params.tip_applied ?? null;
   const initialPercent = incomingTipApplied ? Number(incomingTipApplied.percent || 0) : null;
   const initialOther = incomingTipApplied && ![10,15,20,25].includes(initialPercent) ? String(initialPercent) : '';
@@ -54,7 +53,6 @@ export default function Propina() {
   const [customActive, setCustomActive] = useState(Boolean(initialOther));
   const [hasAppliedBefore, setHasAppliedBefore] = useState(Boolean(incomingTipApplied));
 
-  // Si cambian los params.tipApplied (al volver desde otra pantalla), sincronizamos el estado
   useEffect(() => {
     const tip = route?.params?.tipApplied ?? route?.params?.tip_applied ?? null;
     if (tip) {
@@ -68,10 +66,8 @@ export default function Propina() {
     }
   }, [route?.params?.tipApplied, route?.params?.tip_applied]);
 
-  // Limitar el porcentaje a 2 decimales: definimos percentRounded que usaremos en cálculos/payloads
   const percent = useMemo(() => {
     if (customActive) {
-      // parsear otherPercent seguro (puede contener coma)
       const p = parseFloat(String(otherPercent).replace(',', '.')) || 0;
       return p;
     }
@@ -80,7 +76,6 @@ export default function Propina() {
 
   const percentRounded = useMemo(() => {
     const p = Number(percent || 0);
-    // limitar a 2 decimales en el porcentaje en todas las operaciones/payloads
     return Number(Number(p).toFixed(2));
   }, [percent]);
 
@@ -97,7 +92,6 @@ export default function Propina() {
   const comingFromEqualSplit = returnScreen === 'EqualSplit' || params.from === 'EqualSplit';
   const comingFromConsumo = returnScreen === 'Consumo' || params.from === 'Consumo';
 
-  // Usar percentRounded en cálculos para asegurar 2 decimales de porcentaje
   const groupTipAmount = useMemo(() => {
     const t = +(groupTotal * (Number(percentRounded || 0) / 100));
     return Number(t.toFixed(2));
@@ -213,11 +207,9 @@ export default function Propina() {
     navigation.navigate('ResumenPago', { tipApplied: payloadTipApplied });
   };
 
-  // ---------- MODIFICACIÓN PUNTUAL: cuando venimos de OneExhibicion NO enviar items a Payment ----------
   const isFromOneExhibicion = returnScreen === 'OneExhibicion' || params.from === 'OneExhibicion';
 
   const payNow = () => {
-    // Si venimos de EqualSplit con >1 persona, mantenemos el comportamiento actual
     if (comingFromEqualSplit && peopleCount > 1) {
       const payPayload = attachMetaDup({
         token,
@@ -225,7 +217,7 @@ export default function Propina() {
         subtotal: perPersonSubtotal,
         iva: perPersonIva,
         tipAmount: perPersonTipAmount,
-        total: perPersonTotal, // total sin propina
+        total: perPersonTotal, 
         totalWithTip: perPersonTotalWithTip,
         people: 1,
         groupPeople: peopleCount,
@@ -237,10 +229,38 @@ export default function Propina() {
       return;
     }
 
-    // Si venimos de OneExhibicion, enviar SOLO montos y metadata, OMITIR items
     if (isFromOneExhibicion) {
+      const itemsPayload = (normalizedItems || []).map(it => ({
+        id: it.id ?? `item-${Math.random().toString(36).slice(2,9)}`,
+        name: it.name ?? 'Item',
+        qty: 1,
+        unitPrice: Number(it.unitPrice ?? it.price ?? 0),
+        price: Number(it.lineTotal ?? it.price ?? 0),
+        lineTotal: Number(it.lineTotal ?? it.price ?? 0),
+        paid: !!it.paid,
+        paidPartial: !!it.paidPartial,
+        paidAmount: Number(it.paidAmount ?? 0),
+        canceled: !!it.canceled,
+        raw: it.raw ?? it,
+      }));
+
+      const originalItems = (normalizedItems || []).map(it => ({
+        id: it.id,
+        name: it.name,
+        qty: Number(it.qty || 1),
+        unitPrice: Number(it.unitPrice || it.price || 0),
+        lineTotal: Number(it.lineTotal || 0),
+        paid: !!it.paid,
+        paidPartial: !!it.paidPartial,
+        paidAmount: Number(it.paidAmount || 0),
+        canceled: !!it.canceled,
+        raw: it.raw ?? it,
+      }));
+
       const payPayload = attachMetaDup({
         token,
+        items: itemsPayload,
+        originalItems,
         subtotal: round2(groupSubtotal),
         iva: round2(groupIva),
         tipAmount: round2(groupTipAmount),
@@ -251,15 +271,29 @@ export default function Propina() {
         tipPercent: percentRounded,
         restaurantImage,
       });
-      console.log('Propina -> payNow (FROM OneExhibicion) payload (NO items):', JSON.stringify(payPayload, null, 2));
+
+      console.log('Propina -> payNow (FROM OneExhibicion) payload (CON items):', JSON.stringify(payPayload, null, 2));
       navigation.navigate('Payment', payPayload);
       return;
     }
 
-    // Comportamiento por defecto (no venimos de OneExhibicion): enviar items como antes
+    const defaultItemsPayload = (normalizedItems || []).map(it => ({
+      id: it.id ?? `item-${Math.random().toString(36).slice(2,9)}`,
+      name: it.name ?? 'Item',
+      qty: Number(it.qty ?? 1),
+      unitPrice: Number(it.unitPrice ?? it.price ?? 0),
+      price: Number(it.lineTotal ?? it.price ?? 0),
+      lineTotal: Number(it.lineTotal ?? it.price ?? 0),
+      paid: !!it.paid,
+      paidPartial: !!it.paidPartial,
+      paidAmount: Number(it.paidAmount ?? 0),
+      canceled: !!it.canceled,
+      raw: it.raw ?? it,
+    }));
+
     const payload = attachMetaDup({
       token,
-      items: normalizedItems,
+      items: defaultItemsPayload,
       subtotal: groupSubtotal,
       iva: groupIva,
       tipAmount: round2(groupTipAmount),
@@ -275,10 +309,9 @@ export default function Propina() {
 
   const buttonLabel = (hasAppliedBefore || percent > 0) ? 'Añadir/editar propina' : 'Añadir propina';
 
-  // ---------------- Responsive calculations ----------------
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // responsive font/size base 375
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); 
   const clampLocal = (v, a, b) => Math.max(a, Math.min(b, v));
 
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
@@ -293,7 +326,6 @@ export default function Propina() {
   const inputHeight = clampLocal(40, 36, 56);
   const checkboxSize = clampLocal(18, 16, 28);
   const basePadding = clampLocal(Math.round(width * 0.04), 10, 28);
-  // --------------------------------------------------------
 
   useEffect(() => {
     const parent = navigation.getParent?.();
@@ -316,14 +348,12 @@ export default function Propina() {
     };
   }, [navigation]);
 
-  // IMPORTANT: aseguramos paddingBottom suficiente para que el último botón nunca quede fuera en pantallas pequeñas
   const ensureBottomPadding = Math.max(insets.bottom || 12, 24) + 140;
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topPadding, paddingBottom: insets.bottom || 12 }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
-      {/* --- HEADER restaurado --- */}
       <View style={[styles.topBar, { height: headerHeight, paddingHorizontal: basePadding }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
           <Text style={[styles.backArrow, { fontSize: clampLocal(rf(32), 20, 36) }]}>{'‹'}</Text>
@@ -409,7 +439,6 @@ export default function Propina() {
                   keyboardType="numeric"
                   value={otherPercent}
                   onChangeText={(t) => {
-                    // SANITIZE: permitir sólo números y un punto, y limitar a 2 decimales
                     let cleaned = t.replace(/[^0-9,.\-]/g, '');
                     cleaned = cleaned.replace(/,/g, '.');
                     const m = cleaned.match(/^(\d+)(\.(\d{0,2}))?/);
@@ -433,7 +462,6 @@ export default function Propina() {
             {/* Si quieres activar el botón "Añadir/editar propina" reemplaza el comentario */}
             {/* <TouchableOpacity style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(12)), 10, 18) }]} onPress={applyAndReturn} activeOpacity={0.9}><Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(15), 14, 18) }]}>{buttonLabel}</Text></TouchableOpacity> */}
 
-            {/* BOTÓN PAGAR: ahora con el mismo GRADIENT del encabezado */}
             <LinearGradient
               colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
               start={{ x: 0, y: 1 }}

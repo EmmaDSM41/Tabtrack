@@ -68,7 +68,6 @@ const PlainInput = React.memo(
   })
 );
 
-/* Small styled toast component (white card) */
 function SmallToast({ message, visible, success }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -97,7 +96,6 @@ function SmallToast({ message, visible, success }) {
 }
 
 export default function PaymentMethodsResidence({ navigation }) {
-  // responsive helpers using current window (better for orientation changes)
   const { width: dimWidth, height: dimHeight } = Dimensions.get('window');
   const wp = p => Math.round((Number(p) / 100) * dimWidth);
   const hp = p => Math.round((Number(p) / 100) * dimHeight);
@@ -113,7 +111,6 @@ export default function PaymentMethodsResidence({ navigation }) {
   const modalWidth = useMemo(() => Math.min(Math.round(dimWidth * 0.88), 520), [dimWidth]);
   const iconSize = useMemo(() => clamp(Math.round(rf(2.6)), 16, 26), [dimWidth]);
 
-  // app state
   const [methods, setMethods] = useState(initialMethods);
   const [username, setUsername] = useState('Usuario');
   const [profileUrl, setProfileUrl] = useState(null);
@@ -121,30 +118,25 @@ export default function PaymentMethodsResidence({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState(null);
 
-  // card form
   const [cardNumber, setCardNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [cvv, setCvv] = useState('');
   const [cardHolderName, setCardHolderName] = useState('');
   const [address, setAddress] = useState('');
 
-  // saved cards local
   const [savedCards, setSavedCards] = useState([]);
 
-  // toast state
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [toastSuccess, setToastSuccess] = useState(false);
   const toastTimeoutRef = useRef(null);
 
-  // refs
   const cardHolderRef = useRef(null);
   const cardNumberRef = useRef(null);
   const expiryRef = useRef(null);
   const cvvRef = useRef(null);
   const addressRef = useRef(null);
 
-  // load profile and saved cards
   useEffect(() => {
     (async () => {
       try {
@@ -165,7 +157,6 @@ export default function PaymentMethodsResidence({ navigation }) {
         console.warn('Error leyendo AsyncStorage', e);
       }
 
-      // load saved cards
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
@@ -178,7 +169,6 @@ export default function PaymentMethodsResidence({ navigation }) {
     })();
   }, []);
 
-  // helpers: toast (small white card)
   const showToast = useCallback((message, success = false, duration = 1600) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -193,7 +183,6 @@ export default function PaymentMethodsResidence({ navigation }) {
     }, duration);
   }, []);
 
-  // formatters
   const formatCardNumber = useCallback((text) => {
     const digits = String(text).replace(/\D/g, '').slice(0, 16);
     const groups = digits.match(/.{1,4}/g);
@@ -208,7 +197,6 @@ export default function PaymentMethodsResidence({ navigation }) {
   }, []);
   const onChangeExpiry = useCallback((t) => setExpiryDate(formatExpiry(t)), [formatExpiry]);
 
-  // save card locally
   const persistCards = useCallback(async (cards) => {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
@@ -243,14 +231,13 @@ export default function PaymentMethodsResidence({ navigation }) {
       last4: rawCard.slice(-4),
       expiry: expiryDate,
       address: address.trim(),
-      raw: rawCard, // local only
+      raw: rawCard, 
     };
 
     const updated = [newCard, ...savedCards];
     setSavedCards(updated);
     persistCards(updated);
 
-    // clear form and close modal
     setCardNumber('');
     setExpiryDate('');
     setCvv('');
@@ -260,7 +247,6 @@ export default function PaymentMethodsResidence({ navigation }) {
     showToast('Tarjeta guardada', true);
   }, [cardNumber, cardHolderName, expiryDate, cvv, address, savedCards, persistCards, formatCardNumber, showToast]);
 
-  // remove card by id (long press)
   const removeCard = useCallback((id) => {
     const filtered = savedCards.filter(c => c.id !== id);
     setSavedCards(filtered);
@@ -268,7 +254,6 @@ export default function PaymentMethodsResidence({ navigation }) {
     showToast('Tarjeta eliminada', true);
   }, [savedCards, persistCards, showToast]);
 
-  // open modal
   const openAddCardModal = () => {
     setSelectedMethod(null);
     setModalVisible(true);
@@ -282,7 +267,6 @@ export default function PaymentMethodsResidence({ navigation }) {
     }
   };
 
-  // helpers UI: display brand-ish icon from last4 (simple)
   const CardItem = ({ card }) => (
     <View style={styles.cardItem}>
       <View style={{ flex: 1 }}>
@@ -392,7 +376,6 @@ export default function PaymentMethodsResidence({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal para agregar tarjeta (fade) */}
       <Modal animationType="fade" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)} presentationStyle="overFullScreen">
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
@@ -464,7 +447,6 @@ export default function PaymentMethodsResidence({ navigation }) {
                   </View>
                 </View>
 
-                {/* Inputs planos */}
                 <PlainInput
                   ref={cardHolderRef}
                   placeholder="Nombre del titular"
@@ -527,7 +509,6 @@ export default function PaymentMethodsResidence({ navigation }) {
                   </TouchableOpacity>
                 </View>
 
-                {/* small toast inside modal */}
                 <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
               </LinearGradient>
             </View>
@@ -535,7 +516,6 @@ export default function PaymentMethodsResidence({ navigation }) {
         </View>
       </Modal>
 
-      {/* small toast at screen level too (for deletes/others) */}
       <View style={toastStyles.container} pointerEvents="box-none">
         <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
       </View>
@@ -543,7 +523,6 @@ export default function PaymentMethodsResidence({ navigation }) {
   );
 }
 
-/* helper initials */
 function getInitials(name) {
   if (!name) return '👤';
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -552,7 +531,6 @@ function getInitials(name) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-/* styles */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 },
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: BLUE },
@@ -582,7 +560,6 @@ const styles = StyleSheet.create({
   saveButton: { alignSelf: 'flex-start', backgroundColor: BLUE, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 18 },
   saveButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
-  /* empty state / cards list */
   emptyBox: {
     padding: 14,
     borderRadius: 12,
@@ -615,7 +592,6 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 13, color: '#666', marginTop: 6 },
   cardAction: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#e6eefc', backgroundColor: '#fff' },
 
-  /* modal original look restored */
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(8,10,20,0.6)' },
   modalWrapper: { width: '100%', alignItems: 'center', paddingHorizontal: 18 },
@@ -665,7 +641,6 @@ const styles = StyleSheet.create({
   saveButtonText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 });
 
-/* toast styles */
 const toastStyles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,

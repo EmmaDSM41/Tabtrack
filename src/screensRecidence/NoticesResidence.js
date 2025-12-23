@@ -1,4 +1,3 @@
-// NoticesScreen.js
 import React, { useMemo, useState } from 'react';
 import {
   SafeAreaView,
@@ -61,7 +60,6 @@ const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 
 export default function NoticesResidence({ navigation }) {
   const { width } = useWindowDimensions();
 
-  // responsive helpers
   const wp = (p) => (p * width) / 100;
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -79,7 +77,6 @@ export default function NoticesResidence({ navigation }) {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('Todos los avisos');
 
-  // Filtrado de datos según selección
   const filteredNotices = useMemo(() => {
     if (!selectedFilter || selectedFilter === 'Todos los avisos') return sampleNotices;
     return sampleNotices.filter((n) => n.category === selectedFilter);
@@ -92,7 +89,6 @@ export default function NoticesResidence({ navigation }) {
 
   const renderItem = ({ item }) => {
     const urgent = item.priority === 'urgente';
-    // reserveRight depends on urgent
     const contentPaddingRight = urgent ? 100 : 16;
 
     return (
@@ -151,7 +147,6 @@ export default function NoticesResidence({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Wrapper con padding y marginTop para separar la barra del top */}
       <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(wp(10)), zIndex: 1 }}>
         <View style={{ position: 'relative' }}>
           <Pressable
@@ -167,7 +162,6 @@ export default function NoticesResidence({ navigation }) {
             <Ionicons name={dropdownVisible ? 'chevron-up' : 'chevron-down'} size={18} color="#6b7280" />
           </Pressable>
 
-          {/* Dropdown overlay: absolute, zIndex grande y elevation alto para cubrir tarjetas */}
           {dropdownVisible && (
             <View style={[styles.dropdown, { top: filterBtnHeight + 10 }]}>
               {FILTER_OPTIONS.map((opt) => (
@@ -250,7 +244,6 @@ function makeStyles({ outerPad, cardRadius, iconBoxSize, titleSize, bodySize, sm
       overflow: 'hidden',
       paddingVertical: 16,
       paddingHorizontal: Math.round(wp(5)),
-      // bajar elevación para permitir que dropdown quede por encima
       shadowColor: '#000',
       shadowOpacity: 0.02,
       shadowOffset: { width: 0, height: 2 },
