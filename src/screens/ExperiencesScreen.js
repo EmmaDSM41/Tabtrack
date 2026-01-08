@@ -140,16 +140,14 @@ export default function VisitsScreen(props) {
   const [username, setUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState(null);
 
-  // --- notifications ---
-  const [notifications, setNotifications] = useState([]); // inicia vacío -> se llenará desde storage/api
+  const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
   const pollIntervalRef = useRef(null);
   const isMountedRef = useRef(true);
-  const emailRef = useRef(null); // cache email for polling
-  const MAX_STORE = 100; // límite de notificaciones guardadas
+  const emailRef = useRef(null); 
+  const MAX_STORE = 100; 
 
-  // --- fechas / UI ---
   const [desdeDate, setDesdeDate] = useState(new Date()); 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -177,7 +175,6 @@ export default function VisitsScreen(props) {
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  // ---------------- notification storage helpers ----------------
   async function loadSeenIds(email) {
     if (!email) return new Set();
     try {
@@ -215,7 +212,6 @@ export default function VisitsScreen(props) {
     } catch (e) { console.warn('saveStoredNotifications err', e); }
   }
 
-  // unique id builder (sale + payment/date fallback)
   function paymentUniqueId(saleId, payment, idx) {
     const part = payment?.payment_transaction_id ?? payment?.payment_id ?? payment?.fecha_creacion ?? payment?.fecha_pago ?? String(payment?.amount ?? '') + `_${idx}`;
     return `${String(saleId)}_${String(part)}`;
@@ -238,7 +234,6 @@ export default function VisitsScreen(props) {
     }
   }
 
-  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED / paid)
   async function fetchTodayNotificationsOnce() {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -250,12 +245,10 @@ export default function VisitsScreen(props) {
       const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
 
       const headers = getAuthHeaders();
-      // fetch
       let res = null;
       try {
         res = await fetch(url, { method: 'GET', headers });
       } catch (err) {
-        // network / CORS: silencioso
         return;
       }
       if (!res || !res.ok) return;
@@ -272,7 +265,6 @@ export default function VisitsScreen(props) {
       for (const venta of ventas) {
         const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
         const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
-        // fallback: items_consumidos
         if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
           const items = venta.items_consumidos;
           for (let i = 0; i < items.length; i++) {
@@ -343,7 +335,6 @@ export default function VisitsScreen(props) {
     }
   }
 
-  // mark all read and persist
   const markAllRead = useCallback(async () => {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -357,7 +348,6 @@ export default function VisitsScreen(props) {
     }
   }, [notifications]);
 
-  // ---------------- profile / visits logic (igual que antes) ----------------
 
   const loadProfileFromApi = useCallback(async () => {
     try {
@@ -675,7 +665,6 @@ export default function VisitsScreen(props) {
     }
   }, []);
 
-  // ---------------- lifecycle: load profile + notifications polling ----------------
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -684,7 +673,6 @@ export default function VisitsScreen(props) {
       setLoading(false);
     })();
 
-    // notifications: inicializar desde storage y arrancar polling
     isMountedRef.current = true;
     (async () => {
       const e = await AsyncStorage.getItem('user_email');
@@ -732,7 +720,6 @@ export default function VisitsScreen(props) {
     return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
   }
 
-  // small component to render notification row (mejor layout)
   function NotificationRow({ n }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
@@ -967,7 +954,6 @@ const styles = StyleSheet.create({
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 10 },
 
-  // modal (estilos mejorados, iguales a ProfileScreen)
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
@@ -979,7 +965,6 @@ const styles = StyleSheet.create({
 
   modalList: { paddingHorizontal: 12 },
 
-  // nuevo estilo para item de notificación más claro y ordenado
   notificationItemLarge: {
     flexDirection: 'row',
     paddingVertical: 12,

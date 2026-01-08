@@ -100,7 +100,6 @@ function useResponsive() {
   const rf = (percent) => {
     const p = Number(percent);
     if (!p) return 0;
-    // keep consistent with other files' rf behavior
     return Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   };
 
@@ -112,15 +111,13 @@ function useResponsive() {
 export default function DetailScreen({ navigation, route }) {
   const { width, wp, hp, rf, clamp } = useResponsive();
 
-  // Notifications state
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([]); // start empty (no sample notifications)
+  const [notifications, setNotifications] = useState([]);
   const pollIntervalRef = useRef(null);
   const isMountedRef = useRef(true);
   const emailRef = useRef(null);
   const MAX_STORE = 100;
 
-  // Existing state (kept intact)
   const [visit, setVisit] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -134,7 +131,6 @@ export default function DetailScreen({ navigation, route }) {
 
   const [userPropinaTotal, setUserPropinaTotal] = useState(0);
 
-  // --- notification helpers (storage, ids, unique id) ---
   async function loadSeenIds(email) {
     if (!email) return new Set();
     try {
@@ -198,7 +194,6 @@ export default function DetailScreen({ navigation, route }) {
     }
   }
 
-  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED / paid)
   async function fetchTodayNotificationsOnce() {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -216,7 +211,6 @@ export default function DetailScreen({ navigation, route }) {
       try {
         res = await fetch(url, { method: 'GET', headers });
       } catch (err) {
-        // network / CORS: silencioso
         return;
       }
       if (!res || !res.ok) return;
@@ -233,7 +227,6 @@ export default function DetailScreen({ navigation, route }) {
       for (const venta of ventas) {
         const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
         const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
-        // fallback: items_consumidos
         if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
           const items = venta.items_consumidos;
           for (let i = 0; i < items.length; i++) {
@@ -304,7 +297,6 @@ export default function DetailScreen({ navigation, route }) {
     }
   }
 
-  // mark all read and persist
   const markAllRead = async () => {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -318,7 +310,6 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-  // ---------- existing logic (kept intact) ----------
   function parseVisitsRaw(raw) {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -790,9 +781,7 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-  // ---------- initialization: visit + notifications polling ----------
   useEffect(() => {
-    // existing initialization (visit from route or storage)
     (async () => {
       if (route?.params?.visit) {
         setVisit(route.params.visit);
@@ -822,7 +811,6 @@ export default function DetailScreen({ navigation, route }) {
       setLoading(false);
     })();
 
-    // notifications init
     isMountedRef.current = true;
     (async () => {
       const e = await AsyncStorage.getItem('user_email');
@@ -855,7 +843,6 @@ export default function DetailScreen({ navigation, route }) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ---------- small NotificationRow component (styled like Profile) ----------
   function NotificationRow({ n }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
@@ -987,7 +974,6 @@ export default function DetailScreen({ navigation, route }) {
     <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Notifications modal (estilos y layout como en Profile) */}
       <Modal visible={showNotifications} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
@@ -1253,7 +1239,6 @@ const styles = StyleSheet.create({
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 10, textAlign: 'center' },
 
-  // modal (estilos mejorados usados en ProfileScreen)
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
@@ -1265,7 +1250,6 @@ const styles = StyleSheet.create({
 
   modalList: { paddingHorizontal: 12 },
 
-  // nuevo estilo para item de notificación más claro y ordenado
   notificationItemLarge: {
     flexDirection: 'row',
     paddingVertical: 12,

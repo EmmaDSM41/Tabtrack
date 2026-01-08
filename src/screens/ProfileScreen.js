@@ -29,7 +29,7 @@ const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6
 export default function ProfileScreen({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [notifications, setNotifications] = useState([]); // ahora inicia vacío
+  const [notifications, setNotifications] = useState([]); 
   const [username, setUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -57,14 +57,12 @@ export default function ProfileScreen({ navigation }) {
   const optionFont = clamp(rf(3.6), 14, 20);
   const smallText = clamp(rf(3.2), 12, 16);
 
-  // ---- Notification state & refs ----
   const pollIntervalRef = useRef(null);
   const isMountedRef = useRef(true);
-  const emailRef = useRef(null); // cache email for polling
-  const MAX_STORE = 100; // límite de notificaciones guardadas
+  const emailRef = useRef(null); 
+  const MAX_STORE = 100; 
 
   useEffect(() => {
-    // cargamos nombre y perfil (igual que antes)
     (async () => {
       try {
         let fullname = await AsyncStorage.getItem('user_fullname');
@@ -93,23 +91,19 @@ export default function ProfileScreen({ navigation }) {
       await loadProfileFromApi();
     })();
 
-    // mark mounted
     isMountedRef.current = true;
 
     (async () => {
-      // pre-carga de notificaciones guardadas del usuario (si existen) pero ahora no pre-populamos con ejemplos
       const e = await AsyncStorage.getItem('user_email');
       emailRef.current = e || null;
       if (emailRef.current) {
         const stored = await loadStoredNotifications(emailRef.current);
         if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
-          // aseguramos orden descendente por fecha
           const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
           setNotifications(sorted);
         }
       }
 
-      // initial fetch y polling
       await fetchTodayNotificationsOnce();
       const pollSeconds = 12;
       pollIntervalRef.current = setInterval(() => {
@@ -123,7 +117,6 @@ export default function ProfileScreen({ navigation }) {
     };
   }, []);
 
-  // refresh cuando la pantalla toma foco
   useFocusEffect(useCallback(() => {
     (async () => {
       if (!emailRef.current) {
@@ -136,7 +129,6 @@ export default function ProfileScreen({ navigation }) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ---- Storage helpers ----
   async function loadSeenIds(email) {
     if (!email) return new Set();
     try {
@@ -170,12 +162,10 @@ export default function ProfileScreen({ navigation }) {
   async function saveStoredNotifications(email, arr) {
     if (!email) return;
     try {
-      // cortamos al máximo guardado
       await AsyncStorage.setItem(`notifications_store_${email}`, JSON.stringify(arr.slice(0, MAX_STORE)));
     } catch (e) { console.warn('saveStoredNotifications err', e); }
   }
 
-  // build unique id for a payment (sale + transaction/date fallback)
   function paymentUniqueId(saleId, payment, idx) {
     const part = payment?.payment_transaction_id ?? payment?.payment_id ?? payment?.fecha_creacion ?? payment?.fecha_pago ?? String(payment?.amount ?? '') + `_${idx}`;
     return `${String(saleId)}_${String(part)}`;
@@ -194,7 +184,6 @@ export default function ProfileScreen({ navigation }) {
     return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
   }
 
-  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED)
   async function fetchTodayNotificationsOnce() {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -212,7 +201,6 @@ export default function ProfileScreen({ navigation }) {
       try {
         res = await fetch(url, { method: 'GET', headers });
       } catch (err) {
-        // posible network/CORS, no hacer ruido
         return;
       }
       if (!res || !res.ok) {
@@ -233,7 +221,6 @@ export default function ProfileScreen({ navigation }) {
       for (const venta of ventas) {
         const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
         const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
-        // fallback: items_consumidos
         if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
           const items = venta.items_consumidos;
           for (let i = 0; i < items.length; i++) {
@@ -289,14 +276,12 @@ export default function ProfileScreen({ navigation }) {
       }
 
       if (added) {
-        // mantén el tamaño y ordena por fecha descendente
         const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
         await saveSeenIds(email, seenSet);
         await saveStoredNotifications(email, uniq);
         if (isMountedRef.current) setNotifications(uniq);
       } else {
         if (isMountedRef.current) {
-          // asegurar orden
           const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
           setNotifications(sorted);
         }
@@ -306,7 +291,6 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
-  // mark all read and persist
   const markAllRead = useCallback(async () => {
     try {
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
@@ -320,7 +304,6 @@ export default function ProfileScreen({ navigation }) {
     }
   }, [notifications]);
 
-  // ---- existing profile functions (left intact) ----
 
   const getAuthHeaders = (extra = {}) => {
     const base = { 'Content-Type': 'application/json', ...extra };
@@ -623,7 +606,6 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
-  // Render de cada notificación con mejor layout
   function NotificationRow({ n }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
@@ -644,7 +626,6 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe, paddingBottom: Math.max(12, bottomSafe) }]}>
-      {/* Modal de notificaciones */}
       <Modal visible={showNotifications} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
@@ -672,7 +653,6 @@ export default function ProfileScreen({ navigation }) {
               )}
             </ScrollView>
 
-            {/* botón para marcar todo (también al pie) */}
             <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
               <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
             </TouchableOpacity>
@@ -882,7 +862,6 @@ const styles = StyleSheet.create({
 
   modalList: { paddingHorizontal: 12 },
 
-  // nuevo estilo para item de notificación más claro y ordenado
   notificationItemLarge: {
     flexDirection: 'row',
     paddingVertical: 12,
