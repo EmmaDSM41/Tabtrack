@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   View,
@@ -15,6 +15,7 @@ import {
   Linking,
   Alert,
   useWindowDimensions,
+  PixelRatio,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,15 +23,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const VISITS_STORAGE_KEY = 'user_visits';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 const WHATSAPP_URL_DIRECT = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
-
-const sampleNotifications = [
-  { id: 'n1', text: 'Tu reserva en La Pizzería fue confirmada.', read: false },
-  { id: 'n2', text: 'Nueva oferta: 20% de descuento en Sushi Place.', read: false },
-  { id: 'n3', text: 'Recuerda calificar tu última visita a Café Central.', read: true },
-];
 
 function safeNum(v) {
   const n = Number(v);
@@ -88,7 +83,6 @@ function candidateMatchesCodigo(candidateRaw, codigoRaw) {
   return false;
 }
 
-
 function useResponsive() {
   const { width, height } = useWindowDimensions();
 
@@ -106,7 +100,8 @@ function useResponsive() {
   const rf = (percent) => {
     const p = Number(percent);
     if (!p) return 0;
-    return Math.round((p / 100) * width);
+    // keep consistent with other files' rf behavior
+    return Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   };
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -115,55 +110,215 @@ function useResponsive() {
 }
 
 export default function DetailScreen({ navigation, route }) {
-  const { width, wp, hp, rf, clamp } = useResponsive(); 
+  const { width, wp, hp, rf, clamp } = useResponsive();
 
+  // Notifications state
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([]); // start empty (no sample notifications)
+  const pollIntervalRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const emailRef = useRef(null);
+  const MAX_STORE = 100;
+
+  // Existing state (kept intact)
   const [visit, setVisit] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [currentUserId, setCurrentUserId] = useState(null);
-  const [filteredItems, setFilteredItems] = useState(null); 
+  const [filteredItems, setFilteredItems] = useState(null);
   const [isSplitsLoading, setIsSplitsLoading] = useState(false);
   const [showFull, setShowFull] = useState(false);
 
-  const [fullItems, setFullItems] = useState(null); 
+  const [fullItems, setFullItems] = useState(null);
   const [isFullLoading, setIsFullLoading] = useState(false);
 
   const [userPropinaTotal, setUserPropinaTotal] = useState(0);
 
-  useEffect(() => {
-    setNotifications(sampleNotifications);
-    (async () => {
-      if (route?.params?.visit) {
-        setVisit(route.params.visit);
-        setLoading(false);
-        try { await tryFetchSplits(route.params.visit); } catch (e) { /* noop */ }
+  // --- notification helpers (storage, ids, unique id) ---
+  async function loadSeenIds(email) {
+    if (!email) return new Set();
+    try {
+      const raw = await AsyncStorage.getItem(`notifications_seen_${email}`);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) {
+      console.warn('loadSeenIds err', e);
+      return new Set();
+    }
+  }
+  async function saveSeenIds(email, setOfIds) {
+    if (!email) return;
+    try {
+      await AsyncStorage.setItem(`notifications_seen_${email}`, JSON.stringify(Array.from(setOfIds)));
+    } catch (e) { console.warn('saveSeenIds err', e); }
+  }
+  async function loadStoredNotifications(email) {
+    if (!email) return [];
+    try {
+      const raw = await AsyncStorage.getItem(`notifications_store_${email}`);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      console.warn('loadStoredNotifications err', e);
+      return [];
+    }
+  }
+  async function saveStoredNotifications(email, arr) {
+    if (!email) return;
+    try {
+      await AsyncStorage.setItem(`notifications_store_${email}`, JSON.stringify(arr.slice(0, MAX_STORE)));
+    } catch (e) { console.warn('saveStoredNotifications err', e); }
+  }
+
+  function paymentUniqueId(saleId, payment, idx) {
+    const part = payment?.payment_transaction_id ?? payment?.payment_id ?? payment?.fecha_creacion ?? payment?.fecha_pago ?? String(payment?.amount ?? '') + `_${idx}`;
+    return `${String(saleId)}_${String(part)}`;
+  }
+
+  function todayIso() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function formatMoney(n) {
+    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  }
+
+  function buildNotificationText({ branch, amount, date, saleId }) {
+    try {
+      const dt = new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
+    } catch (e) {
+      return `Pago confirmado — ${formatMoney(Number(amount || 0))}`;
+    }
+  }
+
+  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED / paid)
+  async function fetchTodayNotificationsOnce() {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      if (!email) return;
+      emailRef.current = email;
+
+      const base = API_BASE_URL.replace(/\/$/, '');
+      const day = todayIso();
+      const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
+
+      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) headers['Authorization'] = `Bearer ${API_AUTH_TOKEN}`;
+
+      let res = null;
+      try {
+        res = await fetch(url, { method: 'GET', headers });
+      } catch (err) {
+        // network / CORS: silencioso
         return;
       }
+      if (!res || !res.ok) return;
+      const json = await res.json();
+      const ventas = Array.isArray(json?.venta_id) ? json.venta_id : (Array.isArray(json?.ventas) ? json.ventas : []);
+      if (!Array.isArray(ventas) || ventas.length === 0) return;
 
-      const id = route?.params?.visitId ?? route?.params?.id ?? null;
-      if (id) {
-        try {
-          const raw = await AsyncStorage.getItem(VISITS_STORAGE_KEY);
-          const arr = parseVisitsRaw(raw);
-          const found = arr.find(a => {
-            try {
-              return String(a?.id) === String(id) || String(a?.sale_id) === String(id) || String(a?.saleId) === String(id);
-            } catch (e) { return false; }
-          });
-          if (found) {
-            setVisit(found);
-            try { await tryFetchSplits(found); } catch (e) { /* noop */ }
+      const seenSet = await loadSeenIds(email);
+      const stored = await loadStoredNotifications(email);
+      const storedById = new Map(stored.map(n => [n.id, n]));
+
+      let added = false;
+
+      for (const venta of ventas) {
+        const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
+        const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
+        // fallback: items_consumidos
+        if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
+          const items = venta.items_consumidos;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const state = String(item?.estado ?? '').toLowerCase();
+            if (state === 'paid' || state === 'confirmed') {
+              const unique = paymentUniqueId(saleId, item, i);
+              if (seenSet.has(unique) || storedById.has(unique)) continue;
+              const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
+              const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+              const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+              const notif = {
+                id: unique,
+                text: buildNotificationText({ branch, amount, date, saleId }),
+                amount: Number(amount || 0),
+                branch: branch || '',
+                date,
+                saleId,
+                read: false,
+              };
+              stored.unshift(notif);
+              storedById.set(unique, notif);
+              seenSet.add(unique);
+              added = true;
+            }
           }
-        } catch (e) {
-          console.warn('DetailScreen load visit err', e);
+          continue;
+        }
+
+        for (let i = 0; i < pagos.length; i++) {
+          const pago = pagos[i];
+          const status = String(pago?.status ?? pago?.estado ?? '').toLowerCase();
+          if (status !== 'confirmed' && status !== 'paid') continue;
+          const unique = paymentUniqueId(saleId, pago, i);
+          if (seenSet.has(unique) || storedById.has(unique)) continue;
+          const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
+          const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+          const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+          const notif = {
+            id: unique,
+            text: buildNotificationText({ branch, amount, date, saleId }),
+            amount: Number(amount || 0),
+            branch: branch || '',
+            date,
+            saleId,
+            read: false,
+          };
+          stored.unshift(notif);
+          storedById.set(unique, notif);
+          seenSet.add(unique);
+          added = true;
         }
       }
-      setLoading(false);
-    })();
-  }, [route]);
 
+      if (added) {
+        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        await saveSeenIds(email, seenSet);
+        await saveStoredNotifications(email, uniq);
+        if (isMountedRef.current) setNotifications(uniq);
+      } else {
+        if (isMountedRef.current) {
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          setNotifications(sorted);
+        }
+      }
+    } catch (err) {
+      console.warn('fetchTodayNotificationsOnce error', err);
+    }
+  }
+
+  // mark all read and persist
+  const markAllRead = async () => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markAllRead err', e);
+    }
+  };
+
+  // ---------- existing logic (kept intact) ----------
   function parseVisitsRaw(raw) {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -469,7 +624,6 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-
   const formatDateYMD = (d) => {
     if (!d) return '';
     const dt = (d instanceof Date) ? d : new Date(d);
@@ -636,8 +790,89 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
+  // ---------- initialization: visit + notifications polling ----------
+  useEffect(() => {
+    // existing initialization (visit from route or storage)
+    (async () => {
+      if (route?.params?.visit) {
+        setVisit(route.params.visit);
+        setLoading(false);
+        try { await tryFetchSplits(route.params.visit); } catch (e) { /* noop */ }
+        return;
+      }
+
+      const id = route?.params?.visitId ?? route?.params?.id ?? null;
+      if (id) {
+        try {
+          const raw = await AsyncStorage.getItem(VISITS_STORAGE_KEY);
+          const arr = parseVisitsRaw(raw);
+          const found = arr.find(a => {
+            try {
+              return String(a?.id) === String(id) || String(a?.sale_id) === String(id) || String(a?.saleId) === String(id);
+            } catch (e) { return false; }
+          });
+          if (found) {
+            setVisit(found);
+            try { await tryFetchSplits(found); } catch (e) { /* noop */ }
+          }
+        } catch (e) {
+          console.warn('DetailScreen load visit err', e);
+        }
+      }
+      setLoading(false);
+    })();
+
+    // notifications init
+    isMountedRef.current = true;
+    (async () => {
+      const e = await AsyncStorage.getItem('user_email');
+      emailRef.current = e ?? null;
+      if (emailRef.current) {
+        const stored = await loadStoredNotifications(emailRef.current);
+        if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          setNotifications(sorted);
+        }
+      }
+
+      await fetchTodayNotificationsOnce();
+      const pollSeconds = 12;
+      pollIntervalRef.current = setInterval(() => {
+        fetchTodayNotificationsOnce().catch(err => console.warn('poll fetch error', err));
+      }, pollSeconds * 1000);
+    })();
+
+    const focusUnsub = navigation?.addListener ? navigation.addListener('focus', () => {
+      fetchTodayNotificationsOnce().catch(()=>{});
+    }) : null;
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (focusUnsub && typeof focusUnsub === 'function') focusUnsub();
+    };
+  }, [route]);
+
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+
+  // ---------- small NotificationRow component (styled like Profile) ----------
+  function NotificationRow({ n }) {
+    const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return (
+      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+        <View style={styles.notLeft}>
+          <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
+          <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>
+          <Text style={styles.notDate}>{dateLabel}</Text>
+        </View>
+
+        <View style={styles.notRight}>
+          <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
+          <Text style={styles.notCurrency}>MXN</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
@@ -685,9 +920,9 @@ export default function DetailScreen({ navigation, route }) {
     0
   );
 
-  const taxableTotal = Math.max(0, total - visitPropina); 
-  const ivaTotal = +(taxableTotal / 1.16 * 0.16).toFixed(2); 
-  const subtotalTotal = +(taxableTotal - ivaTotal).toFixed(2); 
+  const taxableTotal = Math.max(0, total - visitPropina);
+  const ivaTotal = +(taxableTotal / 1.16 * 0.16).toFixed(2);
+  const subtotalTotal = +(taxableTotal - ivaTotal).toFixed(2);
 
   const computeFullTotals = () => {
     if (!Array.isArray(fullItems) || fullItems.length === 0) return { subtotal: 0, iva: 0, total: 0 };
@@ -752,23 +987,37 @@ export default function DetailScreen({ navigation, route }) {
     <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Notifications modal (estilos y layout como en Profile) */}
       <Modal visible={showNotifications} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalHeaderText, { fontSize: clamp(rf(3.6), 16, 20) }]}>Notificaciones</Text>
-              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+              <Text style={[styles.modalTitle, { fontSize: clamp(rf(3.6), 16, 20) }]}>Notificaciones</Text>
+              <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <Ionicons name="close" size={clamp(rf(3), 16, 22)} color="#333" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={[styles.modalList, { maxHeight: Math.round(hp(40)) }]}>
-              {notifications.map(n => (
-                <View key={n.id} style={[styles.notificationItem, n.read ? styles.read : styles.unread]}>
-                  <Text style={[styles.notificationText, { fontSize: clamp(rf(2.8), 12, 16) }]}>{n.text}</Text>
+
+            <View style={styles.modalListHeader}>
+              <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
+              <TouchableOpacity onPress={markAllRead}>
+                <Text style={styles.markAllText}>Marcar todo leído</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
+              {notifications && notifications.length > 0 ? (
+                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+              ) : (
+                <View style={styles.noNotifications}>
+                  <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
-            <Button title="Marcar todo como leído" onPress={markAllRead} color={'#0046ff'} />
+
+            <TouchableOpacity style={[styles.markReadButton, { margin: Math.round(Math.min(Math.max(wp(4), 10), 28)) }]} onPress={markAllRead}>
+              <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1001,16 +1250,51 @@ const styles = StyleSheet.create({
   bottomBtnText: { color: '#fff', textAlign: 'center', fontWeight: '700' },
 
   headerButton: { padding: 8 },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },
-  badgeText: { color: '#fff', fontSize: 10 },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 10, textAlign: 'center' },
+
+  // modal (estilos mejorados usados en ProfileScreen)
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
-  modalHeaderText: { fontSize: 18, color:'#000000' },
-  modalList: { paddingHorizontal: 16 },
-  notificationItem: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  notificationText: { color: '#333' },
-  unread: { backgroundColor: '#eef5ff' },
-  read: { backgroundColor: '#fff' },
-});
+  modalTitle: { fontWeight: '600', color: '#333' },
 
+  modalListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderColor: '#f1f1f1' },
+  modalListHeaderText: { fontWeight: '700', color: '#222' },
+  markAllText: { color: '#0066FF', fontWeight: '700' },
+
+  modalList: { paddingHorizontal: 12 },
+
+  // nuevo estilo para item de notificación más claro y ordenado
+  notificationItemLarge: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#eef3ff',
+    backgroundColor: '#fff'
+  },
+  unreadCard: { backgroundColor: '#f2f8ff', borderColor: '#d7e8ff' },
+  readCard: { backgroundColor: '#ffffff', borderColor: '#f0f0f0' },
+
+  notLeft: { flex: 1, paddingRight: 8 },
+  notRight: { alignItems: 'flex-end', justifyContent: 'center' },
+
+  notBranch: { fontWeight: '800', fontSize: 14, color: '#111', marginBottom: 2 },
+  notSale: { color: '#666', fontSize: 12, marginBottom: 2 },
+  notDate: { color: '#888', fontSize: 11 },
+
+  notAmount: { fontWeight: '900', fontSize: 16, color: '#0b58ff' },
+  notCurrency: { color: '#666', fontSize: 11 },
+
+  noNotifications: { padding: 28, alignItems: 'center', justifyContent: 'center' },
+  noNotificationsText: { color: '#666' },
+
+  markReadButton: { padding: 12, backgroundColor: '#0046ff', alignItems: 'center', margin: 16, borderRadius: 8 },
+  markReadText: { color: '#fff', fontWeight: '600' },
+
+});

@@ -21,6 +21,7 @@
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/native": "^7.1.6",
     "@react-navigation/native-stack": "^7.3.10",
+    "@stripe/stripe-react-native": "^0.57.2",
     "lottie-react-native": "^7.3.4",
     "react": "19.0.0",
     "react-native": "0.79.1",

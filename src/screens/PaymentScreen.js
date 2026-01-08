@@ -28,7 +28,7 @@ const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
-const API_TOKEN_CONST = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
+const API_TOKEN_CONST = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 const AS_KEYS = {
   USER_EMAIL: 'user_email',
@@ -333,6 +333,56 @@ export default function PaymentScreen() {
       return list.map((g) => String(g).toLowerCase()).includes(String(gateway).toLowerCase());
     } catch (err) {
       console.warn('checkGatewayAvailable error:', err);
+      return null;
+    }
+  };
+
+
+  const fetchStripeCredentials = async (restId, sucId) => {
+    try {
+      if (!restId || !sucId) return null;
+      const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
+      const url = `${hostBase}/api/restaurantes/${encodeURIComponent(restId)}/sucursales/${encodeURIComponent(sucId)}/payment-gateways`;
+      console.log('fetchStripeCredentials ->', url);
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        console.warn('fetchStripeCredentials -> http status', res.status);
+        return null;
+      }
+      const json = await res.json();
+      const arr = Array.isArray(json) ? json : (Array.isArray(json.gateways) ? json.gateways : (Array.isArray(json.available) ? json.available : null));
+      if (!arr || !Array.isArray(arr)) {
+        console.warn('fetchStripeCredentials -> unexpected response shape', json);
+        return null;
+      }
+      const found = arr.find((g) => String(g.gateway ?? '').toLowerCase() === 'stripe' && (g.activo === undefined || !!g.activo));
+      if (!found) {
+        console.log('fetchStripeCredentials -> stripe gateway not found in list');
+        return null;
+      }
+      const credentials = found.credentials ?? {};
+      const pub =
+        credentials.public_key ??
+        credentials.publicKey ??
+        credentials.publishable_key ??
+        credentials.publishableKey ??
+        credentials.public ??
+        '';
+      const env = found.environment ?? found.env ?? environment ?? 'sandbox';
+      if (!pub) {
+        console.warn('fetchStripeCredentials -> missing public_key', { found });
+        return null;
+      }
+      return { public_key: pub, environment: env, raw: found };
+    } catch (err) {
+      console.warn('fetchStripeCredentials error', err);
       return null;
     }
   };
@@ -666,10 +716,41 @@ export default function PaymentScreen() {
     return true;
   };
 
-  const onOptionPress = (opt) => {
+  const onOptionPress = async (opt) => {
     if (opt.key === 'stripe') {
       if (!validateBeforeStripe()) return;
-      startCheckoutAndPoll({ gateway: 'stripe' });
+
+      try {
+        setLoadingKey('stripe');
+        const creds = await fetchStripeCredentials(restaurante_id, sucursal_id);
+        setLoadingKey(null);
+        if (!creds || !creds.public_key) {
+          Alert.alert('Stripe no configurado', 'No se encontró la public_key de Stripe para esta sucursal. Verifica la configuración del restaurante.');
+          return;
+        }
+
+        navigation.navigate('Stripe', {
+          sucursal_id,
+          sale_id,
+          restaurante_id,
+          usuario_app_id: userEmail || userUsuarioAppId,
+          moneda,
+          environment,
+          displayAmount: totalWithTip || totalSinPropinaFinal,
+          monto_subtotal: totalSinPropinaFinal,
+          monto_propina: tipAmount,
+          items,
+          mesa_id,
+          userFullname,
+          userEmail,
+          stripe_public_key: creds.public_key, 
+        });
+      } catch (err) {
+        setLoadingKey(null);
+        console.warn('onOptionPress stripe - fetch creds error', err);
+        Alert.alert('Error', 'No fue posible obtener las credenciales de Stripe.');
+      }
+
       return;
     }
     if (opt.key === 'paypal') {
@@ -677,13 +758,53 @@ export default function PaymentScreen() {
       startCheckoutAndPoll({ gateway: 'paypal' });
       return;
     }
+    if (opt.key === 'openpay') {
+      if (!validateBeforeStripe()) return;
+
+      try {
+        setLoadingKey('openpay');
+        const creds = await fetchOpenpayCredentials(restaurante_id, sucursal_id);
+        setLoadingKey(null);
+
+        if (!creds) {
+          Alert.alert(
+            'OpenPay no configurado',
+            'No se encontraron credenciales válidas de OpenPay para esta sucursal. Verifica la configuración del restaurante.'
+          );
+          return;
+        }
+
+        navigation.navigate('Openpay', {
+          sucursal_id,
+          sale_id,
+          restaurante_id,
+          usuario_app_id: userEmail || userUsuarioAppId,
+          moneda,
+          environment: creds.environment ?? environment,
+          monto_subtotal: totalSinPropinaFinal,
+          monto_propina: tipAmount,
+          items,
+          mesa_id,
+          openpay_merchant_id: creds.merchant_id || '',
+          openpay_public_api_key: creds.public_key || '',
+          userFullname,
+          userEmail,
+        });
+        return;
+      } catch (err) {
+        setLoadingKey(null);
+        console.warn('onOptionPress(openpay) error', err);
+        Alert.alert('Error', 'No se pudieron obtener las credenciales de OpenPay. Revisa la configuración.');
+        return;
+      }
+    }
     Alert.alert(opt.label);
   };
 
   const paymentOptions = [
     { key: 'paypal', label: 'PayPal', icon: 'logo-paypal' },
     { key: 'stripe', label: 'Tarjeta de credito o debito', icon: 'card-outline' },
-    { key: 'cash', label: 'Apple Pay', icon: 'cash-outline' },
+    { key: 'openpay', label: 'OpenPay', icon: 'cash-outline' },
   ];
 
   const dateText = fecha_apertura ? new Date(fecha_apertura).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' }) : new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
@@ -699,6 +820,61 @@ export default function PaymentScreen() {
   const iconBoxSize = clamp(Math.round(width * 0.11), 40, 64);
   const titleFont = clamp(rf(2.8), 14, 20);
   const totalNumberFont = clamp(rf(6.0), 20, 40);
+
+  async function fetchOpenpayCredentials(restId, sucId) {
+    try {
+      if (!restId || !sucId) return null;
+      const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
+      const url = `${hostBase}/api/restaurantes/${encodeURIComponent(restId)}/sucursales/${encodeURIComponent(sucId)}/payment-gateways`;
+      console.log('fetchOpenpayCredentials ->', url);
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        console.warn('fetchOpenpayCredentials -> http status', res.status);
+        return null;
+      }
+      const json = await res.json();
+      const arr = Array.isArray(json) ? json : (Array.isArray(json.gateways) ? json.gateways : null);
+      if (!arr || !Array.isArray(arr)) {
+        console.warn('fetchOpenpayCredentials -> unexpected response shape', json);
+        return null;
+      }
+      const found = arr.find((g) => String(g.gateway ?? '').toLowerCase() === 'openpay' && (g.activo === undefined || !!g.activo));
+      if (!found) {
+        console.log('fetchOpenpayCredentials -> openpay gateway not found in list');
+        return null;
+      }
+      const credentials = found.credentials ?? {};
+      const merchant =
+        credentials.merchant_id ??
+        credentials.merchantId ??
+        credentials.openpay_merchant_id ??
+        credentials.merchant ??
+        '';
+      const publicKey =
+        credentials.public_key ??
+        credentials.publicKey ??
+        credentials.openpay_public_api_key ??
+        credentials.public_api_key ??
+        credentials.public ??
+        '';
+      const env = found.environment ?? found.env ?? found.environment ?? environment ?? 'sandbox';
+      if (!merchant || !publicKey) {
+        console.warn('fetchOpenpayCredentials -> missing merchant or publicKey', { merchant, publicKey, found });
+        return null;
+      }
+      return { merchant_id: merchant, public_key: publicKey, environment: env, raw: found };
+    } catch (err) {
+      console.warn('fetchOpenpayCredentials error', err);
+      return null;
+    }
+  }
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
@@ -739,9 +915,7 @@ export default function PaymentScreen() {
               </View>
               <View style={styles.rightThanks}>
                 <Text style={[styles.thanksText, { fontSize: clamp(rf(1.6), 12, 16) }]}>Detalle</Text>
-                <Text style={[styles.thanksSub, { fontSize: clamp(rf(1.4), 11, 14) }]}>
-                  {items.length} {items.length === 1 ? 'item' : 'items'}
-                </Text>
+                <Text style={[styles.thanksSub, { fontSize: clamp(rf(1.4), 11, 14) }]}>{items.length} {items.length === 1 ? 'item' : 'items'}</Text>
               </View>
             </View>
           </View>

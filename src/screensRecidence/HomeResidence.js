@@ -16,6 +16,7 @@ import Help from '../screens/Help';
 import TermsAndConditions from '../screens/TermsAndConditions';
 import ChangePassword from '../screens/ChangePassword';
 import PaymentMethodsResidence from './PaymentMethodsResidence';
+import MiembrosResidence from './MiembrosResidence';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -35,6 +36,7 @@ function QrResidenceStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
        <Stack.Screen name="QrResidence" component={QrResidence} />
+       <Stack.Screen name="Miembros" component={MiembrosResidence} />
  
     </Stack.Navigator>
   );

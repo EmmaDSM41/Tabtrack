@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Platform,
   useWindowDimensions,
+  PixelRatio,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -47,13 +48,7 @@ const CARD_SLIDE_HEIGHT = 100;
 const BLUE = '#0046ff';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
-
-const sampleNotifications = [
-  { id: 'n1', text: 'Tu reserva en La Pizzería fue confirmada.', read: false },
-  { id: 'n2', text: 'Nueva oferta: 20% de descuento en Sushi Place.', read: false },
-  { id: 'n3', text: 'Recuerda calificar tu última visita a Café Central.', read: true },
-];
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 function safeJsonParse(raw, fallback = null) {
   if (!raw) return fallback;
@@ -145,9 +140,16 @@ export default function VisitsScreen(props) {
   const [username, setUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState(null);
 
-  const [notifications, setNotifications] = useState(sampleNotifications);
+  // --- notifications ---
+  const [notifications, setNotifications] = useState([]); // inicia vacío -> se llenará desde storage/api
   const [showNotifications, setShowNotifications] = useState(false);
 
+  const pollIntervalRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const emailRef = useRef(null); // cache email for polling
+  const MAX_STORE = 100; // límite de notificaciones guardadas
+
+  // --- fechas / UI ---
   const [desdeDate, setDesdeDate] = useState(new Date()); 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -174,6 +176,188 @@ export default function VisitsScreen(props) {
     const dd = String(dt.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
   };
+
+  // ---------------- notification storage helpers ----------------
+  async function loadSeenIds(email) {
+    if (!email) return new Set();
+    try {
+      const raw = await AsyncStorage.getItem(`notifications_seen_${email}`);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) {
+      console.warn('loadSeenIds err', e);
+      return new Set();
+    }
+  }
+  async function saveSeenIds(email, setOfIds) {
+    if (!email) return;
+    try {
+      await AsyncStorage.setItem(`notifications_seen_${email}`, JSON.stringify(Array.from(setOfIds)));
+    } catch (e) { console.warn('saveSeenIds err', e); }
+  }
+  async function loadStoredNotifications(email) {
+    if (!email) return [];
+    try {
+      const raw = await AsyncStorage.getItem(`notifications_store_${email}`);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      console.warn('loadStoredNotifications err', e);
+      return [];
+    }
+  }
+  async function saveStoredNotifications(email, arr) {
+    if (!email) return;
+    try {
+      await AsyncStorage.setItem(`notifications_store_${email}`, JSON.stringify(arr.slice(0, MAX_STORE)));
+    } catch (e) { console.warn('saveStoredNotifications err', e); }
+  }
+
+  // unique id builder (sale + payment/date fallback)
+  function paymentUniqueId(saleId, payment, idx) {
+    const part = payment?.payment_transaction_id ?? payment?.payment_id ?? payment?.fecha_creacion ?? payment?.fecha_pago ?? String(payment?.amount ?? '') + `_${idx}`;
+    return `${String(saleId)}_${String(part)}`;
+  }
+
+  function todayIso() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function buildNotificationText({ branch, amount, date, saleId }) {
+    try {
+      const dt = new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
+    } catch (e) {
+      return `Pago confirmado — ${formatMoney(Number(amount || 0))}`;
+    }
+  }
+
+  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED / paid)
+  async function fetchTodayNotificationsOnce() {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      if (!email) return;
+      emailRef.current = email;
+
+      const base = API_BASE_URL.replace(/\/$/, '');
+      const day = todayIso();
+      const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
+
+      const headers = getAuthHeaders();
+      // fetch
+      let res = null;
+      try {
+        res = await fetch(url, { method: 'GET', headers });
+      } catch (err) {
+        // network / CORS: silencioso
+        return;
+      }
+      if (!res || !res.ok) return;
+      const json = await res.json();
+      const ventas = Array.isArray(json?.venta_id) ? json.venta_id : (Array.isArray(json?.ventas) ? json.ventas : []);
+      if (!Array.isArray(ventas) || ventas.length === 0) return;
+
+      const seenSet = await loadSeenIds(email);
+      const stored = await loadStoredNotifications(email);
+      const storedById = new Map(stored.map(n => [n.id, n]));
+
+      let added = false;
+
+      for (const venta of ventas) {
+        const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
+        const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
+        // fallback: items_consumidos
+        if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
+          const items = venta.items_consumidos;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const state = String(item?.estado ?? '').toLowerCase();
+            if (state === 'paid' || state === 'confirmed') {
+              const unique = paymentUniqueId(saleId, item, i);
+              if (seenSet.has(unique) || storedById.has(unique)) continue;
+              const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
+              const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+              const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+              const notif = {
+                id: unique,
+                text: buildNotificationText({ branch, amount, date, saleId }),
+                amount: Number(amount || 0),
+                branch: branch || '',
+                date,
+                saleId,
+                read: false,
+              };
+              stored.unshift(notif);
+              storedById.set(unique, notif);
+              seenSet.add(unique);
+              added = true;
+            }
+          }
+          continue;
+        }
+
+        for (let i = 0; i < pagos.length; i++) {
+          const pago = pagos[i];
+          const status = String(pago?.status ?? pago?.estado ?? '').toLowerCase();
+          if (status !== 'confirmed' && status !== 'paid') continue;
+          const unique = paymentUniqueId(saleId, pago, i);
+          if (seenSet.has(unique) || storedById.has(unique)) continue;
+          const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
+          const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+          const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+          const notif = {
+            id: unique,
+            text: buildNotificationText({ branch, amount, date, saleId }),
+            amount: Number(amount || 0),
+            branch: branch || '',
+            date,
+            saleId,
+            read: false,
+          };
+          stored.unshift(notif);
+          storedById.set(unique, notif);
+          seenSet.add(unique);
+          added = true;
+        }
+      }
+
+      if (added) {
+        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        await saveSeenIds(email, seenSet);
+        await saveStoredNotifications(email, uniq);
+        if (isMountedRef.current) setNotifications(uniq);
+      } else {
+        if (isMountedRef.current) {
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          setNotifications(sorted);
+        }
+      }
+    } catch (err) {
+      console.warn('fetchTodayNotificationsOnce error', err);
+    }
+  }
+
+  // mark all read and persist
+  const markAllRead = useCallback(async () => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markAllRead err', e);
+    }
+  }, [notifications]);
+
+  // ---------------- profile / visits logic (igual que antes) ----------------
 
   const loadProfileFromApi = useCallback(async () => {
     try {
@@ -491,6 +675,7 @@ export default function VisitsScreen(props) {
     }
   }, []);
 
+  // ---------------- lifecycle: load profile + notifications polling ----------------
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -498,10 +683,38 @@ export default function VisitsScreen(props) {
       fetchVisitsForDesde(desdeDate);
       setLoading(false);
     })();
+
+    // notifications: inicializar desde storage y arrancar polling
+    isMountedRef.current = true;
+    (async () => {
+      const e = await AsyncStorage.getItem('user_email');
+      emailRef.current = e ?? null;
+      if (emailRef.current) {
+        const stored = await loadStoredNotifications(emailRef.current);
+        if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          setNotifications(sorted);
+        }
+      }
+      await fetchTodayNotificationsOnce();
+      const pollSeconds = 12;
+      pollIntervalRef.current = setInterval(() => {
+        fetchTodayNotificationsOnce().catch(err => console.warn('poll fetch error', err));
+      }, pollSeconds * 1000);
+    })();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, []);
 
   useFocusEffect(useCallback(() => {
     fetchVisitsForDesde(desdeDate);
+    (async () => {
+      if (!emailRef.current) emailRef.current = await AsyncStorage.getItem('user_email');
+      await fetchTodayNotificationsOnce();
+    })();
   }, [desdeDate]));
 
   const onPressDesde = () => setShowDatePicker(true);
@@ -515,8 +728,30 @@ export default function VisitsScreen(props) {
     fetchVisitsForDesde(d);
   };
 
+  function formatMoney(n) {
+    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  }
+
+  // small component to render notification row (mejor layout)
+  function NotificationRow({ n }) {
+    const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return (
+      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+        <View style={styles.notLeft}>
+          <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
+          <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>
+          <Text style={styles.notDate}>{dateLabel}</Text>
+        </View>
+
+        <View style={styles.notRight}>
+          <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
+          <Text style={styles.notCurrency}>MXN</Text>
+        </View>
+      </View>
+    );
+  }
+
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
   if (loading) {
     return (
@@ -553,15 +788,26 @@ export default function VisitsScreen(props) {
                 <Ionicons name="close" size={clamp(rf(3), 16, 22)} color="#333" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={[styles.modalList, { maxHeight: Math.round(hp(40)) }]}>
-              {notifications.map(n => (
-                <View key={n.id} style={[styles.notificationItem, n.read ? styles.read : styles.unread]}>
-                  <Text style={[styles.notificationText, { fontSize: clamp(rf(2.8), 12, 16) }]}>{n.text}</Text>
+
+            <View style={styles.modalListHeader}>
+              <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
+              <TouchableOpacity onPress={markAllRead}>
+                <Text style={styles.markAllText}>Marcar todo leído</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
+              {notifications && notifications.length > 0 ? (
+                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+              ) : (
+                <View style={styles.noNotifications}>
+                  <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
-            <TouchableOpacity onPress={markAllRead} style={{ margin: 8, backgroundColor: BLUE, padding: 10, borderRadius: 6 }}>
-              <Text style={{ color: '#fff', textAlign: 'center' }}>Marcar todo como leído</Text>
+
+            <TouchableOpacity style={[styles.markReadButton, { margin: Math.round(Math.min(Math.max(wp(4), 10), 28)) }]} onPress={markAllRead}>
+              <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -649,7 +895,6 @@ function getInitials(name) {
 }
 
 function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, logoSize = 64, cardRadius = 12 }) {
-  const scrollRef = useRef(null);
   const [idx, setIdx] = useState(0);
   let lastVisitText = '—';
   try {
@@ -683,7 +928,7 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
       </View>
 
       <View style={[styles.cardRight, { paddingHorizontal: Math.max(8, Math.round(cardLeftWidth * 0.12)) }]}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={[styles.slider, { height: CARD_SLIDE_HEIGHT, width: slideWidth }]} onScroll={e => setIdx(Math.round(e.nativeEvent.contentOffset.x / (slideWidth || 1)))} scrollEventThrottle={16} ref={scrollRef}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={[styles.slider, { height: CARD_SLIDE_HEIGHT, width: slideWidth }]} onScroll={e => setIdx(Math.round(e.nativeEvent.contentOffset.x / (slideWidth || 1)))} scrollEventThrottle={16}>
           {bannerUri ? <Image key={'banner'} source={{ uri: bannerUri }} style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]} /> : <Image key={'fallback'} source={logoUri ? { uri: logoUri } : require('../../assets/images/restaurante.jpeg')} style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]} />}
         </ScrollView>
 
@@ -701,10 +946,6 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
             <Text style={styles.infoValue}>{(Number(item.total || 0)).toFixed(2)} {item.moneda ?? 'MXN'}</Text>
           </View>
           <View style={styles.divider} />
-          <View style={styles.infoRow}>
-{/*             <Text style={styles.infoLabel}>Calificación</Text>
-            <Text style={styles.infoValue}>—</Text> */}
-          </View>
         </View>
 
         <View style={styles.buttonRow}>
@@ -723,17 +964,53 @@ const styles = StyleSheet.create({
   title: { fontWeight: '600', color: '#0046ff',  marginLeft: 120,  },
   iconsRight: { flexDirection: 'row', alignItems: 'center' },
   tabLogo: { resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 10 },
+
+  // modal (estilos mejorados, iguales a ProfileScreen)
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', padding: 8 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 8, borderBottomWidth: 1, borderColor: '#eee' },
+  modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   modalHeaderText: { fontSize: 18, color: '#000000' },
-  modalList: { paddingHorizontal: 16 },
-  notificationItem: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  notificationText: { fontSize: 14, color: '#333' },
-  unread: { backgroundColor: '#eef5ff' },
-  read: { backgroundColor: '#fff' },
+
+  modalListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderColor: '#f1f1f1' },
+  modalListHeaderText: { fontWeight: '700', color: '#222' },
+  markAllText: { color: '#0066FF', fontWeight: '700' },
+
+  modalList: { paddingHorizontal: 12 },
+
+  // nuevo estilo para item de notificación más claro y ordenado
+  notificationItemLarge: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#eef3ff',
+    backgroundColor: '#fff'
+  },
+  unreadCard: { backgroundColor: '#f2f8ff', borderColor: '#d7e8ff' },
+  readCard: { backgroundColor: '#ffffff', borderColor: '#f0f0f0' },
+
+  notLeft: { flex: 1, paddingRight: 8 },
+  notRight: { alignItems: 'flex-end', justifyContent: 'center' },
+
+  notBranch: { fontWeight: '800', fontSize: 14, color: '#111', marginBottom: 2 },
+  notSale: { color: '#666', fontSize: 12, marginBottom: 2 },
+  notDate: { color: '#888', fontSize: 11 },
+
+  notAmount: { fontWeight: '900', fontSize: 16, color: '#0b58ff' },
+  notCurrency: { color: '#666', fontSize: 11 },
+
+  noNotifications: { padding: 28, alignItems: 'center', justifyContent: 'center' },
+  noNotificationsText: { color: '#666' },
+
+  markReadButton: { padding: 12, backgroundColor: '#0046ff', alignItems: 'center', margin: 16, borderRadius: 8 },
+  markReadText: { color: '#fff', fontWeight: '600' },
+
   headerGradient: { alignSelf: 'center', width: '100%', paddingTop: 6, paddingBottom: 14 },
   avatarWrapper: { position: 'absolute', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   avatar: { resizeMode: 'cover' },

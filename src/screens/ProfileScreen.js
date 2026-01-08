@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
   View,
@@ -19,23 +19,19 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { useFocusEffect } from '@react-navigation/native';
 
 const staticWidth = Dimensions.get('window').width;
-const sampleNotifications = [
-  { id: 'n1', text: 'Tu reserva en La Pizzer\u00eda fue confirmada.', read: false },
-  { id: 'n2', text: 'Nueva oferta: 20% de descuento en Sushi Place.', read: false },
-  { id: 'n3', text: 'Recuerda calificar tu \u00faltima visita a Caf\u00e9 Central.', read: true }
-];
 
 const API_URL = 'https://api.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDc4MTQ5MiwianRpIjoiYTFjMDUzMzUtYzI4Mi00NDY2LTllYzYtMjhlZTlkZjYxZDA2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjQ3ODE0OTIsImV4cCI6MTc2NzM3MzQ5Miwicm9sIjoiRWRpdG9yIn0.O8mIWbMyVGZ1bVv9y5KdohrTdWFtaehOFwdJhwV8RuU';
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 export default function ProfileScreen({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([]); // ahora inicia vacío
   const [username, setUsername] = useState('');
-  const [profileUrl, setProfileUrl] = useState(null);  
+  const [profileUrl, setProfileUrl] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showAvatarOptions, setShowAvatarOptions] = useState(false);
@@ -44,15 +40,14 @@ export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const wp = (p) => Math.round((p / 100) * width);
   const hp = (p) => Math.round((p / 100) * height);
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));  
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-   const topSafe = Math.round(insets.top || StatusBar.currentHeight || 0);
+  const topSafe = Math.round(insets.top || StatusBar.currentHeight || 0);
   const bottomSafe = Math.round(insets.bottom || 0);
 
   const headerHeight = clamp(hp(2), 34, 120);
   const iconSize = clamp(rf(2.6), 19, 32);
-  const logoSize = clamp(Math.round(width * 0.08), 28, 48);
   const avatarSize = clamp(Math.round(width * 0.18), 48, 120);
   const modalWidth = Math.min(Math.round(width * 0.92), 720);
   const logoutModalWidth = Math.min(Math.round(width * 0.86), 520);
@@ -62,9 +57,14 @@ export default function ProfileScreen({ navigation }) {
   const optionFont = clamp(rf(3.6), 14, 20);
   const smallText = clamp(rf(3.2), 12, 16);
 
-  useEffect(() => {
-    setNotifications(sampleNotifications);
+  // ---- Notification state & refs ----
+  const pollIntervalRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const emailRef = useRef(null); // cache email for polling
+  const MAX_STORE = 100; // límite de notificaciones guardadas
 
+  useEffect(() => {
+    // cargamos nombre y perfil (igual que antes)
     (async () => {
       try {
         let fullname = await AsyncStorage.getItem('user_fullname');
@@ -92,85 +92,235 @@ export default function ProfileScreen({ navigation }) {
 
       await loadProfileFromApi();
     })();
+
+    // mark mounted
+    isMountedRef.current = true;
+
+    (async () => {
+      // pre-carga de notificaciones guardadas del usuario (si existen) pero ahora no pre-populamos con ejemplos
+      const e = await AsyncStorage.getItem('user_email');
+      emailRef.current = e || null;
+      if (emailRef.current) {
+        const stored = await loadStoredNotifications(emailRef.current);
+        if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
+          // aseguramos orden descendente por fecha
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          setNotifications(sorted);
+        }
+      }
+
+      // initial fetch y polling
+      await fetchTodayNotificationsOnce();
+      const pollSeconds = 12;
+      pollIntervalRef.current = setInterval(() => {
+        fetchTodayNotificationsOnce().catch(err => console.warn('poll fetch error', err));
+      }, pollSeconds * 1000);
+    })();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, []);
 
+  // refresh cuando la pantalla toma foco
+  useFocusEffect(useCallback(() => {
+    (async () => {
+      if (!emailRef.current) {
+        emailRef.current = await AsyncStorage.getItem('user_email');
+      }
+      await fetchTodayNotificationsOnce();
+    })();
+    return () => {};
+  }, []));
+
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
 
-  const handleLogout = async () => {
+  // ---- Storage helpers ----
+  async function loadSeenIds(email) {
+    if (!email) return new Set();
     try {
-      setShowLogoutModal && setShowLogoutModal(false);
-
-      const uid = await AsyncStorage.getItem('user_usuario_app_id');
-      const email = await AsyncStorage.getItem('user_email');
-      const currentId = uid || email || null;
-
-      const preserveKeys = new Set();
-
-      const visitsBase = 'user_visits';
-      const pendBase = 'pending_visits';
-      if (currentId) {
-        preserveKeys.add(`${visitsBase}_${currentId}`);
-        preserveKeys.add(`${pendBase}_${currentId}`);
-        preserveKeys.add(`favorites_${currentId}`);
-        preserveKeys.add(`favorites_objs_${currentId}`);
-      }
-      preserveKeys.add(visitsBase);
-      preserveKeys.add(pendBase);
-
-      const branchesPrefix = 'branches_cache_';
-
-      const allKeys = await AsyncStorage.getAllKeys();
-
-      const sessionPrefixes = ['session_', 'sess_', 'tmp_'];
-      const tokenNames = ['auth_token', 'access_token', 'refresh_token', 'token', 'user_valid'];
-
-      const keysToRemove = allKeys.filter(k => {
-        if (preserveKeys.has(k)) return false;
-        if (k.startsWith(branchesPrefix)) return false;
-        if (tokenNames.includes(k)) return true;
-        for (const p of sessionPrefixes) {
-          if (k.startsWith(p)) return true;
-        }
-        return false;
-      });
-
-      if (keysToRemove.length > 0) {
-        await AsyncStorage.multiRemove(keysToRemove);
-      }
-
-      try {
-        await AsyncStorage.multiRemove([
-          'user_usuario_app_id',
-          'user_email',
-          'user_valid',
-          'user_fullname',
-          'user_profile_url'
-        ]);
-      } catch (e) {
-        console.warn('Error removing persistent auth keys on logout', e);
-      }
-
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }]
-      });
-
-      Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
-    } catch (err) {
-      console.warn('Error cerrando sesión:', err);
-      Toast.show('No se pudo cerrar sesión', { duration: Toast.durations.SHORT });
-      try {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }]
-        });
-      } catch (_) { /* noop */ }
+      const raw = await AsyncStorage.getItem(`notifications_seen_${email}`);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) {
+      console.warn('loadSeenIds err', e);
+      return new Set();
     }
-  };
+  }
+  async function saveSeenIds(email, setOfIds) {
+    if (!email) return;
+    try {
+      await AsyncStorage.setItem(`notifications_seen_${email}`, JSON.stringify(Array.from(setOfIds)));
+    } catch (e) { console.warn('saveSeenIds err', e); }
+  }
+  async function loadStoredNotifications(email) {
+    if (!email) return [];
+    try {
+      const raw = await AsyncStorage.getItem(`notifications_store_${email}`);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      console.warn('loadStoredNotifications err', e);
+      return [];
+    }
+  }
+  async function saveStoredNotifications(email, arr) {
+    if (!email) return;
+    try {
+      // cortamos al máximo guardado
+      await AsyncStorage.setItem(`notifications_store_${email}`, JSON.stringify(arr.slice(0, MAX_STORE)));
+    } catch (e) { console.warn('saveStoredNotifications err', e); }
+  }
 
+  // build unique id for a payment (sale + transaction/date fallback)
+  function paymentUniqueId(saleId, payment, idx) {
+    const part = payment?.payment_transaction_id ?? payment?.payment_id ?? payment?.fecha_creacion ?? payment?.fecha_pago ?? String(payment?.amount ?? '') + `_${idx}`;
+    return `${String(saleId)}_${String(part)}`;
+  }
+
+  function todayIso() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function buildNotificationText({ branch, amount, date, saleId }) {
+    const dt = new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
+  }
+
+  // main fetcher: consulta la API para el día actual y agrega notificaciones nuevas (pagos CONFIRMED)
+  async function fetchTodayNotificationsOnce() {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      if (!email) return;
+      emailRef.current = email;
+
+      const base = API_URL.replace(/\/$/, '');
+      const day = todayIso();
+      const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
+
+      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (TOKEN && TOKEN.trim()) headers['Authorization'] = `Bearer ${TOKEN}`;
+
+      let res = null;
+      try {
+        res = await fetch(url, { method: 'GET', headers });
+      } catch (err) {
+        // posible network/CORS, no hacer ruido
+        return;
+      }
+      if (!res || !res.ok) {
+        return;
+      }
+      const json = await res.json();
+      const ventas = Array.isArray(json?.venta_id) ? json.venta_id : (Array.isArray(json?.ventas) ? json.ventas : []);
+      if (!Array.isArray(ventas) || ventas.length === 0) {
+        return;
+      }
+
+      const seenSet = await loadSeenIds(email);
+      const stored = await loadStoredNotifications(email);
+      const storedById = new Map(stored.map(n => [n.id, n]));
+
+      let added = false;
+
+      for (const venta of ventas) {
+        const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
+        const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
+        // fallback: items_consumidos
+        if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
+          const items = venta.items_consumidos;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const state = String(item?.estado ?? '').toLowerCase();
+            if (state === 'paid' || state === 'confirmed') {
+              const unique = paymentUniqueId(saleId, item, i);
+              if (seenSet.has(unique) || storedById.has(unique)) continue;
+              const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
+              const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+              const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+              const notif = {
+                id: unique,
+                text: buildNotificationText({ branch, amount, date, saleId }),
+                amount: Number(amount || 0),
+                branch: branch || '',
+                date,
+                saleId,
+                read: false,
+              };
+              stored.unshift(notif);
+              storedById.set(unique, notif);
+              seenSet.add(unique);
+              added = true;
+            }
+          }
+          continue;
+        }
+
+        for (let i = 0; i < pagos.length; i++) {
+          const pago = pagos[i];
+          const status = String(pago?.status ?? pago?.estado ?? '').toLowerCase();
+          if (status !== 'confirmed' && status !== 'paid') continue;
+          const unique = paymentUniqueId(saleId, pago, i);
+          if (seenSet.has(unique) || storedById.has(unique)) continue;
+          const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
+          const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+          const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+          const notif = {
+            id: unique,
+            text: buildNotificationText({ branch, amount, date, saleId }),
+            amount: Number(amount || 0),
+            branch: branch || '',
+            date,
+            saleId,
+            read: false,
+          };
+          stored.unshift(notif);
+          storedById.set(unique, notif);
+          seenSet.add(unique);
+          added = true;
+        }
+      }
+
+      if (added) {
+        // mantén el tamaño y ordena por fecha descendente
+        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        await saveSeenIds(email, seenSet);
+        await saveStoredNotifications(email, uniq);
+        if (isMountedRef.current) setNotifications(uniq);
+      } else {
+        if (isMountedRef.current) {
+          // asegurar orden
+          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          setNotifications(sorted);
+        }
+      }
+    } catch (err) {
+      console.warn('fetchTodayNotificationsOnce error', err);
+    }
+  }
+
+  // mark all read and persist
+  const markAllRead = useCallback(async () => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markAllRead err', e);
+    }
+  }, [notifications]);
+
+  // ---- existing profile functions (left intact) ----
 
   const getAuthHeaders = (extra = {}) => {
     const base = { 'Content-Type': 'application/json', ...extra };
@@ -218,7 +368,6 @@ export default function ProfileScreen({ navigation }) {
       setProfileLoading(false);
     }
   };
-
 
   const onSelectImage = async () => {
     try {
@@ -398,6 +547,101 @@ export default function ProfileScreen({ navigation }) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
+  function formatMoney(n) {
+    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  }
+
+  const handleLogout = async () => {
+    try {
+      setShowLogoutModal && setShowLogoutModal(false);
+
+      const uid = await AsyncStorage.getItem('user_usuario_app_id');
+      const email = await AsyncStorage.getItem('user_email');
+      const currentId = uid || email || null;
+
+      const preserveKeys = new Set();
+
+      const visitsBase = 'user_visits';
+      const pendBase = 'pending_visits';
+      if (currentId) {
+        preserveKeys.add(`${visitsBase}_${currentId}`);
+        preserveKeys.add(`${pendBase}_${currentId}`);
+        preserveKeys.add(`favorites_${currentId}`);
+        preserveKeys.add(`favorites_objs_${currentId}`);
+      }
+      preserveKeys.add(visitsBase);
+      preserveKeys.add(pendBase);
+
+      const branchesPrefix = 'branches_cache_';
+
+      const allKeys = await AsyncStorage.getAllKeys();
+
+      const sessionPrefixes = ['session_', 'sess_', 'tmp_'];
+      const tokenNames = ['auth_token', 'access_token', 'refresh_token', 'token', 'user_valid'];
+
+      const keysToRemove = allKeys.filter(k => {
+        if (preserveKeys.has(k)) return false;
+        if (k.startsWith(branchesPrefix)) return false;
+        if (tokenNames.includes(k)) return true;
+        for (const p of sessionPrefixes) {
+          if (k.startsWith(p)) return true;
+        }
+        return false;
+      });
+
+      if (keysToRemove.length > 0) {
+        await AsyncStorage.multiRemove(keysToRemove);
+      }
+
+      try {
+        await AsyncStorage.multiRemove([
+          'user_usuario_app_id',
+          'user_email',
+          'user_valid',
+          'user_fullname',
+          'user_profile_url'
+        ]);
+      } catch (e) {
+        console.warn('Error removing persistent auth keys on logout', e);
+      }
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }]
+      });
+
+      Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
+    } catch (err) {
+      console.warn('Error cerrando sesión:', err);
+      Toast.show('No se pudo cerrar sesión', { duration: Toast.durations.SHORT });
+      try {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }]
+        });
+      } catch (_) { /* noop */ }
+    }
+  };
+
+  // Render de cada notificación con mejor layout
+  function NotificationRow({ n }) {
+    const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return (
+      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+        <View style={styles.notLeft}>
+          <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
+          <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>
+          <Text style={styles.notDate}>{dateLabel}</Text>
+        </View>
+
+        <View style={styles.notRight}>
+          <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
+          <Text style={styles.notCurrency}>MXN</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe, paddingBottom: Math.max(12, bottomSafe) }]}>
       {/* Modal de notificaciones */}
@@ -410,13 +654,25 @@ export default function ProfileScreen({ navigation }) {
                 <Ionicons name="close" size={iconSize} color="#333" />
               </TouchableOpacity>
             </View>
+
+            <View style={styles.modalListHeader}>
+              <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
+              <TouchableOpacity onPress={markAllRead}>
+                <Text style={styles.markAllText}>Marcar todo leído</Text>
+              </TouchableOpacity>
+            </View>
+
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
-              {notifications.map(n => (
-                <View key={n.id} style={[styles.notificationItem, n.read ? styles.read : styles.unread]}>
-                  <Text style={[styles.notificationText, { fontSize: clamp(rf(3.6), 13, 16) }]}>{n.text}</Text>
+              {notifications && notifications.length > 0 ? (
+                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+              ) : (
+                <View style={styles.noNotifications}>
+                  <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
+
+            {/* botón para marcar todo (también al pie) */}
             <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
               <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
             </TouchableOpacity>
@@ -612,19 +868,52 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   logoFull: { width: 32, height: 32, marginRight: 8, resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },
-  badgeText: { color: '#fff', fontSize: 10 },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 10, textAlign: 'center' },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   modalTitle: { fontWeight: '600', color: '#333' },
-  modalList: { paddingHorizontal: 16 },
-  notificationItem: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  notificationText: { color: '#333' },
-  unread: { backgroundColor: '#eef5ff' },
-  read: { backgroundColor: '#fff' },
+
+  modalListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderColor: '#f1f1f1' },
+  modalListHeaderText: { fontWeight: '700', color: '#222' },
+  markAllText: { color: '#0066FF', fontWeight: '700' },
+
+  modalList: { paddingHorizontal: 12 },
+
+  // nuevo estilo para item de notificación más claro y ordenado
+  notificationItemLarge: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#eef3ff',
+    backgroundColor: '#fff'
+  },
+  unreadCard: { backgroundColor: '#f2f8ff', borderColor: '#d7e8ff' },
+  readCard: { backgroundColor: '#ffffff', borderColor: '#f0f0f0' },
+
+  notLeft: { flex: 1, paddingRight: 8 },
+  notRight: { alignItems: 'flex-end', justifyContent: 'center' },
+
+  notBranch: { fontWeight: '800', fontSize: 14, color: '#111', marginBottom: 2 },
+  notSale: { color: '#666', fontSize: 12, marginBottom: 2 },
+  notDate: { color: '#888', fontSize: 11 },
+
+  notAmount: { fontWeight: '900', fontSize: 16, color: '#0b58ff' },
+  notCurrency: { color: '#666', fontSize: 11 },
+
+  noNotifications: { padding: 28, alignItems: 'center', justifyContent: 'center' },
+  noNotificationsText: { color: '#666' },
+
   markReadButton: { padding: 12, backgroundColor: '#0046ff', alignItems: 'center', margin: 16, borderRadius: 8 },
   markReadText: { color: '#fff', fontWeight: '600' },
+
   logoutModalBox: { backgroundColor: '#fff', borderRadius: 12, alignItems: 'center' },
   logoutTitle: { fontWeight: '700', color: '#0046ff', marginBottom: 12 },
   logoutMessage: { color: '#333', textAlign: 'center', marginBottom: 20 },
@@ -639,7 +928,7 @@ const styles = StyleSheet.create({
   avatar: { width: 60, height: 60, borderRadius: 30, marginRight: 16 },
   avatarPlaceholder: { backgroundColor: '#f3f6ff', alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
-  // edit avatar button (pencil)
+
   editAvatarBtn: {
     position: 'absolute',
     backgroundColor: '#6C5CE7',
@@ -661,7 +950,6 @@ const styles = StyleSheet.create({
   termsButton: { alignSelf: 'center', backgroundColor: '#0046ff', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, marginTop: 24 },
   termsText: { color: '#fff', fontWeight: '600' },
 
-  // avatar modal styles
   avatarModal: {
     backgroundColor: '#fff',
     borderRadius: 12,

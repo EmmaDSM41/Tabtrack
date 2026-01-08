@@ -33,6 +33,8 @@ import Propina from './Propina';
 import ResumenPago from './ResumenPago';
 import OneExhibicion from './OneExhibicion';
 import PaymentScreen from './PaymentScreen';
+import OpenPay from './OpenPay';
+import Stripe from './Stripe';
   
 
 const Tab = createBottomTabNavigator();
@@ -51,6 +53,8 @@ function QRStackScreen() {
       <Stack.Screen name="ResumenPago" component={ResumenPago} />
       <Stack.Screen name="OneExhibicion" component={OneExhibicion} />
       <Stack.Screen name="Payment" component={PaymentScreen} />
+      <Stack.Screen name="Openpay" component={OpenPay} />
+      <Stack.Screen name="Stripe" component={Stripe} />
     </Stack.Navigator>
   );
 }

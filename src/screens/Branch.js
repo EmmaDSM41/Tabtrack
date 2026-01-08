@@ -1,4 +1,3 @@
-// Branch.js
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
@@ -50,10 +49,9 @@ export default function Branch() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  // Responsive: window dims & insets
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const base = 375; // diseño base
+  const base = 375; 
   const s = (value) => Math.round((value * width) / base);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 

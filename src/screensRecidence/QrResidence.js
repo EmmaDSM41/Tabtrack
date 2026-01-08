@@ -621,7 +621,7 @@ export default function QrResidence({ navigation }) {
 
           <View style={{ height: 12 }} />
 
-          <TouchableOpacity activeOpacity={1} onPress={onStatusPress} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}>
+          <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('Miembros')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}>
             <View style={styles.actionContent}>
               <Ionicons name="person-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />
               <Text style={[styles.primaryActionText, { fontSize: clamp(rf(15), 13, 17) }]}>Miembros</Text>
