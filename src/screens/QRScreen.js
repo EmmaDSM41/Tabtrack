@@ -26,6 +26,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
  
 const API_BASE_FALLBACK = 'https://api.tab-track.com';
@@ -477,7 +478,11 @@ export default function QRScreen({ navigation }) {
       {/* Header */}
       <View style={[styles.header, { height: headerHeight }]}>
         <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
-          <Ionicons name="headset-outline" size={rf(22)} color="#0046ff" />
+          <MaterialCommunityIcons
+            name="face-agent"
+            size={rf(22)}
+            color="#0046ff"
+          />
         </TouchableOpacity>
 
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>

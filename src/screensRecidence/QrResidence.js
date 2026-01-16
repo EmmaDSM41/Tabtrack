@@ -26,6 +26,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+
 
 const API_BASE_FALLBACK = 'https://127.0.0.1';
 const API_TOKEN_FALLBACK = ' ';
@@ -253,6 +255,7 @@ export default function QrResidence({ navigation }) {
   const gradientCardLeftRight = Math.round(Math.max(12, width * 0.06));
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
 
+  const gradientSeparation = 8; 
 
   const holeGap = clamp(rf(45), 45, 90);       
   const buttonsGap = clamp(rf(40), 56, 140);  
@@ -475,7 +478,11 @@ export default function QrResidence({ navigation }) {
 
       <View style={[styles.header, { height: headerHeight }]}>
         <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
-          <Ionicons name="headset-outline" size={rf(22)} color="#0046ff" />
+          <MaterialCommunityIcons
+            name="face-agent"
+            size={rf(22)}
+            color="#0046ff"
+          />
         </TouchableOpacity>
 
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>
@@ -490,7 +497,7 @@ export default function QrResidence({ navigation }) {
         pointerEvents="box-none"
         style={{
           position: 'absolute',
-          top: insets.top + headerHeight, 
+          top: insets.top + headerHeight + gradientSeparation, 
           left: gradientCardLeftRight,
           right: gradientCardLeftRight,
           zIndex: 60,

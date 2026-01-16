@@ -23,6 +23,8 @@ import SplashResidence from './src/screensRecidence/SplashResidence';
 import SendEmail from './src/screens/SendEmail';
 import ResetPassword from './src/screens/ResetPassword';
 import OpenPay from './src/screens/OpenPay';
+import RecentAccounts from './src/screens/RecentAccount';
+import QuickLogin from './src/screens/QuickLogin';
 
 const Stack = createNativeStackNavigator();
 
@@ -42,6 +44,9 @@ export default function App() {
         <Stack.Screen name="Verificacion" component={VerificationScreen} />
         <Stack.Screen name="SendEmail" component={SendEmail} />
         <Stack.Screen name="ResetPassword" component={ResetPassword} />
+        <Stack.Screen name="Recent" component={RecentAccounts} />
+        <Stack.Screen name="QuickLogin" component={QuickLogin} />
+
        
         {/* Auth screens Recidence */}
         <Stack.Screen name="LoginResidence" component={ResidenceLoginScreen} />

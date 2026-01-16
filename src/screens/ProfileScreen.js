@@ -20,6 +20,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
+
 
 const staticWidth = Dimensions.get('window').width;
 
@@ -542,6 +544,23 @@ export default function ProfileScreen({ navigation }) {
       const email = await AsyncStorage.getItem('user_email');
       const currentId = uid || email || null;
 
+      // --- Guardar cuenta reciente (email + foto) ANTES de limpiar el storage ---
+      try {
+        if (email) {
+          const profileCached = await AsyncStorage.getItem('user_profile_url');
+          const raw = await AsyncStorage.getItem('recent_accounts_v1');
+          let arr = raw ? JSON.parse(raw) : [];
+          // dedupe
+          arr = Array.isArray(arr) ? arr.filter(a => String(a.email).toLowerCase() !== String(email).toLowerCase()) : [];
+          arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
+          if (!Array.isArray(arr)) arr = [];
+          if (arr.length > 6) arr = arr.slice(0, 6);
+          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch(e) { console.warn('save recent_accounts failed', e); }
+        }
+      } catch (e) {
+        console.warn('Guardar recent account failed (pre-clean)', e);
+      }
+
       const preserveKeys = new Set();
 
       const visitsBase = 'user_visits';
@@ -554,6 +573,8 @@ export default function ProfileScreen({ navigation }) {
       }
       preserveKeys.add(visitsBase);
       preserveKeys.add(pendBase);
+      // keep recent accounts safe from mass-delete
+      preserveKeys.add('recent_accounts_v1');
 
       const branchesPrefix = 'branches_cache_';
 
@@ -588,10 +609,21 @@ export default function ProfileScreen({ navigation }) {
         console.warn('Error removing persistent auth keys on logout', e);
       }
 
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }]
-      });
+      // navegar a RecentAccounts (pantalla con cuentas guardadas). Si no existe, fallback a Login.
+      try {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Recent' }]
+        });
+      } catch (e) {
+        console.warn('navigate RecentAccounts failed, falling back to Login', e);
+        try {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }]
+          });
+        } catch (_) { /* noop */ }
+      }
 
       Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
     } catch (err) {
@@ -806,23 +838,43 @@ export default function ProfileScreen({ navigation }) {
 
 
         <TouchableOpacity
-          style={[styles.termsButton, {
-            marginTop: Math.max(12, hp(1.7)),
-            paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
-            paddingVertical: clamp(10, 8, 14),
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }]}
-          onPress={() => navigation.navigate('LoginResidence')}
+          style={[
+            styles.termsButton,
+            {
+              position: 'relative',
+              overflow: 'hidden',
+              marginTop: Math.max(12, hp(1.7)),
+              paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
+              paddingVertical: clamp(10, 8, 14),
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+          ]}
+          onPress={() => navigation.navigate('CodeResidence')}
           hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
         >
+          <LinearGradient
+            colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+
           <Image
             source={require('../../assets/images/logo2.png')}
-            style={{ width: Math.round(clamp(rf(3.8), 18, 28)), height: Math.round(clamp(rf(3.8), 18, 28)), marginRight: 10, resizeMode: 'contain' }}
+            style={{
+              width: Math.round(clamp(rf(3.8), 18, 28)),
+              height: Math.round(clamp(rf(3.8), 18, 28)),
+              marginRight: 10,
+              resizeMode: 'contain',
+            }}
           />
-          <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack Residence</Text>
+          <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>
+            Tabtrack Residence
+          </Text>
         </TouchableOpacity>
+
 
       </ScrollView>
     </SafeAreaView>

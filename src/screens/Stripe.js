@@ -125,10 +125,34 @@ export default function StripePay() {
   const buildItemsPagados = () => {
     return Array.isArray(items)
       ? items.map(it => ({
-          codigo_item: String(it.codigo_item ?? it.codigo ?? it.code ?? it.id ?? ''),
-          nombre_item: it.name ?? it.nombre ?? it.nombre_item ?? '',
-          cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
-          precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
+          codigo_item: String(
+            it.codigo_item ??
+            it.codigo ??
+            it.code ??
+            it.original_line_id ??
+            it.id ??
+            ''
+          ),
+          nombre_item:
+            it.nombre_item ??
+            it.nombre ??
+            it.name ??
+            it.title ??
+            '',
+          cantidad: Number(
+            it.cantidad ??
+            it.qty ??
+            it.quantity ??
+            1
+          ) || 1,
+          precio_unitario: Number(
+            it.precio_unitario ??   
+            it.precio ??           
+            it.precio_item ??       
+            it.unitPrice ??        
+            it.price ??             
+            0
+          ) || 0,
         }))
       : [];
   };
@@ -292,11 +316,12 @@ export default function StripePay() {
             setProcessing(false);
 
             if (pollResult.ok) {
-              setSuccessModalVisible(true);
-              setTimeout(async () => {
-                setSuccessModalVisible(false);
-                try { navigation.navigate('QRMain'); } catch (e) { console.warn('navigate QRMain failed', e); }
-              }, 1200);
+              try {
+                navigation.navigate('ConfirmacionPago', {
+                  amount: displayAmountFinal,
+                  date: new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' }),
+                });
+              } catch (e) { console.warn('navigate PaymentSuccessScreen failed', e); }
               return;
             } else {
               Alert.alert('Pendiente', 'Pago confirmado por Stripe pero el servidor aún no refleja la venta como pagada.');

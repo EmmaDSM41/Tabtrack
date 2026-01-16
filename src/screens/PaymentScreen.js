@@ -744,14 +744,12 @@ export default function PaymentScreen() {
       const arr = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
       if (!arr || !Array.isArray(arr)) return { creditId: null, debitId: null, raw: [] };
 
-      // Palabras clave estrictas (prioritarias)
       const strictCreditKeywords = ['credito', 'crédito', 'credit', 'visa', 'mastercard', 'amex', 'american express', 'tarjeta crédito', 'tarj crédito', 'tarj. crédito'];
       const strictDebitKeywords = ['debito', 'débito', 'debit', 'deb', 'déb', 'debit card', 'debitcard', 'tarjeta débito', 'tarj débito', 'tarj. débito'];
 
       let creditId = null;
       let debitId = null;
 
-      // Primera pasada: buscar coincidencias específicas (más fiables)
       for (const m of arr) {
         const nameRaw = String(m.nombre ?? m.name ?? '').toLowerCase();
         const candidate = (m.id !== undefined && m.id !== null) ? m.id : (m.external_id ?? null);
@@ -776,7 +774,6 @@ export default function PaymentScreen() {
         if (creditId && debitId) break;
       }
 
-      // Segunda pasada (fallback): si aun falta alguno, intentar por tokens genéricos
       if (!creditId || !debitId) {
         for (const m of arr) {
           const nameRaw = String(m.nombre ?? m.name ?? '').toLowerCase();
@@ -809,7 +806,23 @@ export default function PaymentScreen() {
     }
   };
 
-  // Acción al presionar opción — ahora abre modal de selección de tarjeta si corresponde
+  const isEqualSplitOrigin = params.groupPeople !== undefined && params.groupPeople !== null;
+  const itemsForGateway = isEqualSplitOrigin
+    ? [
+        {
+          codigo_item: String(1),
+          nombre_item: 'pago por partes iguales',
+          cantidad: 1,
+          precio_unitario: Number(totalSinPropinaFinal || 0),
+        },
+      ]
+    : (Array.isArray(items ? items : []) ? items : []).map(it => ({
+        codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
+        nombre_item: it.name ?? it.nombre ?? '',
+        cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
+        precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
+      }));
+
   const onOptionPress = async (opt) => {
     if (opt.key === 'stripe') {
       if (!validateBeforeStripe()) return;
@@ -859,7 +872,7 @@ export default function PaymentScreen() {
           displayAmount: totalWithTip || totalSinPropinaFinal,
           monto_subtotal: totalSinPropinaFinal,
           monto_propina: tipAmount,
-          items,
+          items: itemsForGateway,
           mesa_id,
           userFullname,
           userEmail,
@@ -945,7 +958,7 @@ export default function PaymentScreen() {
           environment: creds.environment ?? environment,
           monto_subtotal: totalSinPropinaFinal,
           monto_propina: tipAmount,
-          items,
+          items: itemsForGateway,
           mesa_id,
           openpay_merchant_id: creds.merchant_id || '',
           openpay_public_api_key: creds.public_key || '',
@@ -1074,7 +1087,7 @@ export default function PaymentScreen() {
           displayAmount: totalWithTip || totalSinPropinaFinal,
           monto_subtotal: totalSinPropinaFinal,
           monto_propina: tipAmount,
-          items,
+          items: itemsForGateway,
           mesa_id,
           userFullname,
           userEmail,
@@ -1115,7 +1128,7 @@ export default function PaymentScreen() {
           environment: creds.environment ?? environment,
           monto_subtotal: totalSinPropinaFinal,
           monto_propina: tipAmount,
-          items,
+          items: itemsForGateway,
           mesa_id,
           openpay_merchant_id: creds.merchant_id || '',
           openpay_public_api_key: creds.public_key || '',

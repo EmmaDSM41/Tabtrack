@@ -195,7 +195,7 @@ export default function WelcomeScreen() {
             <View style={dynamicStyles.footerBlock}>
               <TouchableOpacity
                 style={dynamicStyles.buttonWrapper}
-                onPress={() => navigation.navigate('Login')}
+                onPress={() => navigation.navigate('Recent')}
                 activeOpacity={0.85}
               >
                 <LinearGradient

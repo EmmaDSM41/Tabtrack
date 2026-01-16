@@ -19,6 +19,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
+import LinearGradient from 'react-native-linear-gradient';
+
 
 const staticWidth = Dimensions.get('window').width;
 const sampleNotifications = [
@@ -569,23 +571,42 @@ export default function ProfileResidence({ navigation }) {
 
 
         <TouchableOpacity
-          style={[styles.termsButton, {
-            marginTop: Math.max(12, hp(1.7)),
-            paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
-            paddingVertical: clamp(10, 8, 14),
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }]}
+          style={[
+            styles.termsButton,
+            {
+              position: 'relative',
+              overflow: 'hidden',
+
+              marginTop: Math.max(12, hp(1.7)),
+              paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
+              paddingVertical: clamp(10, 8, 14),
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }
+          ]}
           onPress={() => navigation.navigate('Home')}
           hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
         >
+          <LinearGradient
+            colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+
           <Image
             source={require('../../assets/images/logo2.png')}
-            style={{ width: Math.round(clamp(rf(3.8), 18, 28)), height: Math.round(clamp(rf(3.8), 18, 28)), marginRight: 10, resizeMode: 'contain' }}
+            style={{
+              width: Math.round(clamp(rf(3.8), 18, 28)),
+              height: Math.round(clamp(rf(3.8), 18, 28)),
+              marginRight: 10,
+              resizeMode: 'contain'
+            }}
           />
           <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack</Text>
         </TouchableOpacity>
+
 
       </ScrollView>
     </SafeAreaView>

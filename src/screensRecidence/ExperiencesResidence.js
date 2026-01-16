@@ -105,7 +105,10 @@ const SAMPLE_PAYMENTS = [
         initials: 'AR',
         timestamp: '29 ago · 11:00',
         amount: 75,
-        items: [{ id: 'i7', label: 'Café x1', price: 25 }, { id: 'i8', label: 'Pan x2', price: 50 }],
+        items: [
+          { id: 'i7', label: 'Café x1', price: 25 },
+          { id: 'i8', label: 'Pan x2', price: 50 },
+        ],
       },
     ],
   },
@@ -139,7 +142,9 @@ export default function ExperiencesScreen() {
 
   const [sheetVisible, setSheetVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
-  const animY = useRef(new Animated.Value(0)).current; 
+  const animY = useRef(new Animated.Value(0)).current;
+
+  const [expandedTxIds, setExpandedTxIds] = useState([]);
 
   useEffect(() => {
     animY.setValue(0);
@@ -147,6 +152,7 @@ export default function ExperiencesScreen() {
 
   const openSheetFor = (payment) => {
     setSelectedPayment(payment);
+    setExpandedTxIds([]); 
     setSheetVisible(true);
     Animated.timing(animY, {
       toValue: 1,
@@ -163,6 +169,7 @@ export default function ExperiencesScreen() {
     }).start(() => {
       setSheetVisible(false);
       setSelectedPayment(null);
+      setExpandedTxIds([]);
     });
   };
 
@@ -170,6 +177,10 @@ export default function ExperiencesScreen() {
     inputRange: [0, 1],
     outputRange: [height, Math.max(120, height * 0.12)],
   });
+
+  const exportPayment = (payment) => {
+    console.log('Exportando periodo:', payment.id);
+  };
 
   const renderPayment = ({ item }) => {
     const isPending = item.statusKey === 'pending';
@@ -216,6 +227,14 @@ export default function ExperiencesScreen() {
                   <Text style={[styles.badgeText, { color: '#0A6F3A' }]}>{item.status}</Text>
                 </View>
               )}
+
+              <TouchableOpacity
+                style={styles.exportSmallBtn}
+                onPress={() => exportPayment(item)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="download-outline" size={14} color="#111" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -234,33 +253,56 @@ export default function ExperiencesScreen() {
     );
   };
 
+  const toggleTxExpand = (txId) => {
+    setExpandedTxIds((prev) => {
+      if (prev.includes(txId)) return prev.filter((x) => x !== txId);
+      return [...prev, txId];
+    });
+  };
+
   const renderTransaction = (tx) => {
+    const expanded = expandedTxIds.includes(tx.id);
+    const computedSubtotal = (Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + (Number(it.price) || 0), 0) : 0).toFixed(2);
+
     return (
-      <View key={tx.id} style={sheetStyles.txRow}>
-        <View style={sheetStyles.txLeft}>
-          <View style={[sheetStyles.avatar, { backgroundColor: '#6B21A8' }]}>
-            <Text style={sheetStyles.avatarText}>{tx.initials}</Text>
-          </View>
-        </View>
-
-        <View style={sheetStyles.txCenter}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={sheetStyles.txName}>{tx.name}</Text>
-              <Text style={sheetStyles.txTime}>{tx.timestamp}</Text>
+      <View key={tx.id} style={sheetStyles.personCard}>
+        {/* header */}
+        <TouchableOpacity onPress={() => toggleTxExpand(tx.id)} activeOpacity={0.85} style={sheetStyles.personHeader}>
+          <View style={sheetStyles.personLeft}>
+            <View style={[sheetStyles.avatar, { backgroundColor: '#6B21A8' }]}>
+              <Text style={sheetStyles.avatarText}>{(tx.initials || '??').slice(0,2)}</Text>
             </View>
-            <Text style={sheetStyles.txAmountTop}>${Number(tx.amount).toFixed(2)}</Text>
           </View>
 
-          <View style={sheetStyles.itemSeparator} />
+          <View style={sheetStyles.personMiddle}>
+            <Text numberOfLines={1} style={sheetStyles.personName}>{tx.name}</Text>
+            <Text style={sheetStyles.personTime}>{tx.timestamp}</Text>
+            <Text style={sheetStyles.personMeta}>{tx.items.length} artículo{tx.items.length === 1 ? '' : 's'}</Text>
+          </View>
 
-          {tx.items.map((it) => (
-            <View key={it.id} style={sheetStyles.txItemRow}>
-              <Text style={sheetStyles.txItemLabel}>{it.label}</Text>
-              <Text style={sheetStyles.txItemPrice}>${Number(it.price).toFixed(2)}</Text>
+          <View style={sheetStyles.personRight}>
+            <Text style={sheetStyles.personAmount}>${Number(tx.amount).toFixed(2)}</Text>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#6B21A8" />
+          </View>
+        </TouchableOpacity>
+
+        {expanded && (
+          <View style={sheetStyles.personBody}>
+            {tx.items.map((it) => (
+              <View key={it.id} style={sheetStyles.personItemRow}>
+                <Text style={sheetStyles.personItemLabel}>{it.label}</Text>
+                <Text style={sheetStyles.personItemPrice}>${Number(it.price).toFixed(2)}</Text>
+              </View>
+            ))}
+
+            <View style={sheetStyles.personDivider} />
+
+            <View style={sheetStyles.personSummaryRow}>
+              <Text style={sheetStyles.personSummaryLabel}>Subtotal</Text>
+              <Text style={sheetStyles.personSummaryValue}>${computedSubtotal}</Text>
             </View>
-          ))}
-        </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -357,21 +399,6 @@ export default function ExperiencesScreen() {
           }}
         >
           <Text style={[styles.sectionTitle, { fontSize: headingFont }]}>Pagos al Restaurante</Text>
-          <TouchableOpacity style={styles.exportBtn} onPress={() => { /* export */ }}>
-            <Ionicons name="download-outline" size={16} color="#111" />
-            <Text style={styles.exportText}>Exportar</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ paddingHorizontal: horizontalPad, marginTop: 12 }}>
-          <View style={styles.purpleNotice}>
-            <Text style={styles.purpleNoticeText}>
-              💡 Los consumos del mes se cobran automáticamente el último día
-            </Text>
-            <Text style={styles.purpleNoticeAmount}>
-              Tu saldo mensual es de <Text style={{ fontWeight: '900', color: '#7C3AED' }}>${Number(assignedBalance).toFixed(2)}</Text>
-            </Text>
-          </View>
         </View>
 
         <View style={{ paddingHorizontal: horizontalPad, marginTop: 12 }}>
@@ -432,7 +459,24 @@ export default function ExperiencesScreen() {
             <Text style={sheetStyles.sectionHeading}>Detalle de consumos</Text>
 
             <View style={{ marginTop: 10 }}>
+              {(selectedPayment?.details || []).length === 0 && (
+                <View style={sheetStyles.emptyNotice}>
+                  <Text style={sheetStyles.emptyText}>No hay consumos registrados en este periodo.</Text>
+                </View>
+              )}
+
               {(selectedPayment?.details || []).map((tx) => renderTransaction(tx))}
+            </View>
+
+            <View style={sheetStyles.footerSummary}>
+              <View style={sheetStyles.footerLeft}>
+                <Text style={sheetStyles.footerLabel}>Personas</Text>
+                <Text style={sheetStyles.footerValue}>{(selectedPayment?.details || []).length}</Text>
+              </View>
+              <View style={sheetStyles.footerRight}>
+                <Text style={sheetStyles.footerLabel}>Total</Text>
+                <Text style={sheetStyles.footerValue}>${Number(selectedPayment?.amount ?? 0).toFixed(2)}</Text>
+              </View>
             </View>
 
             <View style={{ height: 40 }} />
@@ -497,6 +541,22 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#0F172A' },
   exportBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#eee' },
   exportText: { marginLeft: 8, color: '#111827', fontWeight: '600' },
+
+  exportSmallBtn: {
+    marginTop: 8,
+    backgroundColor: '#fff',
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#EEE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
 
   purpleNotice: {
     backgroundColor: '#FBF6FF',
@@ -607,16 +667,61 @@ const sheetStyles = StyleSheet.create({
 
   sectionHeading: { fontSize: 16, fontWeight: '800', marginTop: 18, marginBottom: 6, color: '#111827' },
 
-  txRow: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 12 },
-  txLeft: { width: 48, alignItems: 'center', justifyContent: 'center' },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  personCard: {
+    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    overflow: 'hidden',
+    elevation: 2,
+  },
+  personHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
+  },
+  personLeft: { width: 52, alignItems: 'center' },
+  avatar: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#fff', fontWeight: '800' },
-  txCenter: { flex: 1, paddingLeft: 10 },
-  txName: { fontWeight: '800', color: '#111827' },
-  txTime: { color: '#6b7280', fontSize: 12, marginTop: 4 },
-  itemSeparator: { height: 1, backgroundColor: '#F1F5F9', marginVertical: 10 },
-  txItemRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  txItemLabel: { color: '#4B5563' },
-  txItemPrice: { color: '#111827', fontWeight: '700' },
-  txAmountTop: { fontWeight: '900', color: '#111827', marginLeft: 8 },
+  personMiddle: { flex: 1, paddingHorizontal: 10 },
+  personName: { fontWeight: '800', color: '#111827' },
+  personTime: { color: '#6b7280', fontSize: 12, marginTop: 4 },
+  personMeta: { color: '#94A3B8', fontSize: 12, marginTop: 6 },
+
+  personRight: { alignItems: 'flex-end', justifyContent: 'center' },
+  personAmount: { fontWeight: '900', color: '#111827' },
+
+  personBody: { paddingHorizontal: 14, paddingBottom: 12, paddingTop: 6, backgroundColor: '#FBFBFD' },
+
+  personItemRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  personItemLabel: { color: '#374151' },
+  personItemPrice: { color: '#111827', fontWeight: '700' },
+
+  personDivider: { height: 1, backgroundColor: '#EEF2FF', marginVertical: 10 },
+
+  personSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  personSummaryLabel: { color: '#6B7280', fontWeight: '700' },
+  personSummaryValue: { fontWeight: '900', color: '#111827' },
+
+  emptyNotice: { padding: 20, alignItems: 'center' },
+  emptyText: { color: '#6b7280' },
+
+  footerSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    backgroundColor: '#FFF',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  footerLeft: {},
+  footerRight: {},
+  footerLabel: { color: '#6b7280', fontWeight: '700' },
+  footerValue: { fontWeight: '900', fontSize: 16 },
 });

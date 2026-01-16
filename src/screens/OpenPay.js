@@ -5,13 +5,11 @@ import {
   Alert,
   StyleSheet,
   Linking,
-  Modal,
   Text,
   Image,
   SafeAreaView,
   StatusBar,
   Platform,
-  Dimensions,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -27,8 +25,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const lastTransactionKeyForSale = (saleId) => `last_transaction_${saleId}`;
 const safeNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
-const DEFAULT_LOGO = require('../../assets/images/logo2.png'); 
-const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg'); 
+const DEFAULT_LOGO = require('../../assets/images/logo2.png');
+const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
 
 export default function OpenPay() {
   const webviewRef = useRef(null);
@@ -50,7 +48,6 @@ export default function OpenPay() {
   const [webReady, setWebReady] = useState(false);
   const [initPayload, setInitPayload] = useState(null);
   const [deviceSessionId, setDeviceSessionId] = useState(null);
-  const [successModalVisible, setSuccessModalVisible] = useState(false);
 
   const [holder, setHolder] = useState(params.userFullname ?? '');
   const [cardNum, setCardNum] = useState('');
@@ -153,10 +150,29 @@ export default function OpenPay() {
         const monto_propina_to_send = (monto_propina !== null) ? Number(monto_propina) : safeNum(params.tipAmount ?? 0);
 
         const items_pagados = Array.isArray(items) ? items.map(it => ({
-          codigo_item: String(it.codigo_item ?? it.codigo ?? it.code ?? it.id ?? ''),
-          nombre_item: it.name ?? it.nombre ?? it.nombre_item ?? '',
-          cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
-          precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
+          codigo_item: String(
+            it.codigo_item ??
+            it.codigo ??
+            it.code ??
+            it.original_line_id ??
+            it.id ??
+            ''
+          ),
+          nombre_item:
+            it.nombre_item ??
+            it.nombre ??
+            it.name ??
+            it.title ??
+            '',
+          cantidad: Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 1,
+          precio_unitario: Number(
+            it.precio_unitario ??   
+            it.unitPrice ??
+            it.price ??
+            it.precio_item ??
+            it.precio ??
+            0
+          ) || 0,
         })) : [];
 
         const body = {
@@ -218,7 +234,11 @@ export default function OpenPay() {
           const pollResult = await pollSplitsUntilPaid(transactionId, 120000, 3000);
           setProcessing(false);
           if (pollResult.ok) {
-            setSuccessModalVisible(true);
+            try {
+              navigation.navigate('ConfirmacionPago', { transactionId, sale_id, amount: displayAmountFinal });
+            } catch (e) {
+              console.warn('navigate Confirmacion pago failed', e);
+            }
             return;
           } else {
             Alert.alert('Pendiente', 'Transacción creada pero no se confirmó el pago inmediatamente.');
@@ -340,7 +360,7 @@ export default function OpenPay() {
       }
     })();
     return () => { mounted = false; };
-  }, [webReady]); 
+  }, [webReady]);
 
   useEffect(() => {
     if (webReady && initPayload) {
@@ -389,17 +409,6 @@ export default function OpenPay() {
 
     requestTokenFromWebView(cardData);
   };
-
-  useEffect(() => {
-    let t;
-    if (successModalVisible) {
-      t = setTimeout(() => {
-        setSuccessModalVisible(false);
-        try { navigation.navigate('QRMain'); } catch (e) { console.warn('navigate QRMain failed', e); }
-      }, 1400);
-    }
-    return () => clearTimeout(t);
-  }, [successModalVisible, navigation]);
 
   const nativeLogoSource = logoUrl ? { uri: logoUrl } : DEFAULT_LOGO;
   const restaurantSrc = restaurantImage ? { uri: restaurantImage } : DEFAULT_RESTAURANT;
@@ -450,7 +459,6 @@ export default function OpenPay() {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.mainWrap, { paddingHorizontal: H_PADDING }]}>
         <View style={styles.card}>
-
 
           <View style={{ height: 14 }} />
 
@@ -512,7 +520,8 @@ export default function OpenPay() {
               />
             </View>
           </View>
-                    <View style={{ marginTop: PAY_BTN_MARGIN_TOP, alignItems: 'center' }}>
+
+          <View style={{ marginTop: PAY_BTN_MARGIN_TOP, alignItems: 'center' }}>
             <TouchableOpacity style={[styles.payBtn, { width: Math.min(560, winW - H_PADDING * 2) }]} onPress={onPayPress} activeOpacity={0.9} disabled={processing}>
               {processing ? <ActivityIndicator color="#fff" style={{ marginRight: 10 }} /> : <Ionicons name="card-outline" size={18} color="#fff" style={{ marginRight: 8 }} />}
               <Text style={styles.payBtnText}>{processing ? 'Procesando…' : 'Pagar'}</Text>
@@ -542,20 +551,6 @@ export default function OpenPay() {
           </View>
         </View>
       )}
-
-      <Modal visible={successModalVisible} transparent animationType="fade">
-        <View style={styles.autoModalBackdrop}>
-          <View style={[styles.autoModalBox, { width: Math.min(320, winW - 40) }]}>
-            <View style={styles.checkCircle}>
-              <Ionicons name="checkmark" size={22} color="#0b58ff" />
-            </View>
-            <View style={styles.autoModalContent}>
-              <Text style={styles.autoModalTitle}>Pago confirmado</Text>
-              <Text style={styles.autoModalMsg}>Gracias — el pago se procesó correctamente.</Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -642,11 +637,4 @@ const styles = StyleSheet.create({
   processingOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(2,6,23,0.18)' },
   processingBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 14, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 12 },
   processingText: { fontWeight: '700', fontSize: 16, color: '#0b1220' },
-
-  autoModalBackdrop: { flex: 1, backgroundColor: 'rgba(2,6,23,0.18)', justifyContent: 'center', alignItems: 'center', padding: 18 },
-  autoModalBox: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#fff', borderRadius: 12, width: Math.min(320, 340), shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 10 },
-  checkCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#eaf3ff', alignItems: 'center', justifyContent: 'center' },
-  autoModalContent: { marginLeft: 12, flex: 1 },
-  autoModalTitle: { fontSize: 15, fontWeight: '800', color: '#0b58ff' },
-  autoModalMsg: { fontSize: 13, color: '#334155', marginTop: 2, flexShrink: 1, flexWrap: 'wrap' },
 });

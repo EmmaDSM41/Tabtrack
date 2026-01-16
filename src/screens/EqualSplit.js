@@ -139,7 +139,6 @@ export default function EqualSplit() {
     const fetchSavedPeopleThenItems = async () => {
       let savedN = null;
 
-      // NEW: If saleId exists, try server first to get the authoritative (global) number.
       if (saleId) {
         try {
           const base = API_BASE_URL.replace(/\/$/, '');
@@ -168,12 +167,10 @@ export default function EqualSplit() {
             }
           }
         } catch (err) {
-          // fallthrough to local fallback
           console.warn('EqualSplit: error fetching saved comensales from server (fallback to local)', err);
         }
       }
 
-      // If we didn't get a valid number from server, try local AsyncStorage (fallback / offline)
       if (savedN == null) {
         try {
           if (savedKey) {
@@ -501,13 +498,11 @@ export default function EqualSplit() {
               <View style={styles.rightThanks}>
                 <Text style={styles.thanksText}>Se divide entre</Text>
 
-                {/* Aquí agregué el lapicito para editar el número de personas */}
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={styles.thanksSub}>{people} {people === 1 ? 'persona' : 'personas'}</Text>
 
                   <TouchableOpacity
                     onPress={() => {
-                      // abrir modal pre-llenado para editar
                       const curr = totalComensales ?? people;
                       setPeopleInput(String(curr));
                       setShowPeopleModal(true);
@@ -556,7 +551,7 @@ export default function EqualSplit() {
             <Text style={[styles.totValue, { fontWeight: '900', fontSize: Math.round(clamp(rf(5.2), 16, 22)) }]}>{formatMoney(total)} MXN</Text>
           </View>
 
-          <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.6)) }]}>
+{/*           <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.6)) }]}>
             <Text style={styles.totLabel}>Propina</Text>
             <Text style={styles.totValue}>{formatMoney(tipAmount)} MXN</Text>
           </View>
@@ -564,7 +559,7 @@ export default function EqualSplit() {
           <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.4)) }]}>
             <Text style={[styles.totLabel, { fontWeight:'800' }]}>Total con propina</Text>
             <Text style={[styles.totValue, { fontWeight:'900', fontSize: Math.round(clamp(rf(4.6), 14, 20)) }]}>{formatMoney(totalWithTip)} MXN</Text>
-          </View>
+          </View> */}
 
           <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.8)), backgroundColor: '#fff', paddingVertical: Math.round(hp(1)) }]}>
             <Text style={[styles.totLabel, { fontSize: Math.round(clamp(rf(4.4), 14, 18)) }]}>A pagar por persona</Text>

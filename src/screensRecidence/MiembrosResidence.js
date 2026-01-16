@@ -19,28 +19,31 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
     relation: 'Titular del contrato',
     phone: '+52 555 123 4567',
     email: 'juan.perez@email.com',
-    badge: 'Titular',
+    badge: 'Propietario',
   },
   {
     id: '2',
     name: 'María González de Pérez',
-    relation: 'Cónyuge',
     phone: '+52 555 987 6543',
     email: 'maria.gonzalez@email.com',
+    badge: 'Residente',
+
   },
   {
     id: '3',
     name: 'Carlos Pérez González',
-    relation: 'Hijo',
     phone: '+52 555 456 7890',
     email: 'carlos.perez@email.com',
+    badge: 'Residente',
+
   },
   {
     id: '4',
     name: 'Ana Pérez González',
-    relation: 'Hija',
     phone: '+52 555 321 0987',
-    email: 'ana.perez@email.com',
+    email: 'ana.perez@email.com',   
+    badge: 'Residente',
+
   },
 ];
 

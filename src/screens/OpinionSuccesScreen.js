@@ -53,7 +53,6 @@ export default function OpinionSuccessScreen() {
         </View>
       </View>
 
-      {/* CONTENT */}
       <LinearGradient
         colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
         start={{ x: 0, y: 0 }}
@@ -97,7 +96,6 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
   const iconSize = Math.round(clamp(rf(3.6), 18, 28));
   const headerLogoW = Math.round(clamp(wp(22), 72, 120));
 
-  // content sizes
   const contentTop = Math.round(clamp(hp(8), 36, 100));
   const emoticonSize = Math.round(clamp(rf(9), 28, 56));
   const thanksSize = Math.round(clamp(rf(7.2), 20, 34));
@@ -108,7 +106,6 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
   const buttonPadH = Math.round(clamp(wp(6), 16, 40));
   const contentHPad = Math.round(clamp(wp(5), 12, 36));
 
-  // keep max width for long lines
   const maxTextWidth = Math.min(720, Math.round(wp(88)));
 
   return StyleSheet.create({
@@ -150,7 +147,7 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       marginRight: Math.round(clamp(wp(1), 6, 12)),
     },
 
-    iconSize, // number (for convenience)
+    iconSize, 
 
     gradient: {
       flex: 1,

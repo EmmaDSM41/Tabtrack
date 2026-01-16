@@ -24,12 +24,10 @@ export default function RatingSuccessScreen() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // Responsive helpers
-  const baseWidth = 375; // referencia iPhone
-  const rf = (size) => Math.round(PixelRatio.roundToNearestPixel((size * width) / baseWidth)); // responsive factor
+  const baseWidth = 375;
+  const rf = (size) => Math.round(PixelRatio.roundToNearestPixel((size * width) / baseWidth)); 
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-  // derived sizes (responsives)
   const headerHeight = clamp(rf(56), 48, 88);
   const logoWidth = clamp(rf(160), 100, Math.round(width * 0.6));
   const logoHeight = Math.round(logoWidth * 0.35);
@@ -42,11 +40,9 @@ export default function RatingSuccessScreen() {
   const infoMaxWidth = Math.min(Math.round(width - contentPaddingHorizontal * 2), 760);
 
   useEffect(() => {
-    // reproducir la animación al montar (si la referencia existe)
     try {
       animRef.current?.play?.();
     } catch (e) {
-      // fallback silencioso si no se puede reproducir
     }
   }, []);
 
@@ -62,14 +58,13 @@ export default function RatingSuccessScreen() {
       ]}
     >
       <StatusBar barStyle="dark-content" />
-      {/* HEADER */}
       <View style={[styles.header, { height: headerHeight, paddingHorizontal: clamp(rf(12), 8, 20) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={clamp(rf(20), 18, 26)} color="#0046ff" />
         </TouchableOpacity>
 
-        <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Experiencias</Text>
-
+{/*         <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Experiencias</Text>
+ */}
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => {}} style={styles.headerBtn}>
 {/*             <Ionicons name="notifications-outline" size={clamp(rf(20), 18, 26)} color="#0046ff" /> */}
@@ -77,7 +72,6 @@ export default function RatingSuccessScreen() {
         </View>
       </View>
 
-      {/* Fondo y contenido */}
       <LinearGradient
         colors={['#FFFFFF', '#F4F8FF']}
         start={{ x: 0, y: 0 }}
@@ -85,7 +79,6 @@ export default function RatingSuccessScreen() {
         style={styles.background}
       >
         <View style={[styles.container, { paddingHorizontal: contentPaddingHorizontal, paddingBottom: Math.max(24, insets.bottom || 24) }]}>
-          {/* logo grande */}
           <Image
             source={require('../../assets/images/logo.png')}
             style={{ width: logoWidth, height: logoHeight, resizeMode: 'contain', marginBottom: rf(6) }}
@@ -93,7 +86,6 @@ export default function RatingSuccessScreen() {
 
           <View style={{ height: rf(8) }} />
 
-          {/* Lottie */}
           <View style={[styles.lottieWrap, { marginBottom: rf(8) }]}>
             <LottieView
               ref={animRef}
@@ -181,7 +173,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  /* Lottie */
   lottieWrap: {
     alignItems: 'center',
     justifyContent: 'center',
