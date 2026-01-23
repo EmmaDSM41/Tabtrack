@@ -194,6 +194,51 @@ export default function Login() {
           await AsyncStorage.setItem('user_email', usuario.mail);
         }
 
+        try {
+          let residenceActivo = null;
+          if (usuario && (usuario.residence_activo !== undefined && usuario.residence_activo !== null)) {
+            residenceActivo = usuario.residence_activo;
+          } else if (data && (data.residence_activo !== undefined && data.residence_activo !== null)) {
+            residenceActivo = data.residence_activo;
+          }
+
+          if (residenceActivo !== null && residenceActivo !== undefined) {
+            await AsyncStorage.setItem('user_residence_activo', String(residenceActivo));
+          }
+        } catch (e) {
+          console.warn('Error guardando user_residence_activo', e);
+        }
+
+        // --- NUEVO: guardar residence_departamento_id_actual y residence_rol_actual en AsyncStorage ---
+        try {
+          // Preferir valores dentro de usuario, si no, revisar en data
+          let deptId = null;
+          let roleVal = null;
+
+          if (usuario && (usuario.residence_departamento_id_actual !== undefined && usuario.residence_departamento_id_actual !== null)) {
+            deptId = usuario.residence_departamento_id_actual;
+          } else if (data && (data.residence_departamento_id_actual !== undefined && data.residence_departamento_id_actual !== null)) {
+            deptId = data.residence_departamento_id_actual;
+          }
+
+          if (usuario && (usuario.residence_rol_actual !== undefined && usuario.residence_rol_actual !== null)) {
+            roleVal = usuario.residence_rol_actual;
+          } else if (data && (data.residence_rol_actual !== undefined && data.residence_rol_actual !== null)) {
+            roleVal = data.residence_rol_actual;
+          }
+
+          if (deptId !== null && deptId !== undefined) {
+            await AsyncStorage.setItem('user_residence_departamento_id_actual', String(deptId));
+          }
+
+          if (roleVal !== null && roleVal !== undefined) {
+            await AsyncStorage.setItem('user_residence_rol_actual', String(roleVal));
+          }
+        } catch (e) {
+          console.warn('Error guardando residence meta en AsyncStorage', e);
+        }
+        // -------------------------------------------------------------------------------------
+
         showToast(
           fullname ? `¡Bienvenido, ${fullname}!` : '¡Bienvenido!',
           true,

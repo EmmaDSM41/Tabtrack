@@ -48,10 +48,13 @@ export default function Propina() {
   const initialPercent = incomingTipApplied ? Number(incomingTipApplied.percent || 0) : null;
   const initialOther = incomingTipApplied && ![10,15,20,25].includes(initialPercent) ? String(initialPercent) : '';
 
-  const [selectedPercent, setSelectedPercent] = useState(initialPercent);
+  // ---------- MODIFICACIÓN: seleccionar 15% por defecto si no viene tipApplied ----------
+  // Si incomingTipApplied existe respetamos lo que venga; si no existe, por defecto 15%
+  const [selectedPercent, setSelectedPercent] = useState(initialPercent ?? 15);
   const [otherPercent, setOtherPercent] = useState(initialOther);
   const [customActive, setCustomActive] = useState(Boolean(initialOther));
   const [hasAppliedBefore, setHasAppliedBefore] = useState(Boolean(incomingTipApplied));
+  // -------------------------------------------------------------------------------------
 
   useEffect(() => {
     const tip = route?.params?.tipApplied ?? route?.params?.tip_applied ?? null;
@@ -74,6 +77,7 @@ export default function Propina() {
     return selectedPercent || 0;
   }, [selectedPercent, otherPercent, customActive]);
 
+  // Nos aseguramos que el porcentaje se quede con 2 decimales (Number)
   const percentRounded = useMemo(() => {
     const p = Number(percent || 0);
     return Number(Number(p).toFixed(2));
@@ -252,7 +256,7 @@ export default function Propina() {
         lineTotal: Number(it.lineTotal || 0),
         paid: !!it.paid,
         paidPartial: !!it.paidPartial,
-        paidAmount: Number(it.paidAmount || 0),
+        paidAmount: Number(it.paidAmount ?? 0),
         canceled: !!it.canceled,
         raw: it.raw ?? it,
       }));
@@ -422,7 +426,7 @@ export default function Propina() {
                     {checked && <View style={[styles.checkboxInner, { width: Math.round(checkboxSize * 0.44), height: Math.round(checkboxSize * 0.44) }]} />}
                   </View>
                   <Text style={[styles.optionText, { fontSize: optionFont }]}>{p}%</Text>
-                  <Text style={[styles.optionRight, { fontSize: optionFont }]}>{formatMoney((rightValueBase * p / 100))} MXN</Text>
+                  <Text style={[styles.optionRight, { fontSize: optionFont }]}>{formatMoney(round2((rightValueBase * p / 100)))} MXN</Text>
                 </TouchableOpacity>
               );
             })}

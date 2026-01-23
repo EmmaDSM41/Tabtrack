@@ -179,7 +179,7 @@ export default function Consumo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.tipApplied, route?.params?.tipAmount, route?.params?.totalWithTip, route?.params]);
 
-  const addTipLabel = tipApplied ? 'Añadir/editar propina' : 'Añadir propina';
+  const addTipLabel = tipApplied ? 'Pagar' : 'Pagar';
 
   const styles = makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets });
 
@@ -240,17 +240,17 @@ export default function Consumo() {
           )}
 
           <TouchableOpacity
-            style={styles.secondaryButton}
+            style={styles.primaryButton}
             onPress={() => {
               const payload = attachMetaDup({ ...payloadCommon, returnScreen: 'Consumo' });
               navigation.navigate('Propina', payload);
             }}
             activeOpacity={0.9}
           >
-            <Text style={styles.secondaryButtonText}>{addTipLabel}</Text>
+            <Text style={styles.primaryButtonText}>{addTipLabel}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
+{/*           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => {
               const payload = attachMetaDup({
@@ -266,7 +266,7 @@ export default function Consumo() {
             activeOpacity={0.9}
           >
             <Text style={styles.primaryButtonText}>Proceder a pagar</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <TouchableOpacity style={[styles.ghostButton]} onPress={() => navigation.goBack()} activeOpacity={0.9}><Text style={styles.ghostButtonText}>Volver</Text></TouchableOpacity>
         </View>

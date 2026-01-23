@@ -449,7 +449,7 @@ export default function ProfileScreen({ navigation }) {
       });
 
       if (!commitRes.ok) {
-        const txt = await commitRes.text().catch(()=>null);
+        const txt = await commitRes.text().catch(() => null);
         console.warn('Commit failed', commitRes.status, txt);
         Toast.show('No se pudo confirmar la imagen', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -544,13 +544,11 @@ export default function ProfileScreen({ navigation }) {
       const email = await AsyncStorage.getItem('user_email');
       const currentId = uid || email || null;
 
-      // --- Guardar cuenta reciente (email + foto) ANTES de limpiar el storage ---
       try {
         if (email) {
           const profileCached = await AsyncStorage.getItem('user_profile_url');
           const raw = await AsyncStorage.getItem('recent_accounts_v1');
           let arr = raw ? JSON.parse(raw) : [];
-          // dedupe
           arr = Array.isArray(arr) ? arr.filter(a => String(a.email).toLowerCase() !== String(email).toLowerCase()) : [];
           arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
           if (!Array.isArray(arr)) arr = [];
@@ -573,7 +571,6 @@ export default function ProfileScreen({ navigation }) {
       }
       preserveKeys.add(visitsBase);
       preserveKeys.add(pendBase);
-      // keep recent accounts safe from mass-delete
       preserveKeys.add('recent_accounts_v1');
 
       const branchesPrefix = 'branches_cache_';
@@ -609,7 +606,6 @@ export default function ProfileScreen({ navigation }) {
         console.warn('Error removing persistent auth keys on logout', e);
       }
 
-      // navegar a RecentAccounts (pantalla con cuentas guardadas). Si no existe, fallback a Login.
       try {
         navigation.reset({
           index: 0,
@@ -851,7 +847,27 @@ export default function ProfileScreen({ navigation }) {
               justifyContent: 'center',
             },
           ]}
-          onPress={() => navigation.navigate('CodeResidence')}
+          onPress={async () => {
+            try {
+              const val = await AsyncStorage.getItem('user_residence_activo');
+              if (String(val) === 'true') {
+                try {
+                  navigation.navigate('HomeResidence');
+                  return;
+                } catch (e) {
+                  console.warn('navigate HomeResidence failed', e);
+                  navigation.navigate('CodeResidence');
+                  return;
+                }
+              } else {
+                navigation.navigate('CodeResidence');
+                return;
+              }
+            } catch (err) {
+              console.warn('Error reading user_residence_activo from AsyncStorage', err);
+              navigation.navigate('CodeResidence');
+            }
+          }}
           hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
         >
           <LinearGradient

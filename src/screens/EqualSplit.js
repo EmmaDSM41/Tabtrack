@@ -567,23 +567,16 @@ export default function EqualSplit() {
           </View>
 
           <TouchableOpacity
-            style={styles.secondaryButton}
+            style={styles.primaryButton}
             onPress={goToPropina}
             activeOpacity={0.9}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.secondaryButtonText}>{hasTipApplied ? 'Añadir/editar propina' : 'Añadir propina'}</Text>
+            <Text style={styles.primaryButtonText}>{hasTipApplied ? 'Pagar' : 'Pagar'}</Text>
           </TouchableOpacity>
 
           <View style={styles.buttonsWrap}>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handlePay}
-              activeOpacity={0.9}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Text style={styles.primaryButtonText}>Pagar</Text>
-            </TouchableOpacity>
+ 
 
             <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Escanear', { token })} activeOpacity={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.ghostButtonText}>Volver</Text>

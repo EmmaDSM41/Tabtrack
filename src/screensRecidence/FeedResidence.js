@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   View,
@@ -13,51 +13,12 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const sampleNotices = [
-  {
-    id: '1',
-    title: 'Mantenimiento de entrada principal',
-    category: 'Administración',
-    date: '12 de noviembre de 2025',
-    body:
-      'Se realizará mantenimiento en la reja principal este viernes 15 de noviembre de 8:00 AM a 2:00 PM. Por favor usar entrada secundaria.',
-    priority: 'urgente',
-    color: '#2563EB',
-  },
-  {
-    id: '2',
-    title: 'Poda de pasto programada',
-    category: 'Mantenimiento',
-    date: '11 de noviembre de 2025',
-    body:
-      'Se realizará la poda del pasto en las calles A, B y C el día sábado. Favor de no estacionar vehículos en estas áreas.',
-    priority: 'normal',
-    color: '#F97316',
-  },
-  {
-    id: '3',
-    title: 'Menú Especial Navideño',
-    category: 'Comunidad',
-    date: '08 de noviembre de 2025',
-    body:
-      'Se realiza menú para las fechas decembrinas solo bajo pedido, revisa las opciones en la cafetería y aparta con tiempo.',
-    priority: 'normal',
-    color: '#10B981',
-  },
-  {
-    id: '4',
-    title: 'Encuesta de satisfacción - servicios',
-    category: 'Encuestas',
-    date: '05 de noviembre de 2025',
-    body:
-      'Ayúdanos contestando una breve encuesta sobre la limpieza y atención del personal. Tu opinión mejora el servicio.',
-    priority: 'normal',
-    color: '#6366F1',
-  },
-];
+const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 'Comunidad', 'Menu'];
 
-const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 'Comunidad', 'Encuestas'];
+const API_URL = 'https://api.residence.tab-track.com';
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; // coloca aquí tu token si lo deseas
 
 export default function FeedResicende() {
   const navigation = useNavigation();
@@ -69,7 +30,7 @@ export default function FeedResicende() {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   const headerHeight = Math.round(hp(10.5));
-  const outerPad = Math.round(wp(6)); 
+  const outerPad = Math.round(wp(6));
   const cardPadding = Math.round(wp(4));
   const cardRadius = Math.round(Math.max(12, wp(3)));
   const iconBoxSize = Math.round(clamp(rf(16), 64, 120));
@@ -79,17 +40,191 @@ export default function FeedResicende() {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('Todos los avisos');
 
+  const [notices, setNotices] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
+
+  const getHeaders = () => {
+    const h = { Accept: 'application/json', 'Content-Type': 'application/json' };
+    if (TOKEN && TOKEN.trim()) h.Authorization = `Bearer ${TOKEN}`;
+    return h;
+  };
+
+  const normalizeStr = (s) =>
+    String(s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const extractEdificioId = (json) => {
+    if (!json) return null;
+    if (json.edificio_id) return json.edificio_id;
+    if (json.edificio && (json.edificio.id || json.edificio.edificio_id)) return json.edificio.id ?? json.edificio.edificio_id;
+    if (json.data && json.data.edificio_id) return json.data.edificio_id;
+    return null;
+  };
+
+  const extractArray = (json) => {
+    if (!json) return null;
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json.restaurantes)) return json.restaurantes;
+    if (Array.isArray(json.items)) return json.items;
+    if (Array.isArray(json.data)) return json.data;
+    return null;
+  };
+
+  const mapApiAvisoToNotice = (apiItem) => {
+    const id = apiItem.id ?? String(Math.random()).slice(2, 9);
+    const title = apiItem.titulo ?? apiItem.title ?? '';
+    const categoryRaw = apiItem.categoria ?? apiItem.category ?? '';
+    const category = categoryRaw
+      ? String(categoryRaw).charAt(0).toUpperCase() + String(categoryRaw).slice(1).toLowerCase()
+      : 'Comunidad';
+    const dateRaw = apiItem.publicado_en ?? apiItem.publicado ?? apiItem.date ?? null;
+    const date = dateRaw ? new Date(dateRaw).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const body = apiItem.contenido ?? apiItem.body ?? '';
+    const priorityRaw = (apiItem.prioridad ?? apiItem.priority ?? '').toString().toLowerCase();
+    const priority = priorityRaw === 'urgente' || priorityRaw === 'alta' ? 'urgente' : 'normal';
+
+    const cmap = {
+      'Administración': '#2563EB',
+      'Mantenimiento': '#F97316',
+      'Comunidad': '#10B981',
+      'Menu': '#6366F1',
+    };
+    const color = cmap[category] ?? '#2563EB';
+
+    return { id: String(id), title, category, date, body, priority, color, raw: apiItem };
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const deptRaw = await AsyncStorage.getItem('user_residence_departamento_id_actual');
+        if (!deptRaw) {
+          console.warn('FeedResicende: no department id in AsyncStorage (user_residence_departamento_id_actual)');
+          if (mounted) { setNotices([]); setRestaurants([]); }
+          return;
+        }
+        const deptId = String(deptRaw).trim();
+        if (!deptId) {
+          if (mounted) { setNotices([]); setRestaurants([]); }
+          return;
+        }
+
+        const base = API_URL.replace(/\/$/, '');
+        let edificioId = null;
+
+        try {
+          const depUrl = `${base}/api/residence/departamentos/${encodeURIComponent(deptId)}`;
+          const depRes = await fetch(depUrl, { method: 'GET', headers: getHeaders() });
+          if (!depRes.ok) {
+            console.warn('FeedResicende: departamento fetch not ok', depRes.status, depUrl);
+          } else {
+            const depJson = await depRes.json();
+            edificioId = extractEdificioId(depJson);
+            if (!edificioId && Array.isArray(depJson) && depJson.length > 0 && depJson[0].edificio_id) edificioId = depJson[0].edificio_id;
+          }
+        } catch (err) {
+          console.warn('FeedResicende: error fetching departamento', err);
+        }
+
+        if (!edificioId) {
+          console.warn('FeedResicende: no edificioId discovered; leaving notices empty.');
+          if (mounted) { setNotices([]); setRestaurants([]); }
+          return;
+        }
+
+        try {
+          const restUrl = `${base}/api/residence/edificios/${encodeURIComponent(edificioId)}/restaurantes`;
+          const restRes = await fetch(restUrl, { method: 'GET', headers: getHeaders() });
+          if (!restRes.ok) {
+            console.warn('FeedResicende: restaurantes fetch not ok', restRes.status, restUrl);
+            if (mounted) setRestaurants([]);
+          } else {
+            const restJson = await restRes.json();
+            const arr = extractArray(restJson);
+            if (arr && Array.isArray(arr)) {
+              const normalized = arr.map((r, idx) => ({
+                id: String(r.id ?? r.restaurante_id ?? r.restaurant_id ?? idx),
+                nombre: r.nombre ?? r.name ?? r.title ?? `Restaurante ${idx + 1}`,
+                raw: r,
+              }));
+              if (mounted) setRestaurants(normalized);
+            } else if (restJson && (restJson.nombre || restJson.name)) {
+              const single = [{ id: String(restJson.id ?? 'r1'), nombre: restJson.nombre ?? restJson.name, raw: restJson }];
+              if (mounted) setRestaurants(single);
+            } else {
+              if (mounted) setRestaurants([]);
+            }
+          }
+        } catch (err) {
+          console.warn('FeedResicende: error fetching restaurantes', err);
+          if (mounted) setRestaurants([]);
+        }
+
+        try {
+          const avisosUrl = `${base}/api/residence/mobile/avisos?edificio_id=${encodeURIComponent(edificioId)}`;
+          const avisRes = await fetch(avisosUrl, { method: 'GET', headers: getHeaders() });
+          if (!avisRes.ok) {
+            console.warn('FeedResicende: avisos fetch not ok', avisRes.status, avisosUrl);
+            if (mounted) setNotices([]);
+          } else {
+            const avisJson = await avisRes.json();
+            const items = Array.isArray(avisJson.items) ? avisJson.items : (Array.isArray(avisJson) ? avisJson : (Array.isArray(avisJson.data) ? avisJson.data : null));
+            if (Array.isArray(items)) {
+              const mapped = items.map(mapApiAvisoToNotice);
+              if (mounted) setNotices(mapped);
+            } else if (Array.isArray(avisJson)) {
+              const mapped = avisJson.map(mapApiAvisoToNotice);
+              if (mounted) setNotices(mapped);
+            } else if (avisJson && (avisJson.titulo || avisJson.title)) {
+              const mapped = [mapApiAvisoToNotice(avisJson)];
+              if (mounted) setNotices(mapped);
+            } else {
+              if (mounted) setNotices([]);
+            }
+          }
+        } catch (err) {
+          console.warn('FeedResicende: error fetching avisos', err);
+          if (mounted) setNotices([]);
+        }
+      } catch (err) {
+        console.warn('FeedResicende: unexpected error in data flow', err);
+        if (mounted) {
+          setNotices([]);
+          setRestaurants([]);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const effectiveNotices = useMemo(() => notices, [notices]);
+
   const filteredNotices = useMemo(() => {
-    if (!selectedFilter || selectedFilter === 'Todos los avisos') return sampleNotices;
-    return sampleNotices.filter((n) => n.category === selectedFilter);
-  }, [selectedFilter]);
+    if (!selectedFilter || selectedFilter === 'Todos los avisos') return effectiveNotices;
+    const normFilter = normalizeStr(selectedFilter);
+    return effectiveNotices.filter((n) => {
+      try {
+        return normalizeStr(n.category || '') === normFilter;
+      } catch {
+        return false;
+      }
+    });
+  }, [selectedFilter, effectiveNotices]);
 
   const onSelectFilter = (opt) => {
     setSelectedFilter(opt);
     setDropdownVisible(false);
   };
 
-  const outerPadNotices = Math.round(wp(4)); 
+  const outerPadNotices = Math.round(wp(4));
   const cardRadiusN = Math.round(Math.max(12, wp(2.6)));
   const iconBoxSizeN = Math.round(clamp(rf(12), 44, 64));
   const titleSize = Math.round(clamp(rf(5.2), 18, 22));
@@ -117,7 +252,7 @@ export default function FeedResicende() {
       <TouchableOpacity
         activeOpacity={0.92}
         onPress={() => {
-          if (navigation && navigation.navigate) navigation.navigate('AvisoDetalle', { id: item.id });
+          if (navigation && navigation.navigate) navigation.navigate('AvisoDetalle', { id: item.id, raw: item.raw });
         }}
         style={[
           stylesN.card,
@@ -170,70 +305,127 @@ export default function FeedResicende() {
   const ListHeader = () => (
     <View style={{ overflow: 'visible' }}>
       <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(hp(2)) }}>
-        <View style={[styles.restaurantCardWrap, { borderRadius: cardRadius }]}>
-          <LinearGradient
-            colors={GRADIENT_COLORS}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.cardStrip, { height: Math.round(hp(7)), borderTopLeftRadius: cardRadius, borderTopRightRadius: cardRadius }]}
-          >
-            <View style={styles.stripContent}>
-              <View
-                style={[
-                  styles.stripIconWrap,
-                  {
-                    width: iconBoxSize * 0.72,
-                    height: iconBoxSize * 0.72,
-                    borderRadius: Math.round((iconBoxSize * 0.72) * 0.18),
-                  },
-                ]}
+        {(Array.isArray(restaurants) && restaurants.length > 0) ? (
+          restaurants.map((r) => (
+            <View key={r.id} style={[styles.restaurantCardWrap, { borderRadius: cardRadius, marginBottom: 12 }]}>
+              <LinearGradient
+                colors={GRADIENT_COLORS}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.cardStrip, { height: Math.round(hp(7)), borderTopLeftRadius: cardRadius, borderTopRightRadius: cardRadius }]}
               >
-                <Ionicons name="restaurant" size={Math.round((iconBoxSize * 0.72) * 0.44)} color="#fff" />
-              </View>
+                <View style={styles.stripContent}>
+                  <View
+                    style={[
+                      styles.stripIconWrap,
+                      {
+                        width: iconBoxSize * 0.72,
+                        height: iconBoxSize * 0.72,
+                        borderRadius: Math.round((iconBoxSize * 0.72) * 0.18),
+                      },
+                    ]}
+                  >
+                    <Ionicons name="restaurant" size={Math.round((iconBoxSize * 0.72) * 0.44)} color="#fff" />
+                  </View>
 
-              <View style={{ marginLeft: 12 }}>
-                <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]}>Cafetería Central</Text>
-                <Text style={[styles.stripSubtitle, { fontSize: smallText }]}>Residencia Universitaria</Text>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]}>{r.nombre}</Text>
+                    <Text style={[styles.stripSubtitle, { fontSize: smallText }]}>Residencia Universitaria</Text>
+                  </View>
+                </View>
+              </LinearGradient>
+
+              <View style={[styles.restaurantCardContent, { padding: cardPadding, borderBottomLeftRadius: cardRadius, borderBottomRightRadius: cardRadius }]}>
+                <View style={styles.infoContainer}>
+                  <View style={styles.labelsCol}>
+                    <Text style={[styles.infoLabel, { fontSize: smallText }]}>Horario</Text>
+                    <Text style={[styles.infoLabel, { fontSize: smallText, marginTop: 12 }]}>Estado</Text>
+                  </View>
+
+                  <View style={styles.valuesCol}>
+                    <Text style={[styles.infoValue, { fontSize: smallText }]}>7:00 AM - 10:00 PM</Text>
+
+                    <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
+                      <View style={styles.openPill}>
+                        <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={[styles.registerBtn, { borderColor: 'rgba(156, 110, 255, 0.22)' }]}
+                  onPress={() => navigation.navigate('QR')}
+                >
+                  <Text style={styles.registerBtnText}>Registrar consumo</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#7C3AED" style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
               </View>
             </View>
-          </LinearGradient>
+          ))
+        ) : (
+          <View style={[styles.restaurantCardWrap, { borderRadius: cardRadius }]}>
+            <LinearGradient
+              colors={GRADIENT_COLORS}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.cardStrip, { height: Math.round(hp(7)), borderTopLeftRadius: cardRadius, borderTopRightRadius: cardRadius }]}
+            >
+              <View style={styles.stripContent}>
+                <View
+                  style={[
+                    styles.stripIconWrap,
+                    {
+                      width: iconBoxSize * 0.72,
+                      height: iconBoxSize * 0.72,
+                      borderRadius: Math.round((iconBoxSize * 0.72) * 0.18),
+                    },
+                  ]}
+                >
+                  <Ionicons name="restaurant" size={Math.round((iconBoxSize * 0.72) * 0.44)} color="#fff" />
+                </View>
 
-          <View style={[styles.restaurantCardContent, { padding: cardPadding, borderBottomLeftRadius: cardRadius, borderBottomRightRadius: cardRadius }]}>
-            <View style={styles.infoContainer}>
-              <View style={styles.labelsCol}>
-                <Text style={[styles.infoLabel, { fontSize: smallText }]}>Horario</Text>
-                <Text style={[styles.infoLabel, { fontSize: smallText, marginTop: 12 }]}>Estado</Text>
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]}>Cafetería Central</Text>
+                  <Text style={[styles.stripSubtitle, { fontSize: smallText }]}>Residencia Universitaria</Text>
+                </View>
               </View>
+            </LinearGradient>
 
-              <View style={styles.valuesCol}>
-                <Text style={[styles.infoValue, { fontSize: smallText }]}>7:00 AM - 10:00 PM</Text>
+            <View style={[styles.restaurantCardContent, { padding: cardPadding, borderBottomLeftRadius: cardRadius, borderBottomRightRadius: cardRadius }]}>
+              <View style={styles.infoContainer}>
+                <View style={styles.labelsCol}>
+                  <Text style={[styles.infoLabel, { fontSize: smallText }]}>Horario</Text>
+                  <Text style={[styles.infoLabel, { fontSize: smallText, marginTop: 12 }]}>Estado</Text>
+                </View>
 
-                <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
-                  <View style={styles.openPill}>
-                    <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
+                <View style={styles.valuesCol}>
+                  <Text style={[styles.infoValue, { fontSize: smallText }]}>7:00 AM - 10:00 PM</Text>
+
+                  <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
+                    <View style={styles.openPill}>
+                      <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
+                    </View>
                   </View>
                 </View>
               </View>
-            </View>
 
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={[
-                styles.registerBtn,
-                { borderColor: 'rgba(156, 110, 255, 0.22)' },
-              ]}
-              onPress={() => navigation.navigate('QR')}
-            >
-              <Text style={styles.registerBtnText}>Registrar consumo</Text>
-              <Ionicons name="chevron-forward" size={16} color="#7C3AED" style={{ marginLeft: 8 }} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                style={[styles.registerBtn, { borderColor: 'rgba(156, 110, 255, 0.22)' }]}
+                onPress={() => navigation.navigate('QR')}
+              >
+                <Text style={styles.registerBtnText}>Registrar consumo</Text>
+                <Ionicons name="chevron-forward" size={16} color="#7C3AED" style={{ marginLeft: 8 }} />
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       <View style={{ height: Math.round(hp(2)) }} />
 
-      {/* Filtro — dentro del header, pero con overflow visible y zIndex/elevation altos */}
       <View style={{ paddingHorizontal: outerPadNotices, zIndex: 9999, elevation: 9999, overflow: 'visible' }}>
         <View style={{ position: 'relative' }}>
           <Pressable
@@ -314,7 +506,6 @@ export default function FeedResicende() {
   );
 }
 
-// ------------------------ estilos originales de Feed (sin cambios) ------------------------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fafafa' },
 
@@ -438,7 +629,6 @@ const styles = StyleSheet.create({
   payButtonText: { color: '#fff', fontWeight: '800' },
 });
 
-// ------------------------ makeStyles original de Notices (ajustada variable outerPad) ------------------------
 function makeStyles({ outerPad, cardRadius, iconBoxSize, titleSize, bodySize, smallSize, wp, filterBtnHeight, rf }) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#F7F8FB' },
@@ -493,7 +683,7 @@ function makeStyles({ outerPad, cardRadius, iconBoxSize, titleSize, bodySize, sm
       overflow: 'hidden',
       paddingVertical: 16,
       paddingHorizontal: Math.round(wp(5)),
-      marginHorizontal: outerPad,  
+      marginHorizontal: outerPad,
       shadowColor: '#000',
       shadowOpacity: 0.02,
       shadowOffset: { width: 0, height: 2 },
