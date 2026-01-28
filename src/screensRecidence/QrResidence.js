@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
@@ -17,6 +16,7 @@ import {
   PixelRatio,
   Image,
   useWindowDimensions,
+  StyleSheet,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCodeScanner from 'react-native-qrcode-scanner';
@@ -28,9 +28,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-
-const API_BASE_FALLBACK = 'https://127.0.0.1';
-const API_TOKEN_FALLBACK = ' ';
+const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
+const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; 
 
 const STORAGE_KEYS = {
   API_HOST: 'api_host',
@@ -63,7 +62,6 @@ const openWhatsApp = async () => {
     'No fue posible abrir WhatsApp ni la URL web asociada. Asegúrate de tener WhatsApp o un navegador disponible.'
   );
 };
-
 
 const extractTokenFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
@@ -99,22 +97,14 @@ const resolveApiHost = async (raw) => {
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.API_HOST);
     if (stored) return stored.replace(/\/$/, '');
   } catch (err) {
-    // noop
   }
   return API_BASE_FALLBACK.replace(/\/$/, '');
 };
 
 const buildHeaders = async () => {
-  let token = API_TOKEN_FALLBACK;
-  try {
-    const storedToken = await AsyncStorage.getItem(STORAGE_KEYS.API_TOKEN);
-    if (storedToken) token = storedToken;
-  } catch (err) {
-    // noop
-  }
 
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
   return headers;
 };
 
@@ -130,7 +120,6 @@ const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
     throw err;
   }
 };
-
 
 function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -151,7 +140,7 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
     return () => {
       if (loopAnim) loopAnim.stop();
     };
-  }, [active]);
+  }, [active, scale]);
 
   return (
     <Animated.View style={{ transform: [{ scale }], alignItems: 'center', justifyContent: 'center' }}>
@@ -176,7 +165,7 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
         Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start();
     }
-  }, [visible, headerHeight]);
+  }, [visible, headerHeight, translateY, opacity]);
 
   if (!visible) return null;
 
@@ -226,7 +215,6 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
   );
 }
 
-
 export default function QrResidence({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -242,7 +230,13 @@ export default function QrResidence({ navigation }) {
   const [statusModalVisible, setStatusModalVisible] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusResult, setStatusResult] = useState(null);
-  const [statusToken, setStatusToken] = useState(null);
+  const [statusQr, setStatusQr] = useState(null);
+
+  const [deptBilling, setDeptBilling] = useState(null);
+  const [deptHistoryLoading, setDeptHistoryLoading] = useState(false);
+  const [deptIdStored, setDeptIdStored] = useState(null);
+
+  const [scanTarget, setScanTarget] = useState(null); 
 
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
@@ -251,14 +245,14 @@ export default function QrResidence({ navigation }) {
   const headerHeight = clamp(rf(baseHeader), 48, 110);
 
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
-  const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14))); 
+  const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14)));
   const gradientCardLeftRight = Math.round(Math.max(12, width * 0.06));
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
 
-  const gradientSeparation = 8; 
+  const gradientSeparation = 8;
 
-  const holeGap = clamp(rf(45), 45, 90);       
-  const buttonsGap = clamp(rf(40), 56, 140);  
+  const holeGap = clamp(rf(45), 45, 90);
+  const buttonsGap = clamp(rf(40), 56, 140);
 
   const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
   const holeTop = headerHeight + gradientCardHeight + holeGap;
@@ -276,9 +270,9 @@ export default function QrResidence({ navigation }) {
   const logoHeight = Math.round(logoWidth * 0.5);
   const logoTopPos = Math.max(headerHeight + Math.round(gradientCardHeight * 0.1), holeTop - logoHeight - Math.round(logoHeight * 0.25));
 
-  const consumed = 425.0;
-  const available = 3075.0;
-  const utilization = Math.round((consumed / (consumed + available)) * 1000) / 10;
+  const fallbackConsumed = 425.0;
+  const fallbackAvailable = 3075.0;
+  const fallbackUtilization = Math.round((fallbackConsumed / (fallbackConsumed + fallbackAvailable)) * 1000) / 10;
 
   useEffect(() => {
     (async () => {
@@ -317,6 +311,7 @@ export default function QrResidence({ navigation }) {
       setScannerActive(true);
       setAllowScan(false);
       setAllowScanForStatus(false);
+      setScanTarget(null); 
       setTimeout(() => {
         try {
           if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
@@ -328,6 +323,7 @@ export default function QrResidence({ navigation }) {
       return () => {
         setAllowScan(false);
         setAllowScanForStatus(false);
+        setScanTarget(null);
         if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
       };
     }, [])
@@ -345,7 +341,10 @@ export default function QrResidence({ navigation }) {
     }, 250);
   };
 
-  const startManualScan = () => reactivateScanner(true);
+  const startManualScan = (target = 'Cuenta') => {
+    setScanTarget(target);
+    reactivateScanner(true);
+  };
   const toggleFlash = () => setFlashEnabled((p) => !p);
 
   const onSuccess = async (e) => {
@@ -356,9 +355,9 @@ export default function QrResidence({ navigation }) {
     setScannerActive(false);
 
     const raw = e?.data ?? '';
-    const token = extractTokenFromRaw(raw);
+    const qr = extractTokenFromRaw(raw); 
 
-    if (!token) {
+    if (!qr) {
       setStatusResult({ ok: false, message: 'No se encontró un token válido en el QR.' });
       setStatusLoading(false);
       setStatusModalVisible(true);
@@ -369,17 +368,25 @@ export default function QrResidence({ navigation }) {
 
     if (allowScanForStatus) {
       if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
-      handleStatusFetchForToken(raw, token);
+      handleStatusFetchForToken(raw, qr);
       return;
     }
 
-    navigation.navigate('Escanear', { token });
+    const target = scanTarget || 'Cuenta';
+    setScanTarget(null);
+
+    if (target === 'Miembros') {
+      navigation.navigate('Miembros', { qr });
+      return;
+    }
+
+    navigation.navigate('CuentaResidence', { qr });
   };
 
-  const showStatusModal = (resultObj, token = null, loading = false) => {
+  const showStatusModal = (resultObj, qr = null, loading = false) => {
     if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
     setStatusResult(resultObj);
-    setStatusToken(token);
+    setStatusQr(qr);
     setStatusLoading(loading);
     setStatusModalVisible(true);
   };
@@ -387,11 +394,12 @@ export default function QrResidence({ navigation }) {
   const hideStatusModal = () => {
     setStatusModalVisible(false);
     setStatusResult(null);
-    setStatusToken(null);
+    setStatusQr(null);
     setStatusLoading(false);
     setScannerActive(true);
     setAllowScan(false);
     setAllowScanForStatus(false);
+    setScanTarget(null);
     setTimeout(() => {
       try {
         if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
@@ -418,19 +426,19 @@ export default function QrResidence({ navigation }) {
     }, 7000);
   };
 
-  const handleStatusFetchForToken = async (raw, token) => {
+  const handleStatusFetchForToken = async (raw, qr) => {
     setStatusLoading(true);
-    showStatusModal({ ok: null, message: 'Consultando estado de la mesa…' }, token, true);
+    showStatusModal({ ok: null, message: 'Consultando estado de la mesa…' }, qr, true);
 
     try {
       const host = await resolveApiHost(raw);
       if (!host) {
         setStatusLoading(false);
-        showStatusModal({ ok: false, message: 'No se pudo determinar la URL del servidor desde el QR. Escanea con "Escanear QR" para ver detalles.' }, token, false);
+        showStatusModal({ ok: false, message: 'No se pudo determinar la URL del servidor desde el QR. Escanea con "Escanear QR" para ver detalles.' }, qr, false);
         return;
       }
 
-      const apiUrl = `${host}/api/mesas/r/${encodeURIComponent(token)}`;
+      const apiUrl = `${host}/api/mesas/r/${encodeURIComponent(qr)}`;
       const headers = await buildHeaders();
 
       const res = await fetchWithTimeout(apiUrl, { headers }, 10000);
@@ -441,7 +449,7 @@ export default function QrResidence({ navigation }) {
 
       if (!res.ok) {
         const msg = (json && (json.error || json.message)) ? (json.error || json.message) : `Error del servidor (${res.status})`;
-        showStatusModal({ ok: false, message: msg }, token, false);
+        showStatusModal({ ok: false, message: msg }, qr, false);
         return;
       }
 
@@ -453,14 +461,108 @@ export default function QrResidence({ navigation }) {
       }
       const summary = summaryParts.length ? summaryParts.join(' • ') : 'Hay una venta activa para esta mesa.';
 
-      showStatusModal({ ok: true, message: 'Existe una venta activa.', details: summary, payload: json }, token, false);
+      showStatusModal({ ok: true, message: 'Existe una venta activa.', details: summary, payload: json }, qr, false);
 
     } catch (err) {
       console.warn('Status fetch error', err);
       setStatusLoading(false);
-      showStatusModal({ ok: false, message: 'Error al conectar con el servidor. Intenta de nuevo.' }, token, false);
+      showStatusModal({ ok: false, message: 'Error al conectar con el servidor. Intenta de nuevo.' }, qr, false);
     }
   };
+
+  const fetchDepartmentHistory = useCallback(async () => {
+    setDeptHistoryLoading(true);
+    setDeptBilling(null);
+
+    try {
+      let dept = null;
+      try {
+        const rawDept = await AsyncStorage.getItem('user_residence_departamento_id_actual');
+        if (rawDept !== null && rawDept !== undefined && String(rawDept).trim() !== '') {
+          dept = String(rawDept).trim();
+        }
+      } catch (e) {
+        console.warn('[dept-history] error leyendo AsyncStorage', e);
+      }
+
+      setDeptIdStored(dept);
+
+      if (!dept) {
+        console.warn('[dept-history] user_residence_departamento_id_actual no encontrado en AsyncStorage');
+        setDeptHistoryLoading(false);
+        return;
+      }
+
+      const now = new Date();
+      const periodo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const tzOffset = -360; 
+
+      const baseHost = API_BASE_FALLBACK.replace(/\/$/, '');
+
+      const path = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo=${encodeURIComponent(periodo)}&detalle=false&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
+      const url = `${baseHost}${path}`;
+
+      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+
+      console.log('[dept-history] consultando URL:', url);
+
+      const res = await fetchWithTimeout(url, { headers }, 10000);
+      let json = null;
+      try { json = await res.json(); } catch (e) { json = null; }
+
+      console.log('[dept-history] status:', res.status, json);
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          Alert.alert('Historial no encontrado', 'Ruta 404: departamento no existe o ruta no disponible para este host / periodo.');
+        } else {
+          Alert.alert('Error al consultar historial', `HTTP ${res.status}.`);
+        }
+        setDeptBilling(null);
+        setDeptHistoryLoading(false);
+        return;
+      }
+
+      if (json && Array.isArray(json.periodos) && json.periodos.length > 0 && json.periodos[0].billing) {
+        const b = json.periodos[0].billing;
+        setDeptBilling({
+          moneda: b.moneda ?? (json.departamento && json.departamento.moneda) ?? 'MXN',
+          monto_mensual_usado: Number(b.monto_mensual_usado ?? 0) || 0,
+          porcentaje_usado: Number(b.porcentaje_usado ?? 0) || 0,
+          saldo_disponible: Number(b.saldo_disponible ?? 0) || 0,
+          saldo_mensual: Number(b.saldo_mensual ?? (json.departamento && json.departamento.saldo_mensual) ?? 0) || 0,
+        });
+      } else if (json && json.departamento && typeof json.departamento === 'object' && json.departamento.saldo_mensual !== undefined) {
+        // fallback parse
+        setDeptBilling({
+          moneda: json.departamento.moneda ?? 'MXN',
+          monto_mensual_usado: Number(json.departamento.saldo_mensual ?? 0) || 0,
+          porcentaje_usado: 0,
+          saldo_disponible: Number(json.departamento.saldo_mensual ?? 0) || 0,
+          saldo_mensual: Number(json.departamento.saldo_mensual ?? 0) || 0,
+        });
+      } else {
+        console.warn('[dept-history] OK pero sin estructura esperada:', json);
+        setDeptBilling(null);
+      }
+    } catch (err) {
+      console.warn('fetchDepartmentHistory error', err);
+      Alert.alert('Error', 'No fue posible consultar historial del departamento. Revisa conexión / host.');
+      setDeptBilling(null);
+    } finally {
+      setDeptHistoryLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    fetchDepartmentHistory();
+  }, [fetchDepartmentHistory]));
+
+  useEffect(() => {
+    fetchDepartmentHistory();
+  }, [fetchDepartmentHistory]);
 
   if (!hasPermission) {
     return (
@@ -469,6 +571,13 @@ export default function QrResidence({ navigation }) {
       </View>
     );
   }
+
+  const consumed = deptBilling ? Number(deptBilling.monto_mensual_usado || 0) : fallbackConsumed;
+  const available = deptBilling ? Number(deptBilling.saldo_disponible || 0) : fallbackAvailable;
+  const utilization = (consumed + available) > 0 ? Math.round((consumed / (consumed + available)) * 1000) / 10 : 0;
+  const consumedDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(consumed).toFixed(2)}` : `${fallbackConsumed.toFixed(2)}`);
+  const availableDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(available).toFixed(2)}` : `${fallbackAvailable.toFixed(2)}`);
+  const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
   const buttonsTop = holeTop + qrSize + buttonsGap;
 
@@ -492,12 +601,11 @@ export default function QrResidence({ navigation }) {
         </TouchableOpacity>
       </View>
 
-
       <View
         pointerEvents="box-none"
         style={{
           position: 'absolute',
-          top: insets.top + headerHeight + gradientSeparation, 
+          top: insets.top + headerHeight + gradientSeparation,
           left: gradientCardLeftRight,
           right: gradientCardLeftRight,
           zIndex: 60,
@@ -509,19 +617,26 @@ export default function QrResidence({ navigation }) {
           end={{ x: 1, y: 1 }}
           style={[styles.gradientCardSmall, { height: gradientCardHeight, borderRadius: 14, padding: gradientInnerPad }]}
         >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View>
-              <Text style={styles.gradientSmallLabel}>Consumido</Text>
-              <Text style={styles.gradientSmallValue}>${consumed.toFixed(2)}</Text>
+          {deptHistoryLoading ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={[styles.gradientSmallLabel, { marginLeft: 8 }]}>Cargando consumo del departamento…</Text>
             </View>
+          ) : (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={styles.gradientSmallLabel}>Usado</Text>
+                <Text style={styles.gradientSmallValue}>${consumedDisplay}</Text>
+              </View>
 
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.gradientSmallLabel}>Disponible</Text>
-              <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900' }]}>
-                ${available.toFixed(2)}
-              </Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.gradientSmallLabel}>Disponible</Text>
+                <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900' }]}>
+                  ${availableDisplay}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
 
           <View style={{ height: 10 }} />
 
@@ -529,7 +644,7 @@ export default function QrResidence({ navigation }) {
             <View style={styles.progressTrackSmall}>
               <View style={[styles.progressFillSmall, { width: `${Math.min(100, Math.max(0, utilization))}%` }]} />
             </View>
-            <Text style={styles.progressLabelSmall}>{utilization}% utilizado</Text>
+            <Text style={styles.progressLabelSmall}>{deptHistoryLoading ? '…' : utilizationDisplay} utilizado</Text>
           </View>
         </LinearGradient>
       </View>
@@ -619,7 +734,7 @@ export default function QrResidence({ navigation }) {
         </View>
 
         <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, width, alignItems: 'center', zIndex: 40 }}>
-          <TouchableOpacity activeOpacity={1} onPress={startManualScan} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
+          <TouchableOpacity activeOpacity={1} onPress={() => startManualScan('Cuenta')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
               <Ionicons name="qr-code-outline" size={rf(18)} color="#fff" style={{ marginRight: 12 }} />
               <Text style={[styles.primaryActionText, { fontSize: clamp(rf(16), 14, 18) }]}>Escanear QR</Text>
@@ -628,7 +743,7 @@ export default function QrResidence({ navigation }) {
 
           <View style={{ height: 12 }} />
 
-          <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('Miembros')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}>
+          <TouchableOpacity activeOpacity={1} onPress={() => startManualScan('Miembros')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}>
             <View style={styles.actionContent}>
               <Ionicons name="person-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />
               <Text style={[styles.primaryActionText, { fontSize: clamp(rf(15), 13, 17) }]}>Miembros</Text>
@@ -644,14 +759,13 @@ export default function QrResidence({ navigation }) {
         onClose={hideStatusModal}
         onScan={() => {
           hideStatusModal();
-          if (statusToken) navigation.navigate('Escanear', { token: statusToken });
+          if (statusQr) navigation.navigate('Escanear', { qr: statusQr }); 
         }}
         headerHeight={headerHeight}
       />
     </SafeAreaView>
   );
 }
-
 
 const modalStyles = StyleSheet.create({
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, elevation: 9999, zIndex: 9999 },
@@ -734,6 +848,6 @@ const styles = StyleSheet.create({
   progressFillSmall: { backgroundColor: '#fff', height: '100%' },
   progressLabelSmall: { color: 'rgba(255,255,255,0.95)', fontSize: 12 },
 
+  progressLabel: { color: '#fff' },
 });
-
 export { styles as qrStyles };

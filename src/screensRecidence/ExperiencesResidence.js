@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,107 +12,19 @@ import {
   Animated,
   TouchableWithoutFeedback,
   SafeAreaView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const SAMPLE_PAYMENTS = [
-  {
-    id: 'p1',
-    title: 'Consumos Cafetería - Noviembre 2025',
-    date: '1 de noviembre de 2025',
-    transactions: 5,
-    amount: 2847.5,
-    status: 'Pendiente',
-    statusKey: 'pending',
-    details: [
-      {
-        id: 't1',
-        name: 'Juan Pérez Gómez',
-        initials: 'JP',
-        timestamp: '13 nov · 14:30',
-        amount: 125.0,
-        items: [
-          { id: 'i1', label: 'Pizza x1', price: 85.0 },
-          { id: 'i2', label: 'Refresco x2', price: 40.0 },
-        ],
-      },
-      {
-        id: 't2',
-        name: 'Carlos Pérez González',
-        initials: 'CP',
-        timestamp: '12 nov · 08:15',
-        amount: 95.0,
-        items: [
-          { id: 'i3', label: 'Café x2', price: 50.0 },
-          { id: 'i4', label: 'Sandwich x1', price: 45.0 },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'p2',
-    title: 'Consumos Cafetería - Octubre 2025',
-    date: '31 de octubre de 2025',
-    transactions: 4,
-    amount: 3125.8,
-    status: 'Pagado',
-    statusKey: 'paid',
-    details: [
-      {
-        id: 't3',
-        name: 'María López',
-        initials: 'ML',
-        timestamp: '31 oct · 20:10',
-        amount: 150,
-        items: [{ id: 'i5', label: 'Combo x1', price: 150 }],
-      },
-    ],
-  },
-  {
-    id: 'p3',
-    title: 'Consumos Cafetería - Septiembre 2025',
-    date: '30 de septiembre de 2025',
-    transactions: 3,
-    amount: 2890.0,
-    status: 'Pagado',
-    statusKey: 'paid',
-    details: [
-      {
-        id: 't4',
-        name: 'Luis Martínez',
-        initials: 'LM',
-        timestamp: '30 sept · 13:20',
-        amount: 120,
-        items: [{ id: 'i6', label: 'Ensalada x1', price: 120 }],
-      },
-    ],
-  },
-  {
-    id: 'p4',
-    title: 'Consumos Cafetería - Agosto 2025',
-    date: '31 de agosto de 2025',
-    transactions: 2,
-    amount: 2150.0,
-    status: 'Pendiente',
-    statusKey: 'pending',
-    details: [
-      {
-        id: 't5',
-        name: 'Ana Ruiz',
-        initials: 'AR',
-        timestamp: '29 ago · 11:00',
-        amount: 75,
-        items: [
-          { id: 'i7', label: 'Café x1', price: 25 },
-          { id: 'i8', label: 'Pan x2', price: 50 },
-        ],
-      },
-    ],
-  },
-];
+const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
+const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
+
+const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 export default function ExperiencesScreen() {
   const navigation = useNavigation();
@@ -133,124 +45,258 @@ export default function ExperiencesScreen() {
   const smallFont = Math.round(clamp(rf(3.4), 12, 16));
   const progressHeight = Math.max(10, Math.round(hp(1.1)));
 
-  const assignedBalance = 3500.0;
-  const consumed = 425.0;
-  const available = assignedBalance - consumed;
-  const utilization = Math.round((consumed / Math.max(1, assignedBalance)) * 1000) / 10;
-
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
 
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(null); 
   const animY = useRef(new Animated.Value(0)).current;
-
   const [expandedTxIds, setExpandedTxIds] = useState([]);
 
-  useEffect(() => {
-    animY.setValue(0);
-  }, [animY]);
+  const [deptId, setDeptId] = useState(null);
+  const [monthsData, setMonthsData] = useState([]); 
+  const [loadingMonths, setLoadingMonths] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const openSheetFor = (payment) => {
-    setSelectedPayment(payment);
-    setExpandedTxIds([]); 
-    setSheetVisible(true);
-    Animated.timing(animY, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const closeSheet = () => {
-    Animated.timing(animY, {
-      toValue: 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start(() => {
-      setSheetVisible(false);
-      setSelectedPayment(null);
-      setExpandedTxIds([]);
-    });
-  };
+  useEffect(() => { animY.setValue(0); }, [animY]);
 
   const sheetTranslateY = animY.interpolate({
     inputRange: [0, 1],
     outputRange: [height, Math.max(120, height * 0.12)],
   });
 
-  const exportPayment = (payment) => {
-    console.log('Exportando periodo:', payment.id);
+  const fetchYearHistory = useCallback(async () => {
+    try {
+      setLoadingMonths(true);
+      setMonthsData([]);
+
+      let rawDept = null;
+      try {
+        rawDept = await AsyncStorage.getItem('user_residence_departamento_id_actual');
+      } catch (e) {
+        console.warn('[dept-history] error leyendo AsyncStorage', e);
+      }
+
+      if (!rawDept) {
+        Alert.alert('Departamento no encontrado', 'No se encontró el departamento en AsyncStorage (user_residence_departamento_id_actual).');
+        setLoadingMonths(false);
+        return;
+      }
+      const dept = String(rawDept).trim();
+      setDeptId(dept);
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const periodo_desde = `${year}01`;
+      const periodo_hasta = `${year}12`;
+      const tzOffset = -360; 
+
+      const base = API_BASE_FALLBACK.replace(/\/$/, '');
+      const path = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo_desde)}&periodo_hasta=${encodeURIComponent(periodo_hasta)}&detalle=false&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
+      const url = `${base}${path}`;
+
+      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+
+      // fetch
+      const res = await fetch(url, { method: 'GET', headers });
+      let json = null;
+      try { json = await res.json(); } catch (e) { json = null; }
+
+      if (!res.ok) {
+        console.warn('[dept-history] http', res.status, json);
+        if (res.status === 404) {
+          Alert.alert('Historial no encontrado', 'Ruta 404: departamento no existe o ruta no disponible para este host / periodo.');
+        } else {
+          Alert.alert('Error', `HTTP ${res.status} consultando historial del departamento.`);
+        }
+        setLoadingMonths(false);
+        return;
+      }
+
+      const months = [];
+      for (let m = 1; m <= 12; m++) {
+        const mm = String(m).padStart(2, '0');
+        const periodo = `${year}${mm}`; 
+        months.push({
+          periodo,
+          month: m,
+          year,
+          title: `${MONTH_NAMES[m-1]} ${year}`,
+          billing: null,
+          counts: { closed_count: 0, open_count: 0 },
+          amount: 0,
+          transactions: 0,
+          consumptions: [],
+        });
+      }
+
+      if (json && Array.isArray(json.periodos)) {
+        json.periodos.forEach((p) => {
+          const idx = months.findIndex(m => m.periodo === String(p.periodo));
+          if (idx >= 0) {
+            months[idx].billing = p.billing ?? null;
+            months[idx].counts = p.counts ?? { closed_count: 0, open_count: 0 };
+            const monto = (p.billing && Number(p.billing.monto_mensual_usado)) ? Number(p.billing.monto_mensual_usado) : 0;
+            months[idx].amount = monto;
+            months[idx].transactions = ((p.counts && (Number(p.counts.closed_count) || 0)) + (p.counts && (Number(p.counts.open_count) || 0))) || 0;
+          }
+        });
+      }
+
+      setMonthsData(months);
+    } catch (err) {
+      console.warn('fetchYearHistory error', err);
+      Alert.alert('Error', 'No fue posible consultar el historial anual del departamento. Revisa conexión / host.');
+    } finally {
+      setLoadingMonths(false);
+    }
+  }, []);
+
+
+  const fetchMonthDetail = useCallback(async (periodo) => {
+    if (!deptId) {
+      Alert.alert('Departamento no encontrado', 'No se encontró departamento. Intenta de nuevo.');
+      return null;
+    }
+    try {
+      setLoadingDetail(true);
+
+      const base = API_BASE_FALLBACK.replace(/\/$/, '');
+      const path = `/api/residence/departamentos/${encodeURIComponent(String(deptId))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo)}&periodo_hasta=${encodeURIComponent(periodo)}&detalle=true&tz_offset_minutes=${encodeURIComponent(String(-360))}`;
+      const url = `${base}${path}`;
+      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+
+      const res = await fetch(url, { method: 'GET', headers });
+      let json = null;
+      try { json = await res.json(); } catch (e) { json = null; }
+
+      if (!res.ok) {
+        console.warn('[month-detail] http', res.status, json);
+        if (res.status === 404) {
+          Alert.alert('Detalle no encontrado', 'Ruta 404: detalle no disponible para este mes.');
+        } else {
+          Alert.alert('Error', `HTTP ${res.status} al consultar detalle.`);
+        }
+        setLoadingDetail(false);
+        return null;
+      }
+
+
+      let rawConsumptions = null;
+      if (json && Array.isArray(json.consumptions)) {
+        rawConsumptions = json.consumptions;
+      } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0 && Array.isArray(json.periodos[0].consumptions)) {
+        rawConsumptions = json.periodos[0].consumptions;
+      } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0) {
+        const found = json.periodos.flatMap(p => Array.isArray(p.consumptions) ? p.consumptions : []);
+        if (found.length) rawConsumptions = found;
+      }
+
+      if (!rawConsumptions && json) {
+        for (const k of Object.keys(json)) {
+          if (k.toLowerCase().includes('consum') && Array.isArray(json[k])) { rawConsumptions = json[k]; break; }
+        }
+      }
+
+      const consumptions = [];
+
+      if (Array.isArray(rawConsumptions)) {
+        rawConsumptions.forEach((c, idx) => {
+          const detail = c.detail_consumption ?? c.detail ?? c.detailConsumption ?? null;
+          const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
+                           (Array.isArray(c.items) ? c.items : []);
+
+          const items = itemsRaw.map((it, i) => ({
+            id: `${c.sale_id ?? idx}-item-${i}`,
+            label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i+1}`,
+            qty: Number(it.cantidad ?? it.qty ?? 1) || 1,
+            price: Number(it.precio_item ?? it.price ?? it.precio ?? 0) || 0,
+            raw: it,
+          }));
+
+          const aprovedBy = (c.approved_by_usuario && (c.approved_by_usuario.nombre || c.approved_by_usuario.name)) ? (c.approved_by_usuario.nombre || c.approved_by_usuario.name) : null;
+          const openedBy = (c.opened_by_usuario && (c.opened_by_usuario.nombre || c.opened_by_usuario.name)) ? (c.opened_by_usuario.nombre || c.opened_by_usuario.name) : null;
+
+          const restaurantName = (c.restaurante && (c.restaurante.nombre || c.restaurante.name)) ? (c.restaurante.nombre || c.restaurante.name) : null;
+          const fallbackName = aprovedBy || openedBy || restaurantName || `Transacción ${c.sale_id ?? (idx + 1)}`;
+
+          const initials = String((aprovedBy || openedBy || restaurantName || '').split(' ').map(x => x[0] || '').slice(0,2).join('')).toUpperCase() || '—';
+
+          const fechaA = (c.fechas && (c.fechas.fecha_apertura || c.fechas.fechaApertura)) || c.fecha_apertura || c.fechaApertura || null;
+          const fechaC = (c.fechas && (c.fechas.fecha_cierre || c.fechas.fechaCierre)) || c.fecha_cierre || c.fechaCierre || null;
+
+          let timestamp = '';
+          if (fechaA) {
+            const d = new Date(fechaA);
+            const day = d.getDate();
+            const monthShort = MONTH_NAMES[d.getMonth()].slice(0,3).toLowerCase();
+            const hours = String(d.getHours()).padStart(2,'0');
+            const mins = String(d.getMinutes()).padStart(2,'0');
+            timestamp = `${day} ${monthShort} · ${hours}:${mins}`;
+          }
+
+          const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0);
+
+          consumptions.push({
+            id: c.sale_id ?? `c-${idx}`,
+            sale_id: c.sale_id ?? null,
+            estado: c.estado ?? c.status ?? null,
+            approved_by: aprovedBy ? { nombre: aprovedBy, raw: c.approved_by_usuario } : null,
+            opened_by: openedBy ? { nombre: openedBy, raw: c.opened_by_usuario } : null,
+            restaurant: restaurantName,
+            name: fallbackName,
+            initials,
+            timestamp,
+            amount: total,
+            items,
+            raw: c,
+            fecha_apertura: fechaA,
+            fecha_cierre: fechaC,
+          });
+        });
+      }
+
+      setLoadingDetail(false);
+      return consumptions;
+    } catch (err) {
+      console.warn('fetchMonthDetail error', err);
+      Alert.alert('Error', 'No fue posible obtener detalle del mes.');
+      setLoadingDetail(false);
+      return null;
+    }
+  }, [deptId]);
+
+  useFocusEffect(useCallback(() => {
+    fetchYearHistory();
+  }, [fetchYearHistory]));
+
+  useEffect(() => {
+    fetchYearHistory();
+  }, [fetchYearHistory]);
+
+  const openSheetFor = async (monthObj) => {
+    setExpandedTxIds([]);
+    setSelectedMonth({ ...monthObj, consumptions: [], loading: true });
+    setSheetVisible(true);
+    Animated.timing(animY, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+
+    const periodo = monthObj.periodo;
+    const consumptions = await fetchMonthDetail(periodo);
+    setSelectedMonth((prev) => ({ ...(prev || {}), consumptions: consumptions || [], loading: false, title: monthObj.title, amount: monthObj.amount, transactions: monthObj.transactions }));
   };
 
-  const renderPayment = ({ item }) => {
-    const isPending = item.statusKey === 'pending';
-    const isPaid = item.statusKey === 'paid';
+  const closeSheet = () => {
+    Animated.timing(animY, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+      setSheetVisible(false);
+      setSelectedMonth(null);
+      setExpandedTxIds([]);
+    });
+  };
 
-    return (
-      <View style={{ marginBottom: 12 }}>
-        <View
-          style={[
-            styles.paymentCard,
-            isPending ? styles.paymentCardPending : styles.paymentCardDefault,
-          ]}
-        >
-          <View style={styles.paymentTopRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
-              <View style={[styles.paymentIconWrap, { width: 52, height: 52, borderRadius: 12 }]}>
-                <Ionicons name="time-outline" size={20} color={isPending ? '#FF7A54' : '#7C3AED'} />
-              </View>
-
-              <View style={{ marginLeft: 14, flex: 1 }}>
-                <Text style={styles.paymentTitle} numberOfLines={2}>
-                  {item.title}
-                </Text>
-                <Text style={styles.paymentDate}>{item.date}</Text>
-                <TouchableOpacity onPress={() => openSheetFor(item)}>
-                  <Text style={styles.linkText}>{item.transactions} transacciones</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-              <Text style={styles.paymentAmount}>${Number(item.amount).toFixed(2)}</Text>
-
-              {isPending && (
-                <View style={[styles.badge, styles.badgePending]}>
-                  <Ionicons name="time-outline" size={14} color="#B65713" style={{ marginRight: 6 }} />
-                  <Text style={[styles.badgeText, { color: '#B65713' }]}>{item.status}</Text>
-                </View>
-              )}
-
-              {isPaid && (
-                <View style={[styles.badge, styles.badgePaid]}>
-                  <Ionicons name="checkmark" size={14} color="#0A6F3A" style={{ marginRight: 6 }} />
-                  <Text style={[styles.badgeText, { color: '#0A6F3A' }]}>{item.status}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={styles.exportSmallBtn}
-                onPress={() => exportPayment(item)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="download-outline" size={14} color="#111" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.sepLine} />
-
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => openSheetFor(item)}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="eye-outline" size={16} color="#6B21A8" />
-            <Text style={styles.actionBtnText}>Ver detalle de consumos</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+  const exportPayment = (payment) => {
+    console.log('Exportando periodo:', payment.periodo);
+    Alert.alert('Exportar', `Exportando periodo ${payment.title}`);
   };
 
   const toggleTxExpand = (txId) => {
@@ -262,11 +308,10 @@ export default function ExperiencesScreen() {
 
   const renderTransaction = (tx) => {
     const expanded = expandedTxIds.includes(tx.id);
-    const computedSubtotal = (Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + (Number(it.price) || 0), 0) : 0).toFixed(2);
+    const computedSubtotal = (Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty)||1)), 0) : 0).toFixed(2);
 
     return (
       <View key={tx.id} style={sheetStyles.personCard}>
-        {/* header */}
         <TouchableOpacity onPress={() => toggleTxExpand(tx.id)} activeOpacity={0.85} style={sheetStyles.personHeader}>
           <View style={sheetStyles.personLeft}>
             <View style={[sheetStyles.avatar, { backgroundColor: '#6B21A8' }]}>
@@ -278,11 +323,16 @@ export default function ExperiencesScreen() {
             <Text numberOfLines={1} style={sheetStyles.personName}>{tx.name}</Text>
             <Text style={sheetStyles.personTime}>{tx.timestamp}</Text>
             <Text style={sheetStyles.personMeta}>{tx.items.length} artículo{tx.items.length === 1 ? '' : 's'}</Text>
+
+            {tx.approved_by ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Aprobado por: {tx.approved_by.nombre}</Text> : null}
+            {(!tx.approved_by && tx.opened_by) ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Abierto por: {tx.opened_by.nombre}</Text> : null}
           </View>
 
           <View style={sheetStyles.personRight}>
             <Text style={sheetStyles.personAmount}>${Number(tx.amount).toFixed(2)}</Text>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#6B21A8" />
+            {tx.sale_id ? <Text style={{ color: '#94A3B8', marginTop: 6, fontSize: 12 }}>#{tx.sale_id}</Text> : null}
+            {tx.estado ? <Text style={{ color: '#94A3B8', marginTop: 2, fontSize: 12 }}>{tx.estado}</Text> : null}
           </View>
         </TouchableOpacity>
 
@@ -290,8 +340,8 @@ export default function ExperiencesScreen() {
           <View style={sheetStyles.personBody}>
             {tx.items.map((it) => (
               <View key={it.id} style={sheetStyles.personItemRow}>
-                <Text style={sheetStyles.personItemLabel}>{it.label}</Text>
-                <Text style={sheetStyles.personItemPrice}>${Number(it.price).toFixed(2)}</Text>
+                <Text style={sheetStyles.personItemLabel}>{it.label} {it.qty && it.qty > 1 ? `x${it.qty}` : ''}</Text>
+                <Text style={sheetStyles.personItemPrice}>${Number((it.price || 0) * (it.qty || 1)).toFixed(2)}</Text>
               </View>
             ))}
 
@@ -301,11 +351,101 @@ export default function ExperiencesScreen() {
               <Text style={sheetStyles.personSummaryLabel}>Subtotal</Text>
               <Text style={sheetStyles.personSummaryValue}>${computedSubtotal}</Text>
             </View>
+
+            {tx.fecha_apertura ? <Text style={{ color: '#6b7280', marginTop: 8 }}>Apertura: {new Date(tx.fecha_apertura).toLocaleString()}</Text> : null}
+            {tx.fecha_cierre ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Cierre: {new Date(tx.fecha_cierre).toLocaleString()}</Text> : null}
           </View>
         )}
       </View>
     );
   };
+
+  const listData = monthsData.length ? monthsData : [
+    {
+      periodo: `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2,'0')}`,
+      month: new Date().getMonth() + 1,
+      year: new Date().getFullYear(),
+      title: `${MONTH_NAMES[new Date().getMonth()]} ${new Date().getFullYear()}`,
+      billing: null,
+      counts: { closed_count: 0, open_count: 0 },
+      amount: 0,
+      transactions: 0,
+      consumptions: [],
+    }
+  ];
+
+  const renderPayment = ({ item }) => {
+    const isPending = (item.transactions || 0) > 0 && (item.amount || 0) === 0;
+    const isHasMov = (item.transactions || 0) > 0;
+    return (
+      <View style={{ marginBottom: 12 }}>
+        <View style={[ styles.paymentCard, isPending ? styles.paymentCardPending : styles.paymentCardDefault ]}>
+          <View style={styles.paymentTopRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
+              <View style={[styles.paymentIconWrap, { width: 52, height: 52, borderRadius: 12 }]}>
+                <Ionicons name="time-outline" size={20} color={isHasMov ? '#7C3AED' : '#94A3B8'} />
+              </View>
+
+              <View style={{ marginLeft: 14, flex: 1 }}>
+                <Text style={styles.paymentTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={styles.paymentDate}>{ `${item.year}-${String(item.month).padStart(2,'0')}-01`}</Text>
+                <TouchableOpacity onPress={() => openSheetFor(item)}>
+                  <Text style={styles.linkText}>{item.transactions} transacciones</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+              <Text style={styles.paymentAmount}>${Number(item.amount).toFixed(2)}</Text>
+
+              {item.transactions > 0 ? (
+                <View style={[styles.badge, styles.badgePending]}>
+                  <Ionicons name="time-outline" size={14} color="#B65713" style={{ marginRight: 6 }} />
+                  <Text style={[styles.badgeText, { color: '#B65713' }]}>{item.transactions} trans.</Text>
+                </View>
+              ) : (
+                <View style={[styles.badge, styles.badgePaid]}>
+                  <Ionicons name="checkmark" size={14} color="#0A6F3A" style={{ marginRight: 6 }} />
+                  <Text style={[styles.badgeText, { color: '#0A6F3A' }]}>Sin movimientos</Text>
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.exportSmallBtn} onPress={() => exportPayment(item)} activeOpacity={0.8}>
+                <Ionicons name="download-outline" size={14} color="#111" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sepLine} />
+
+          <TouchableOpacity style={styles.actionBtn} onPress={() => openSheetFor(item)} activeOpacity={0.9}>
+            <Ionicons name="eye-outline" size={16} color="#6B21A8" />
+            <Text style={styles.actionBtnText}>Ver detalle de consumos</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const now = new Date();
+  const currentMonthIdx = now.getMonth();
+  let assignedBalance = 3500.0; 
+  let consumed = 425.0;
+  let available = assignedBalance - consumed;
+  if (Array.isArray(monthsData) && monthsData.length) {
+    const cur = monthsData.find(m => m.periodo === `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`);
+    if (cur && cur.billing) {
+      assignedBalance = Number(cur.billing.saldo_mensual ?? cur.billing.saldo_mensual ?? assignedBalance) || assignedBalance;
+      consumed = Number(cur.billing.monto_mensual_usado ?? consumed) || consumed;
+      available = Number(cur.billing.saldo_disponible ?? (assignedBalance - consumed)) || (assignedBalance - consumed);
+    } else {
+      const firstWithSaldo = monthsData.find(m => m.billing && m.billing.saldo_mensual);
+      if (firstWithSaldo && firstWithSaldo.billing) {
+        assignedBalance = Number(firstWithSaldo.billing.saldo_mensual) || assignedBalance;
+      }
+    }
+  }
+  const utilization = Math.round((consumed / Math.max(1, assignedBalance)) * 1000) / 10;
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -331,7 +471,7 @@ export default function ExperiencesScreen() {
                   <View style={styles.gradientIcon}>
                     <MaterialIcons name="event" size={iconSize} color="#fff" />
                   </View>
-                  <Text style={[styles.gradientTitle, { marginLeft: 12 }]}>Noviembre De 2025</Text>
+                  <Text style={[styles.gradientTitle, { marginLeft: 12 }]}>{`${MONTH_NAMES[currentMonthIdx]} De ${now.getFullYear()}`}</Text>
                 </View>
 
                 <View style={{ height: 14 }} />
@@ -389,26 +529,31 @@ export default function ExperiencesScreen() {
           </View>
         </View>
 
-        <View
-          style={{
-            paddingHorizontal: horizontalPad,
-            marginTop: 18,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
+        <View style={{
+          paddingHorizontal: horizontalPad,
+          marginTop: 18,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
           <Text style={[styles.sectionTitle, { fontSize: headingFont }]}>Pagos al Restaurante</Text>
         </View>
 
         <View style={{ paddingHorizontal: horizontalPad, marginTop: 12 }}>
-          <FlatList
-            data={SAMPLE_PAYMENTS}
-            keyExtractor={(i) => i.id}
-            renderItem={renderPayment}
-            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-            scrollEnabled={false}
-          />
+          {loadingMonths ? (
+            <View style={{ padding: 14, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#7C3AED" />
+              <Text style={{ marginTop: 8 }}>Cargando consumos del año…</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={listData}
+              keyExtractor={(i) => i.periodo}
+              renderItem={renderPayment}
+              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+              scrollEnabled={false}
+            />
+          )}
         </View>
 
         <View style={{ height: 36 }} />
@@ -445,38 +590,43 @@ export default function ExperiencesScreen() {
 
           <ScrollView contentContainerStyle={sheetStyles.sheetContent}>
             <Text style={sheetStyles.sheetTitle} numberOfLines={2}>
-              {selectedPayment?.title ?? 'Detalle de consumos'}
+              {selectedMonth?.title ?? 'Detalle de consumos'}
             </Text>
 
             <View style={sheetStyles.totalBox}>
               <View style={{ flex: 1 }}>
                 <Text style={sheetStyles.totalLabel}>Total del periodo</Text>
-                <Text style={sheetStyles.totalSubs}>{selectedPayment?.transactions ?? 0} transacciones realizadas</Text>
+                <Text style={sheetStyles.totalSubs}>{selectedMonth?.transactions ?? 0} transacciones realizadas</Text>
               </View>
-              <Text style={sheetStyles.totalAmount}>${Number(selectedPayment?.amount ?? 0).toFixed(2)}</Text>
+              <Text style={sheetStyles.totalAmount}>${Number(selectedMonth?.amount ?? 0).toFixed(2)}</Text>
             </View>
 
             <Text style={sheetStyles.sectionHeading}>Detalle de consumos</Text>
 
             <View style={{ marginTop: 10 }}>
-              {(selectedPayment?.details || []).length === 0 && (
+              {(selectedMonth?.loading) ? (
+                <View style={sheetStyles.emptyNotice}>
+                  <ActivityIndicator size="small" color="#6B21A8" />
+                  <Text style={{ marginTop: 8 }}>Cargando detalle…</Text>
+                </View>
+              ) : (selectedMonth && (selectedMonth?.consumptions || []).length === 0) ? (
                 <View style={sheetStyles.emptyNotice}>
                   <Text style={sheetStyles.emptyText}>No hay consumos registrados en este periodo.</Text>
                 </View>
+              ) : (
+                (selectedMonth?.consumptions || []).map((tx) => renderTransaction(tx))
               )}
-
-              {(selectedPayment?.details || []).map((tx) => renderTransaction(tx))}
             </View>
 
             <View style={sheetStyles.footerSummary}>
-              <View style={sheetStyles.footerLeft}>
+{/*               <View style={sheetStyles.footerLeft}>
                 <Text style={sheetStyles.footerLabel}>Personas</Text>
-                <Text style={sheetStyles.footerValue}>{(selectedPayment?.details || []).length}</Text>
+                <Text style={sheetStyles.footerValue}>{(selectedMonth?.consumptions || []).length}</Text>
               </View>
               <View style={sheetStyles.footerRight}>
                 <Text style={sheetStyles.footerLabel}>Total</Text>
-                <Text style={sheetStyles.footerValue}>${Number(selectedPayment?.amount ?? 0).toFixed(2)}</Text>
-              </View>
+                <Text style={sheetStyles.footerValue}>${Number(selectedMonth?.amount ?? 0).toFixed(2)}</Text>
+              </View> */}
             </View>
 
             <View style={{ height: 40 }} />

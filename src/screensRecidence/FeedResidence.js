@@ -9,6 +9,7 @@ import {
   PixelRatio,
   FlatList,
   Pressable,
+  Image,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -18,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 'Comunidad', 'Menu'];
 
 const API_URL = 'https://api.residence.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; // coloca aquí tu token si lo deseas
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 export default function FeedResicende() {
   const navigation = useNavigation();
@@ -97,6 +98,52 @@ export default function FeedResicende() {
     return { id: String(id), title, category, date, body, priority, color, raw: apiItem };
   };
 
+  const parseTimeTokenToMinutes = (tkn) => {
+    if (!tkn) return null;
+    let s = String(tkn).trim().toLowerCase();
+    s = s.replace(/\s+/g, ' ').trim();
+    const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+    if (!m) return null;
+    let hh = Number(m[1]);
+    const mm = Number(m[2] ?? 0);
+    const ampm = (m[3] || '').toLowerCase();
+    if (ampm === 'am' || ampm === 'pm') {
+      if (ampm === 'pm' && hh < 12) hh += 12;
+      if (ampm === 'am' && hh === 12) hh = 0;
+    }
+    if (!ampm && hh === 24) hh = 0;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return hh * 60 + mm;
+  };
+
+  const parseHorarioRange = (horario) => {
+    if (!horario || typeof horario !== 'string') return null;
+    const parts = horario.split(/\s*(?:-|–|—|a|to)\s*/i).map(p => p.trim()).filter(Boolean);
+    if (parts.length < 2) return null;
+    const start = parseTimeTokenToMinutes(parts[0]);
+    const end = parseTimeTokenToMinutes(parts[1]);
+    if (start === null || end === null) return null;
+    return { start, end, raw: horario };
+  };
+
+  const isOpenNow = (horario) => {
+    const range = parseHorarioRange(horario);
+    if (!range) return null;
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const { start, end } = range;
+    if (start <= end) {
+      return currentMinutes >= start && currentMinutes < end;
+    } else {
+      return currentMinutes >= start || currentMinutes < end;
+    }
+  };
+
+  const formatHorarioDisplay = (horario) => {
+    if (!horario || typeof horario !== 'string') return null;
+    return horario.replace(/\s*(?:-|–|—|a|to)\s*/gi, ' - ');
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -147,14 +194,36 @@ export default function FeedResicende() {
             const restJson = await restRes.json();
             const arr = extractArray(restJson);
             if (arr && Array.isArray(arr)) {
-              const normalized = arr.map((r, idx) => ({
-                id: String(r.id ?? r.restaurante_id ?? r.restaurant_id ?? idx),
-                nombre: r.nombre ?? r.name ?? r.title ?? `Restaurante ${idx + 1}`,
-                raw: r,
-              }));
+              const normalized = arr.map((r, idx) => {
+                const nombre = r.nombre ?? r.name ?? r.title ?? `Restaurante ${idx + 1}`;
+                const edificio_nombre = r.edificio_nombre ?? r.edificioName ?? r.building_name ?? null;
+                const horario_atencion = r.horario_atencion ?? r.horario ?? r.horarioAtencion ?? null;
+                const imagen_perfil_url = r.imagen_perfil_url ?? r.imagenPerfilUrl ?? r.logo_url ?? r.imagen ?? null;
+
+                const horarioDisplay = horario_atencion ? formatHorarioDisplay(String(horario_atencion)) : null;
+                const openNow = horario_atencion ? isOpenNow(String(horario_atencion)) : null;
+
+                return {
+                  id: String(r.id ?? r.restaurante_id ?? r.restaurant_id ?? idx),
+                  nombre,
+                  edificio_nombre,
+                  horario_atencion,
+                  horarioDisplay,
+                  imagen_perfil_url,
+                  openNow,
+                  raw: r,
+                };
+              });
               if (mounted) setRestaurants(normalized);
             } else if (restJson && (restJson.nombre || restJson.name)) {
-              const single = [{ id: String(restJson.id ?? 'r1'), nombre: restJson.nombre ?? restJson.name, raw: restJson }];
+              const r = restJson;
+              const nombre = r.nombre ?? r.name;
+              const edificio_nombre = r.edificio_nombre ?? r.edificioName ?? r.building_name ?? null;
+              const horario_atencion = r.horario_atencion ?? r.horario ?? r.horarioAtencion ?? null;
+              const imagen_perfil_url = r.imagen_perfil_url ?? r.imagenPerfilUrl ?? r.logo_url ?? r.imagen ?? null;
+              const horarioDisplay = horario_atencion ? formatHorarioDisplay(String(horario_atencion)) : null;
+              const openNow = horario_atencion ? isOpenNow(String(horario_atencion)) : null;
+              const single = [{ id: String(restJson.id ?? 'r1'), nombre, edificio_nombre, horario_atencion, horarioDisplay, imagen_perfil_url, openNow, raw: restJson }];
               if (mounted) setRestaurants(single);
             } else {
               if (mounted) setRestaurants([]);
@@ -322,15 +391,27 @@ export default function FeedResicende() {
                         width: iconBoxSize * 0.72,
                         height: iconBoxSize * 0.72,
                         borderRadius: Math.round((iconBoxSize * 0.72) * 0.18),
+                        overflow: 'hidden',
+                        backgroundColor: 'transparent',
                       },
                     ]}
                   >
-                    <Ionicons name="restaurant" size={Math.round((iconBoxSize * 0.72) * 0.44)} color="#fff" />
+                    {r.imagen_perfil_url && String(r.imagen_perfil_url).startsWith('http') ? (
+                      <Image
+                        source={{ uri: r.imagen_perfil_url }}
+                        style={{ width: '100%', height: '100%', borderRadius: Math.round((iconBoxSize * 0.72) * 0.18) }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Ionicons name="restaurant" size={Math.round((iconBoxSize * 0.72) * 0.44)} color="#fff" />
+                    )}
                   </View>
 
                   <View style={{ marginLeft: 12 }}>
-                    <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]}>{r.nombre}</Text>
-                    <Text style={[styles.stripSubtitle, { fontSize: smallText }]}>Residencia Universitaria</Text>
+                    <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]} numberOfLines={1}>{r.nombre}</Text>
+                    <Text style={[styles.stripSubtitle, { fontSize: smallText }]} numberOfLines={1}>
+                      {r.edificio_nombre ?? 'Residencia Universitaria'}
+                    </Text>
                   </View>
                 </View>
               </LinearGradient>
@@ -343,12 +424,32 @@ export default function FeedResicende() {
                   </View>
 
                   <View style={styles.valuesCol}>
-                    <Text style={[styles.infoValue, { fontSize: smallText }]}>7:00 AM - 10:00 PM</Text>
+                    <Text style={[styles.infoValue, { fontSize: smallText }]}>
+                      {r.horarioDisplay ?? '7:00 AM - 10:00 PM'}
+                    </Text>
 
                     <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
-                      <View style={styles.openPill}>
-                        <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
-                      </View>
+                      {(() => {
+                        if (r.openNow === null || r.openNow === undefined) {
+                          return (
+                            <View style={styles.openPill}>
+                              <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
+                            </View>
+                          );
+                        }
+                        if (r.openNow === true) {
+                          return (
+                            <View style={styles.openPill}>
+                              <Text style={[styles.openPillText, { fontSize: Math.round(clamp(rf(2.8), 11, 12)) }]}>Abierto</Text>
+                            </View>
+                          );
+                        }
+                        return (
+                          <View style={{ backgroundColor: '#FEE2E2', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16 }}>
+                            <Text style={{ color: '#B91C1C', fontWeight: '800', fontSize: Math.round(clamp(rf(2.8), 11, 12)) }}>Cerrado</Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                   </View>
                 </View>

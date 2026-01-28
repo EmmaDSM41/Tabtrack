@@ -16,7 +16,6 @@ import ForgotPassword from './src/screens/ForgotPassword';
 import Home from './src/screens/Home';
 import TermsAndConditions from './src/screens/TermsAndConditions';
 import VerificationScreen from './src/screens/VerificacionScreen';
-import ResidenceLoginScreen from './src/screensRecidence/LoginResidence';
 import CodeResidence from './src/screensRecidence/CodeResidence';
 import HomeResidence from './src/screensRecidence/HomeResidence';
 import SplashResidence from './src/screensRecidence/SplashResidence';
@@ -49,7 +48,6 @@ export default function App() {
 
        
         {/* Auth screens Recidence */}
-        <Stack.Screen name="LoginResidence" component={ResidenceLoginScreen} />
         <Stack.Screen name="CodeResidence" component={CodeResidence} />
         <Stack.Screen name="SplashResidence" component={SplashResidence} />
 

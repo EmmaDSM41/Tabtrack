@@ -36,7 +36,6 @@ export default function Dividir() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  // responsive helpers
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -48,14 +47,12 @@ export default function Dividir() {
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-  // safe paddings to avoid notch/statusbar overlap
   const topSafe = Math.round(
     Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0))
   );
   const bottomSafe = Math.round(insets?.bottom ?? 0);
-  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36)); // lateral padding con límites
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36)); 
 
-  // breakpoints
   const isNarrow = width < 420;
   const contentMaxWidth = Math.round(Math.min(width - Math.round(wp(8)), 960));
 
@@ -91,7 +88,6 @@ export default function Dividir() {
   };
   const hideStyledAlert = () => setStyledAlertVisible(false);
 
-  // CHECK: flag que indica si debemos ocultar el botón "Partes iguales"
   const hideEqualButtonFlag = !!route?.params?.hideEqualButton;
 
   const parsePrice = (v) => {
@@ -415,7 +411,6 @@ export default function Dividir() {
               currentCopy[matchIndex] = { ...currentCopy[matchIndex], locked: true, checked: false, paidInfo: { reason: 'matched_by_exact_amount' } };
               changed = true;
             } else {
-              // no bloquear por heurística combinatoria
             }
           }
 
@@ -434,7 +429,6 @@ export default function Dividir() {
     load();
 
     return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingItems, token, saleId, restauranteId, sucursalId, allowPaymentsCheck]);
 
   useEffect(() => {
@@ -473,8 +467,25 @@ export default function Dividir() {
 
   const usesExternalTotal = externalTotalConsumo !== null && externalTotalConsumo !== undefined;
   const total = useMemo(() => (usesExternalTotal ? round2(Number(externalTotalConsumo || 0)) : itemsSum), [usesExternalTotal, externalTotalConsumo, itemsSum]);
-  const iva = useMemo(() => round2(total / 1.16 * 0.16), [total]);
-  const subtotal = useMemo(() => round2(total - iva), [total, iva]);
+
+  const lockedSum = useMemo(() => {
+    return round2((items || []).reduce((s, it) => s + (it.locked ? Number(it.price || 0) : 0), 0));
+  }, [items]);
+
+  const unpaidSum = useMemo(() => {
+    return round2((items || []).reduce((s, it) => s + (!it.locked ? Number(it.price || 0) : 0), 0));
+  }, [items]);
+
+  const displayTotal = useMemo(() => {
+    if (usesExternalTotal) {
+      const candidate = Number(externalTotalConsumo || 0) - Number(lockedSum || 0);
+      return round2(Math.max(0, candidate));
+    }
+    return unpaidSum;
+  }, [usesExternalTotal, externalTotalConsumo, lockedSum, unpaidSum]);
+
+  const iva = useMemo(() => round2(displayTotal / 1.16 * 0.16), [displayTotal]);
+  const subtotal = useMemo(() => round2(displayTotal - iva), [displayTotal, iva]);
 
   const selectedItems = useMemo(() => (items || []).filter(i => i.checked && !i.locked), [items]);
   const anySelected = selectedItems.length > 0;
@@ -561,7 +572,6 @@ export default function Dividir() {
     const pIva = round2(pTotal / 1.16 * 0.16);
     const pSubtotal = round2(pTotal - pIva);
 
-    // MAPEO DE ITEMS: asegurarnos de enviar campos de precio comunes para evitar 0 en la pantalla objetivo
     const payloadForEqual = payload.map(it => ({
       ...it,
       price: Number(it.price || 0),
@@ -586,7 +596,7 @@ export default function Dividir() {
 
   const handleOneExhibicion = () => {
     if (equalsSplitPaid) {
-      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar este método.');
+      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar este método.' );
       return;
     }
 
@@ -629,11 +639,10 @@ export default function Dividir() {
 
   const handleBack = () => navigation.canGoBack?.() ? navigation.goBack() : null;
 
-  // New: share via native Share API
   const handleShare = async () => {
     try {
       const fields = sharedHiddenFields();
-      const niceTotal = formatMoney(total);
+      const niceTotal = formatMoney(displayTotal);
       const shareParts = [];
       shareParts.push(`Cuenta compartida${fields.saleId ? ` (venta ${fields.saleId})` : ''}`);
       shareParts.push(`Total: ${niceTotal} ${moneda}`);
@@ -659,13 +668,11 @@ export default function Dividir() {
     );
   }
 
-  // computed sizes used inline
   const rightColWidth = Math.round(Math.min(360, width * 0.72));
   const whiteContentWidth = contentMaxWidth;
   const modalBoxWidth = Math.round(Math.min(width - 48, 420));
 
-  // FIX: asegurar que los botones (shareBtnWidth) no sean más anchos que el contenedor blanco
-  const whiteContentPad = Math.round(wp(4)) * 2; // paddingHorizontal * 2 (left+right)
+  const whiteContentPad = Math.round(wp(4)) * 2; 
   const shareBtnWidth = Math.round(
     Math.max(
       120,
@@ -677,7 +684,6 @@ export default function Dividir() {
     )
   );
 
-  // memoize styles (no recreación cada render)
   const styles = useMemo(() => makeStyles({
     wp, hp, rf, clamp, width, height,
     rightColWidth, whiteContentWidth, modalBoxWidth,
@@ -699,7 +705,6 @@ export default function Dividir() {
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
 
-        {/* Ajuste: header similar al que me pasaste (logo arriba + imagen, pregunta a la derecha) */}
         <LinearGradient
           colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 0.5 }}
@@ -716,7 +721,6 @@ export default function Dividir() {
             </View>
 
             <View style={[styles.rightCol, { maxWidth: rightColWidth, marginRight: Math.max(12, wp(3)) }]}>
-              {/* Pregunta: ahora un poco más chica */}
               <Text style={[styles.divideTitle]}>{'Selecciona\ntus productos'}</Text>
 
               <View style={styles.stackButtons}>
@@ -786,13 +790,12 @@ export default function Dividir() {
 
             <View style={[styles.desgloseRow, { marginTop: Math.round(hp(0.5)) }]}>
               <Text style={[styles.desgloseLabel, { fontSize: Math.round(clamp(rf(4.6), 16, 20)) }]}>Total</Text>
-              <Text style={[styles.desgloseValue, { fontSize: Math.round(clamp(rf(5.2), 18, 24)) }]}>{formatMoney(total)} MXN</Text>
+              <Text style={[styles.desgloseValue, { fontSize: Math.round(clamp(rf(5.2), 18, 24)) }]}>{formatMoney(displayTotal)} MXN</Text>
             </View>
           </View>
 
           <View style={{ height: Math.round(hp(1)) }} />
 
-          {/* Pagar por consumo (estilo igual al botón Compartir) */}
           <LinearGradient
             colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
             start={{ x: 0, y: 0 }}
@@ -809,24 +812,11 @@ export default function Dividir() {
             </TouchableOpacity>
           </LinearGradient>
 
-          {/* Compartir cuenta (Share nativo) */}
           <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.shareButtonText}>Compartir cuenta</Text>
           </TouchableOpacity>
 
           <View style={styles.socialRow}>
-  {/*           <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="logo-whatsapp" size={Math.round(rf(4))} color="#25D366" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="logo-facebook" size={Math.round(rf(4))} color="#1877F2" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="mail-outline" size={Math.round(rf(4))} color="#374151" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconWrap} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="logo-instagram" size={Math.round(rf(4))} color="#C13584" />
-            </TouchableOpacity> */}
           </View>
         </View>
 
@@ -852,7 +842,6 @@ export default function Dividir() {
   );
 }
 
-/* estilos responsivos generados por makeStyles-like (valores por defecto aquí para fallback) */
 function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteContentWidth, modalBoxWidth, topSafe, bottomSafe, sidePad, isNarrow }) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f5f7fb' },
@@ -875,7 +864,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
 
     container: { alignItems: 'center', paddingTop: Math.round(hp(1)), paddingBottom: Math.round(hp(3) + bottomSafe) },
 
-    /* headerGradient style taken from your reference layout (Escanear) */
     headerGradient: { width: '100%', borderBottomRightRadius: Math.round(Math.max(28, wp(8))), overflow: 'hidden' },
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
 
@@ -885,7 +873,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     restaurantImage: { backgroundColor: '#fff' },
 
     rightCol: { alignItems: isNarrow ? 'flex-start' : 'flex-end', justifyContent: 'flex-start', paddingTop: 2 },
-    // Pregunta un poco más pequeña que antes, y alineación responsiva (derecha en pantallas amplias)
     divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.6), 16, 36)), fontWeight: '900', lineHeight: Math.round(clamp(rf(7.8), 20, 42)), marginBottom: Math.round(hp(1)), textAlign: isNarrow ? 'left' : 'right', width: '100%' },
 
     stackButtons: { width: '100%', alignItems: isNarrow ? 'flex-start' : 'flex-end' },
@@ -917,7 +904,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     ivaRow: { paddingTop: 0 },
     ivaText: { fontWeight: '800' },
 
-    // aseguramos que los botones estén centrados dentro del contenedor blanco
     shareButton: { backgroundColor: '#0046ff', paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2)), alignItems: 'center', marginTop: Math.round(hp(1)), alignSelf: 'center' },
     shareButtonText: { color: '#fff', fontWeight: '800', fontSize: Math.round(clamp(rf(3.8), 14, 18)) },
 
@@ -929,24 +915,23 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     modalTitle: { color: '#fff', fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight: '800', marginBottom: Math.round(hp(1)) },
     modalMessage: { color: '#000', fontSize: Math.round(clamp(rf(3.6), 12, 16)), textAlign: 'center', marginBottom: Math.round(hp(1.4)) },
     modalButtonsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between' },
-modalBtnPrimary: {
- 
-  flex: 1,
-  paddingVertical: Math.round(hp(0.4)),
-  borderRadius: Math.round(wp(2.2)),
-  backgroundColor: '#ffffffff',
-  marginRight: Math.round(wp(2)),
-  alignItems: 'center',
-  justifyContent: 'center',           // centrar verticalmente
-  minHeight: Math.round(hp(4)),       // da espacio para el texto
-  
-},modalBtnPrimaryText: {
-  color: '#0046ff',                       // negro sobre rosa claro está bien
-  fontWeight: '700',                   // '900' a veces falla con fuentes custom
-  fontSize: Math.round(clamp(rf(3.4), 13, 16)) || 14, // fallback seguro
-  includeFontPadding: false,
-  textAlign: 'center',
-},    
+    modalBtnPrimary: {
+      flex: 1,
+      paddingVertical: Math.round(hp(0.4)),
+      borderRadius: Math.round(wp(2.2)),
+      backgroundColor: '#ffffffff',
+      marginRight: Math.round(wp(2)),
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: Math.round(hp(4)),
+    },
+    modalBtnPrimaryText: {
+      color: '#0046ff',
+      fontWeight: '700',
+      fontSize: Math.round(clamp(rf(3.4), 13, 16)) || 14,
+      includeFontPadding: false,
+      textAlign: 'center',
+    },
     modalBtnGhost: { flex: 1, paddingVertical: Math.round(hp(1.4)), borderRadius: Math.round(wp(2.2)), backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)', marginLeft: Math.round(wp(2)), alignItems: 'center' },
     modalBtnGhostText: { color: '#000', fontWeight: '700', fontSize: Math.round(clamp(rf(3.4), 13, 16)) },
 

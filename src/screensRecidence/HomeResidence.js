@@ -7,8 +7,6 @@ import QrResidence from './QrResidence';
 import ExperiencesResidence from './ExperiencesResidence';
 import ProfileResidence from './ProfileResidence';
 import QRScreen from '../screens/QRScreen';
-import NoticesResidence from './NoticesResidence';
-import PaymentMethods from '../screens/PaymentMethods';
 import InfoPersonal from '../screens/InfoPersonal';
 import Facturacion from '../screens/Facturacion';
 import SesionAndSecurity from '../screens/SesionAndSecurity';
@@ -17,6 +15,7 @@ import TermsAndConditions from '../screens/TermsAndConditions';
 import ChangePassword from '../screens/ChangePassword';
 import PaymentMethodsResidence from './PaymentMethodsResidence';
 import MiembrosResidence from './MiembrosResidence';
+import CuentaResidence from './CuentaResidence';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -25,8 +24,7 @@ function FeedResidenceStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
        <Stack.Screen name="FeedResicende" component={FeedResidence} />
-       <Stack.Screen name="NoticesResidence" component={NoticesResidence} />
-
+ 
  
     </Stack.Navigator>
   );
@@ -37,6 +35,8 @@ function QrResidenceStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
        <Stack.Screen name="QrResidence" component={QrResidence} />
        <Stack.Screen name="Miembros" component={MiembrosResidence} />
+       <Stack.Screen name="CuentaResidence" component={CuentaResidence} />
+
  
     </Stack.Navigator>
   );

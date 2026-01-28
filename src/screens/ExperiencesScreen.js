@@ -779,7 +779,7 @@ export default function VisitsScreen(props) {
             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-                <Text style={styles.markAllText}>Marcar todo leído</Text>
+{/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
               </TouchableOpacity>
             </View>
 
@@ -951,8 +951,8 @@ const styles = StyleSheet.create({
   title: { fontWeight: '600', color: '#0046ff',  marginLeft: 120,  },
   iconsRight: { flexDirection: 'row', alignItems: 'center' },
   tabLogo: { resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
-  badgeText: { color: '#fff', fontSize: 10 },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 8 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
