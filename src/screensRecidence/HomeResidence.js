@@ -16,6 +16,7 @@ import ChangePassword from '../screens/ChangePassword';
 import PaymentMethodsResidence from './PaymentMethodsResidence';
 import MiembrosResidence from './MiembrosResidence';
 import CuentaResidence from './CuentaResidence';
+import ConfirmacionConsumo from './ConfirmacionConsumo';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -36,6 +37,8 @@ function QrResidenceStack() {
        <Stack.Screen name="QrResidence" component={QrResidence} />
        <Stack.Screen name="Miembros" component={MiembrosResidence} />
        <Stack.Screen name="CuentaResidence" component={CuentaResidence} />
+       <Stack.Screen name="ConfirmacionConsumo" component={ConfirmacionConsumo} />
+
 
  
     </Stack.Navigator>

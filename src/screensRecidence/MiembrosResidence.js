@@ -8,15 +8,17 @@ import {
   useWindowDimensions,
   PixelRatio,
   Image,
+  TouchableOpacity,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BASE = 'https://api.residence.tab-track.com';
 const BASE2 = 'https://api.tab-track.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; 
+
 
 
 const AVATAR_GRADIENTS = [
@@ -38,6 +40,7 @@ export default function MiembrosResidence() {
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
 
   const route = useRoute();
+  const navigation = useNavigation();
   const { qr: qrFromParams } = (route && route.params) || {};
 
   const [residents, setResidents] = useState([]);
@@ -48,15 +51,18 @@ export default function MiembrosResidence() {
   useEffect(() => {
     let mounted = true;
 
-    async function loadAndResolve() {
+    async function loadFromStorageAndFetch() {
       setLoading(true);
       try {
+
         const storedUsuarioAppId = await AsyncStorage.getItem('user_usuario_app_id');
         const usuario_app_id = storedUsuarioAppId || null;
-        const qr = qrFromParams || null;
 
-        if (!qr) {
-          console.warn('MiembrosResidence: falta parámetro qr en route.params');
+        const storedDeptId = await AsyncStorage.getItem('user_residence_departamento_id_actual');
+        const departamento_id = storedDeptId ? String(storedDeptId).trim() : null;
+
+        if (!departamento_id) {
+          console.warn('MiembrosResidence: no se encontró user_residence_departamento_id_actual en AsyncStorage');
           if (mounted) {
             setResidents([]);
             setResidentCount(0);
@@ -64,17 +70,9 @@ export default function MiembrosResidence() {
           }
           return;
         }
+
         if (!TOKEN || TOKEN.length === 0) {
           console.warn('MiembrosResidence: TOKEN no está configurado o está vacío. Pon tu token en la constante TOKEN si es necesario.');
-          if (mounted) {
-            setResidents([]);
-            setResidentCount(0);
-            setLoading(false);
-          }
-          return;
-        }
-        if (!usuario_app_id) {
-          console.warn('MiembrosResidence: falta user_usuario_app_id en AsyncStorage (key: "user_usuario_app_id"). No se realizarán las consultas.');
           if (mounted) {
             setResidents([]);
             setResidentCount(0);
@@ -116,37 +114,7 @@ export default function MiembrosResidence() {
           return json;
         };
 
-        const resolveUrl = `${BASE}/api/mobileapp/residence/qr/resolve`;
-        let resolveResp = null;
-        try {
-          resolveResp = await fetchWithAuth(resolveUrl, {
-            method: 'POST',
-            body: { qr, usuario_app_id },
-          });
-        } catch (errResolve) {
-          console.warn('MiembrosResidence: error al resolver QR', errResolve.message || errResolve, {
-            status: errResolve.status,
-            bodyText: errResolve.bodyText,
-            bodyJson: errResolve.bodyJson,
-            resolveUrl,
-            payload: { qr, usuario_app_id },
-          });
-          throw errResolve;
-        }
-
-        const departamento_id =
-          resolveResp?.departamento_id ?? resolveResp?.data?.departamento_id ?? null;
-
-        if (!departamento_id) {
-          console.warn('MiembrosResidence: no se encontró departamento_id en resolve QR', resolveResp);
-          if (mounted) {
-            setResidents([]);
-            setResidentCount(0);
-            setLoading(false);
-          }
-          return;
-        }
-
+        // Consultar el departamento usando el id obtenido de AsyncStorage
         const deptUrl = `${BASE}/api/residence/departamentos/${encodeURIComponent(departamento_id)}`;
         let deptResp = null;
         try {
@@ -167,7 +135,7 @@ export default function MiembrosResidence() {
         }
 
         const usuariosVinculados = Array.isArray(deptResp?.usuarios_vinculados)
-          ? deptResp.usuarios_vinculados
+          ? deptResp?.usuarios_vinculados
           : [];
 
         const mails = usuariosVinculados
@@ -275,12 +243,12 @@ export default function MiembrosResidence() {
       }
     }
 
-    loadAndResolve();
+    loadFromStorageAndFetch();
 
     return () => {
       mounted = false;
     };
-  }, [qrFromParams]);
+  }, []); // se ejecuta una vez: usamos AsyncStorage para obtener el departamento
 
   const renderItem = ({ item, index }) => {
     const initials = getInitials(item.name);
@@ -360,6 +328,25 @@ export default function MiembrosResidence() {
     );
   };
 
+  const ListFooter = () => (
+    <View style={{ alignItems: 'center', marginVertical: 18 }}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => {
+          try {
+            navigation.navigate('QrResidence');
+          } catch (e) {
+            // fallback: try goBack
+            try { navigation.goBack?.(); } catch (e2) {}
+          }
+        }}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.backButtonText}>Volver</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient
@@ -387,6 +374,7 @@ export default function MiembrosResidence() {
             </Text>
           </View>
         }
+        ListFooterComponent={ListFooter}
       />
     </SafeAreaView>
   );
@@ -455,4 +443,27 @@ const styles = StyleSheet.create({
   contactText: { color: '#374151' },
 
   divider: { height: 1, backgroundColor: '#f1f3f5', marginTop: 12 },
+
+  /* nuevo estilo para el botón volver */
+  backButton: {
+    backgroundColor: '#0046ff',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 26,
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
 });

@@ -550,7 +550,7 @@ export default function ProfileResidence({ navigation }) {
             optionFont={optionFont}
           />
           <Option icon="card-outline" label="Métodos de Pago" onPress={() => navigation.navigate('Payments')} optionFont={optionFont} />
-          <Option icon="document-text-outline" label="Facturación" onPress={() => navigation.navigate('Facturacion')} optionFont={optionFont} />
+{/*           <Option icon="document-text-outline" label="Facturación" onPress={() => navigation.navigate('Facturacion')} optionFont={optionFont} />*/} 
           <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('Security')} optionFont={optionFont} />
           <Option icon="help-circle-outline" label="Ayuda / FAQ" onPress={() => navigation.navigate('Help')} optionFont={optionFont} />
           <Option icon="refresh-circle-outline" label="Actualizar contraseña" onPress={() => navigation.navigate('ChangePassword')} optionFont={optionFont} />
@@ -632,8 +632,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   logoFull: { width: 32, height: 32, marginRight: 8, resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },
-  badgeText: { color: '#fff', fontSize: 10 },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center'},
+  badgeText: { color: '#fff', fontSize: 8 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },

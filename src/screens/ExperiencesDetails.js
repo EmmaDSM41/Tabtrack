@@ -1236,8 +1236,8 @@ const styles = StyleSheet.create({
   bottomBtnText: { color: '#fff', textAlign: 'center', fontWeight: '700' },
 
   headerButton: { padding: 8 },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
-  badgeText: { color: '#fff', fontSize: 10, textAlign: 'center' },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 8, textAlign: 'center' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },

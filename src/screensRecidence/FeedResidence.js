@@ -74,6 +74,19 @@ export default function FeedResicende() {
     return null;
   };
 
+  // helper para formatear fecha como DD/MM/YY HH:MM (sin segundos)
+  const formatDateShortWithTime = (dateRaw) => {
+    if (!dateRaw) return '';
+    const d = new Date(dateRaw);
+    if (isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yy} ${hh}:${min}`;
+  };
+
   const mapApiAvisoToNotice = (apiItem) => {
     const id = apiItem.id ?? String(Math.random()).slice(2, 9);
     const title = apiItem.titulo ?? apiItem.title ?? '';
@@ -82,7 +95,8 @@ export default function FeedResicende() {
       ? String(categoryRaw).charAt(0).toUpperCase() + String(categoryRaw).slice(1).toLowerCase()
       : 'Comunidad';
     const dateRaw = apiItem.publicado_en ?? apiItem.publicado ?? apiItem.date ?? null;
-    const date = dateRaw ? new Date(dateRaw).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    // formato pedido: DD/MM/YY HH:MM (sin segundos)
+    const date = dateRaw ? formatDateShortWithTime(dateRaw) : '';
     const body = apiItem.contenido ?? apiItem.body ?? '';
     const priorityRaw = (apiItem.prioridad ?? apiItem.priority ?? '').toString().toLowerCase();
     const priority = priorityRaw === 'urgente' || priorityRaw === 'alta' ? 'urgente' : 'normal';
@@ -315,7 +329,10 @@ export default function FeedResicende() {
 
   const renderItem = ({ item }) => {
     const urgent = item.priority === 'urgente';
-    const contentPaddingRight = urgent ? 100 : 16;
+
+    // Reserve a width for the urgent badge, but only apply it to the title row and the date row.
+    // The body will NOT get reduced width (so it occupies same width as non-urgent cards).
+    const estimatedUrgentBadgeReserve = Math.round(Math.max(72, wp(22))); // espacio reservado para urgente
 
     return (
       <TouchableOpacity
@@ -341,8 +358,10 @@ export default function FeedResicende() {
             <Ionicons name="megaphone-outline" size={Math.round(iconBoxSizeN * 0.46)} color={item.color} />
           </View>
 
-          <View style={[stylesN.cardContent, { paddingRight: contentPaddingRight }]}>
-            <View style={stylesN.cardHeaderRow}>
+          <View style={stylesN.cardContent}>
+            {/* Title row: reserve marginRight when urgent so the title doesn't touch the badge.
+                We allow title to wrap (up to 2 lines) so it does not get cut. */}
+            <View style={[stylesN.cardHeaderRow, { marginRight: urgent ? estimatedUrgentBadgeReserve : 0 }]}>
               <Text style={[stylesN.cardTitle, { fontSize: titleSize }]} numberOfLines={2}>
                 {item.title}
               </Text>
@@ -350,7 +369,8 @@ export default function FeedResicende() {
 
             <View style={{ height: 8 }} />
 
-            <View style={stylesN.rowSpaceBetween}>
+            {/* Tags + date row: add paddingRight when urgent so date doesn't go under the badge */}
+            <View style={[stylesN.rowSpaceBetween, { paddingRight: urgent ? estimatedUrgentBadgeReserve : 0 }]}>
               <View style={stylesN.tagsRow}>
                 <View style={stylesN.categoryPill}>
                   <Text style={[stylesN.categoryText, { fontSize: smallSize }]}>{item.category}</Text>
@@ -362,7 +382,8 @@ export default function FeedResicende() {
 
             <View style={{ height: 10 }} />
 
-            <Text style={[stylesN.cardBody, { fontSize: bodySize }]} numberOfLines={4}>
+            {/* Body: allowed to grow freely (no padding right reserved), so it will be same width as non-urgent cards */}
+            <Text style={[stylesN.cardBody, { fontSize: bodySize }]}>
               {item.body}
             </Text>
           </View>
@@ -371,8 +392,9 @@ export default function FeedResicende() {
     );
   };
 
-  const ListHeader = () => (
-    <View style={{ overflow: 'visible' }}>
+  // Render restaurants strip + filter + heading (estaba en ListHeader anteriormente)
+  const HeaderWithFilterAndRestaurants = () => (
+    <View>
       <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(hp(2)) }}>
         {(Array.isArray(restaurants) && restaurants.length > 0) ? (
           restaurants.map((r) => (
@@ -525,8 +547,10 @@ export default function FeedResicende() {
         )}
       </View>
 
+      {/* ESPACIO */}
       <View style={{ height: Math.round(hp(2)) }} />
 
+      {/* FILTRO y TITULO "Avisos Recientes" */}
       <View style={{ paddingHorizontal: outerPadNotices, zIndex: 9999, elevation: 9999, overflow: 'visible' }}>
         <View style={{ position: 'relative' }}>
           <Pressable
@@ -599,7 +623,7 @@ export default function FeedResicende() {
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 28, paddingTop: 8 }}
-        ListHeaderComponent={ListHeader}
+        ListHeaderComponent={HeaderWithFilterAndRestaurants}
         ListHeaderComponentStyle={{ overflow: 'visible', zIndex: 9999, elevation: 9999 }}
         ListEmptyComponent={<Text style={{ color: '#6b7280', padding: 16 }}>No se encontraron avisos para este filtro.</Text>}
       />

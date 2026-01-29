@@ -916,8 +916,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   logoFull: { width: 32, height: 32, marginRight: 8, resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, minWidth: 18, alignItems: 'center' },
-  badgeText: { color: '#fff', fontSize: 10, textAlign: 'center' },
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 8, textAlign: 'center' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },

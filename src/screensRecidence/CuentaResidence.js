@@ -1,3 +1,4 @@
+// CuentaResidence.js
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
@@ -185,7 +186,7 @@ export default function CuentaResidence() {
   const [accountOpened, setAccountOpened] = useState(false);
   const [canOpenAccount, setCanOpenAccount] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
-  const [approvingModalVisible, setApprovingModalVisible] = useState(false);
+  // NOTA: quité approvingModalVisible porque ya no vamos a mostrar la modal "Aprobando consumo"
 
   const applyResolveJsonToState = useCallback((json) => {
     try {
@@ -438,8 +439,7 @@ export default function CuentaResidence() {
 
       const json = await res.json();
 
-      setApprovingModalVisible(true);
-
+      // Guardamos visita como antes
       try {
         if (json && json.sale_id) {
           const visitToSave = {
@@ -458,15 +458,23 @@ export default function CuentaResidence() {
         }
       } catch (e) { console.warn('Could not save visit after approve', e); }
 
-      setTimeout(async () => {
-        setApprovingModalVisible(false);
-        setApproveLoading(false);
-        try { 
-          suppressNoOpenSaleRef.current = true;
-          await fetchConsumo({ showLoading: false }); 
-        } catch(e) {}
-        try { navigation.navigate('QrResidence'); } catch(e) { navigation.goBack?.(); }
-      }, 3000);
+      // EN LUGAR DE MOSTRAR MODAL: navegar a la pantalla de confirmación de consumo
+      try {
+        navigation.navigate('ConfirmacionConsumo', {
+          amount: Number(json.total ?? totalConsumo) || 0,
+          date: json.closed_at ?? new Date().toISOString(),
+          transactionId: json.sale_id ?? saleId,
+          mesa: mesaId,
+          restauranteId: json.restaurante_id ?? restauranteId,
+          sucursalId: json.sucursal_id ?? sucursalId,
+          rawResponse: json,
+        });
+      } catch (e) {
+        // fallback: volver a la pantalla de QR si la navegación falla
+        try { navigation.navigate('QrResidence'); } catch(er) {}
+      }
+
+      setApproveLoading(false);
 
     } catch (err) {
       console.warn('handleApproveConsumption error', err);
@@ -559,15 +567,6 @@ export default function CuentaResidence() {
         </View>
       </Modal>
 
-      <Modal visible={approvingModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.approvingBox, { width: Math.min(layoutWidth - 8, wp(84)) }]}>
-            <ActivityIndicator size="large" color="#0046ff" />
-            <Text style={{ marginTop: 12, fontWeight: '800', color: '#222' }}>Aprobando consumo…</Text>
-          </View>
-        </View>
-      </Modal>
-
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f2f6ff' }}>
           <ActivityIndicator size="large" color="#0046ff" />
@@ -576,7 +575,6 @@ export default function CuentaResidence() {
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
           <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
-
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
                 <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
@@ -665,6 +663,8 @@ export default function CuentaResidence() {
               style={[
                 styles.smallPrimaryButton,
                 { width: layoutWidth, paddingVertical: Math.max(10, hp(1.2)) },
+                // si está abierto: boton verde (como pediste anteriormente)
+                accountOpened ? { backgroundColor: '#16a34a' } : null,
                 (accountOpening || approveLoading) ? { opacity: 0.75 } : null
               ]}
               activeOpacity={0.85}
