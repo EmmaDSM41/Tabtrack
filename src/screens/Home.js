@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import QRScreen from './QRScreen';
 import ProfileScreen from './ProfileScreen';
@@ -36,7 +37,6 @@ import PaymentScreen from './PaymentScreen';
 import OpenPay from './OpenPay';
 import Stripe from './Stripe';
 import ConfirmacionPago from './ConfirmacionPago';
-  
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -120,6 +120,9 @@ function ProfileStackScreen() {
 }
 
 export default function Home() {
+  const insets = useSafeAreaInsets();
+  const extra = 5;
+
   return (
     <Tab.Navigator
       initialRouteName="QR" 
@@ -149,7 +152,12 @@ export default function Home() {
         },
         tabBarActiveTintColor: '#007aff',
         tabBarInactiveTintColor: 'gray',
-        tabBarStyle: { paddingVertical: 5, height: 60 },
+        tabBarStyle: {
+          paddingVertical: 5,
+          paddingBottom: (insets.bottom || 0) + extra,
+          height: 60 + (insets.bottom || 0),
+          backgroundColor: '#fff', 
+        },
       })}
     >
       <Tab.Screen name="GPS" component={GPSStackScreen} />

@@ -849,7 +849,7 @@ export default function DetailScreen({ navigation, route }) {
       <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
-          <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>
+          {/* <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text> */}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
@@ -987,7 +987,7 @@ export default function DetailScreen({ navigation, route }) {
             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-                <Text style={styles.markAllText}>Marcar todo leído</Text>
+{/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
               </TouchableOpacity>
             </View>
 

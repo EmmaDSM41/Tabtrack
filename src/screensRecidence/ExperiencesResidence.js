@@ -14,12 +14,18 @@ import {
   SafeAreaView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import RNFS from 'react-native-fs';
+import Share from 'react-native-share';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
 const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
@@ -56,6 +62,9 @@ export default function ExperiencesScreen() {
   const [monthsData, setMonthsData] = useState([]); 
   const [loadingMonths, setLoadingMonths] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
 
   useEffect(() => { animY.setValue(0); }, [animY]);
 
@@ -97,7 +106,6 @@ export default function ExperiencesScreen() {
       const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
       if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
 
-      // fetch
       const res = await fetch(url, { method: 'GET', headers });
       let json = null;
       try { json = await res.json(); } catch (e) { json = null; }
@@ -294,9 +302,146 @@ export default function ExperiencesScreen() {
     });
   };
 
-  const exportPayment = (payment) => {
-    console.log('Exportando periodo:', payment.periodo);
-    Alert.alert('Exportar', `Exportando periodo ${payment.title}`);
+  const exportPayment = async (payment) => {
+    setExportMessage('Generando PDF...');
+    setExporting(true);
+
+    try {
+      const consumptions = await fetchMonthDetail(payment.periodo) || [];
+
+      const fmtCurrency = (v) => (Number(v) || 0).toFixed(2);
+      const fmtDate = (dStr) => {
+        if (!dStr) return '';
+        const d = new Date(dStr);
+        if (isNaN(d.getTime())) return dStr;
+        return d.toLocaleString();
+      };
+
+      const pdfDoc = await PDFDocument.create();
+      const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const pageSize = [612, 792]; 
+      let page = pdfDoc.addPage(pageSize);
+      let { width: pW, height: pH } = page.getSize();
+
+      const marginLeft = 40;
+      let y = pH - 60;
+
+      page.drawRectangle({
+        x: marginLeft,
+        y: y - 18,
+        width: 120,
+        height: 36,
+        color: rgb(0.42, 0.13, 0.66),
+        borderRadius: 6,
+      });
+      page.drawText('TABTRACK', {
+        x: marginLeft + 36,
+        y: y - 10,
+        size: 18,
+        font: helvetica,
+        color: rgb(1,1,1),
+      });
+
+      page.drawText('Detalle de consumos', {
+        x: marginLeft + 150,
+        y: y - 6,
+        size: 18,
+        font: helvetica,
+        color: rgb(0.07, 0.07, 0.07),
+      });
+
+      page.drawText(payment.title || payment.periodo || '', {
+        x: marginLeft + 150,
+        y: y - 26,
+        size: 10,
+        font: helvetica,
+        color: rgb(0.42, 0.42, 0.42),
+      });
+
+      y -= 60;
+
+      for (let idx = 0; idx < consumptions.length; idx++) {
+        const tx = consumptions[idx];
+
+        if (y < 120) {
+          page = pdfDoc.addPage(pageSize);
+          ({ width: pW, height: pH } = page.getSize());
+          y = pH - 60;
+        }
+
+        page.drawText(tx.name || 'Transacción', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.07,0.07,0.07), });
+        page.drawText(tx.timestamp || fmtDate(tx.fecha_apertura) || '', { x: pW - marginLeft - 160, y: y, size: 9, font: helvetica, color: rgb(0.45,0.45,0.45) });
+        y -= 18;
+
+        let subtotal = 0;
+        for (let it of (tx.items || [])) {
+          const label = `${it.label}${(it.qty && it.qty > 1) ? ` x${it.qty}` : ''}`;
+          const totalItem = (Number(it.price) || 0) * (Number(it.qty) || 1);
+          subtotal += totalItem;
+
+          if (y < 80) {
+            page = pdfDoc.addPage(pageSize);
+            ({ width: pW, height: pH } = page.getSize());
+            y = pH - 60;
+          }
+
+          page.drawText(label, { x: marginLeft + 8, y: y, size: 10, font: helvetica, color: rgb(0.2,0.2,0.2) });
+          const priceText = `$${fmtCurrency(totalItem)}`;
+          const textWidth = helvetica.widthOfTextAtSize(priceText, 10);
+          page.drawText(priceText, { x: pW - marginLeft - textWidth, y: y, size: 10, font: helvetica, color: rgb(0.07,0.07,0.07) });
+          y -= 14;
+        }
+
+        page.drawText('Subtotal:', { x: marginLeft + 8, y: y - 6, size: 10, font: helvetica, color: rgb(0.42,0.13,0.66) });
+        const subtotalText = `$${fmtCurrency(subtotal)}`;
+        const subW = helvetica.widthOfTextAtSize(subtotalText, 10);
+        page.drawText(subtotalText, { x: pW - marginLeft - subW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07,0.07,0.07) });
+        y -= 24;
+
+        page.drawLine({ start: { x: marginLeft, y }, end: { x: pW - marginLeft, y }, thickness: 0.5, color: rgb(0.92,0.92,0.92) });
+        y -= 12;
+      }
+
+      if ((consumptions || []).length === 0) {
+        page.drawText('No hay consumos registrados en este periodo.', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.45,0.45,0.45) });
+      }
+
+      const genText = `Generado el ${new Date().toLocaleString()}`;
+      page.drawText(genText, { x: marginLeft, y: 36, size: 9, font: helvetica, color: rgb(0.45,0.45,0.45) });
+
+      const base64 = await pdfDoc.saveAsBase64({ dataUri: false });
+
+      const fileName = `consumos_${payment.periodo || String(Date.now())}.pdf`;
+      const dirPath = Platform.OS === 'android' ? RNFS.CachesDirectoryPath : RNFS.DocumentDirectoryPath;
+      const filePath = `${dirPath}/${fileName}`;
+
+      await RNFS.writeFile(filePath, base64, 'base64');
+
+      await Share.open({
+        title: `Consumos ${payment.title || payment.periodo}`,
+        url: `file://${filePath}`,
+        type: 'application/pdf',
+        failOnCancel: false,
+      });
+
+
+
+    } catch (err) {
+      console.warn('exportPayment error:', err);
+      Alert.alert('Error', 'No fue posible generar/compartir el PDF. Asegúrate de instalar: pdf-lib, react-native-fs y react-native-share y recompilar la app. ' + (err?.message || ''));
+    } finally {
+      setExporting(false);
+      setExportMessage('');
+    }
+  };
+
+  const escapeHtml = (str) => {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   };
 
   const toggleTxExpand = (txId) => {
@@ -633,6 +778,14 @@ export default function ExperiencesScreen() {
           </ScrollView>
         </Animated.View>
       </Modal>
+
+      {exporting && (
+        <View style={overlayStyles.container} pointerEvents="none">
+          <View style={overlayStyles.box}>
+            <Text style={overlayStyles.text}>{exportMessage}</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -874,4 +1027,35 @@ const sheetStyles = StyleSheet.create({
   footerRight: {},
   footerLabel: { color: '#6b7280', fontWeight: '700' },
   footerValue: { fontWeight: '900', fontSize: 16 },
+});
+
+const overlayStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20000,
+  },
+  box: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+    minWidth: 160,
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+  },
+  text: {
+    color: '#111',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

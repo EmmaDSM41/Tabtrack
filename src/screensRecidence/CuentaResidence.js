@@ -14,6 +14,7 @@ import {
   Modal,
   useWindowDimensions,
   Alert,
+  DeviceEventEmitter,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -21,8 +22,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const API_BASE_URL = 'https://api.residence.tab-track.com'; 
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; 
+const API_BASE_URL = 'https://api.residence.tab-track.com';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
@@ -137,7 +138,7 @@ const buildPendingPaymentObj = (saleKey, itemsArr, amount) => {
 export default function CuentaResidence() {
   const navigation = useNavigation();
   const route = useRoute();
-  const qr = route?.params?.qr ?? null; 
+  const qr = route?.params?.qr ?? null;
 
   const { width, height, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
@@ -186,7 +187,6 @@ export default function CuentaResidence() {
   const [accountOpened, setAccountOpened] = useState(false);
   const [canOpenAccount, setCanOpenAccount] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
-  // NOTA: quité approvingModalVisible porque ya no vamos a mostrar la modal "Aprobando consumo"
 
   const applyResolveJsonToState = useCallback((json) => {
     try {
@@ -325,7 +325,7 @@ export default function CuentaResidence() {
 
       if (aperturaStatus === 'NO_OPEN_SALE') {
         if (suppressNoOpenSaleRef.current) {
-          suppressNoOpenSaleRef.current = false; 
+          suppressNoOpenSaleRef.current = false;
           if (isMountedRef.current) setLoading(false);
           return;
         }
@@ -458,7 +458,43 @@ export default function CuentaResidence() {
         }
       } catch (e) { console.warn('Could not save visit after approve', e); }
 
-      // EN LUGAR DE MOSTRAR MODAL: navegar a la pantalla de confirmación de consumo
+      // --------- NOTIFICACIÓN: crear, persistir y emitir ----------
+      try {
+        const amountVal = Number(json.total ?? totalConsumo) || 0;
+        const notifId = `notif_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+        const notifText = `Pago registrado: $${amountVal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — Venta ${json.sale_id ?? saleId}${(json.mesa_id ?? mesaId) ? ` (Mesa ${json.mesa_id ?? mesaId})` : ''}`;
+        const notification = {
+          id: notifId,
+          text: notifText,
+          read: false,
+          payload: json,
+          createdAt: new Date().toISOString(),
+        };
+
+        const notifKeyBase = usuarioAppId ? `user_notifications_${usuarioAppId}` : 'user_notifications';
+        try {
+          const stored = await AsyncStorage.getItem(notifKeyBase);
+          let arr = stored ? (JSON.parse(stored) || []) : [];
+          if (json.sale_id) {
+            arr = arr.filter(n => String(n.payload?.sale_id || n.payload?.venta_id || '') !== String(json.sale_id));
+          }
+          arr.unshift(notification);
+          await AsyncStorage.setItem(notifKeyBase, JSON.stringify(arr.slice(0, 200)));
+        } catch (e) {
+          console.warn('Error guardando notificación en AsyncStorage', e);
+        }
+
+        try {
+          DeviceEventEmitter.emit('notificationReceived', notification);
+        } catch (e) {
+          console.warn('Error emitiendo evento notificationReceived', e);
+        }
+      } catch (e) {
+        console.warn('Error creando notificación tras aprobar consumo', e);
+      }
+      // ------------------------------------------------------------
+
+      // Navegar a confirmación de consumo
       try {
         navigation.navigate('ConfirmacionConsumo', {
           amount: Number(json.total ?? totalConsumo) || 0,
@@ -470,7 +506,6 @@ export default function CuentaResidence() {
           rawResponse: json,
         });
       } catch (e) {
-        // fallback: volver a la pantalla de QR si la navegación falla
         try { navigation.navigate('QrResidence'); } catch(er) {}
       }
 
@@ -663,7 +698,6 @@ export default function CuentaResidence() {
               style={[
                 styles.smallPrimaryButton,
                 { width: layoutWidth, paddingVertical: Math.max(10, hp(1.2)) },
-                // si está abierto: boton verde (como pediste anteriormente)
                 accountOpened ? { backgroundColor: '#16a34a' } : null,
                 (accountOpening || approveLoading) ? { opacity: 0.75 } : null
               ]}

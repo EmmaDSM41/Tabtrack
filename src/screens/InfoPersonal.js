@@ -23,25 +23,23 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ToastLib from 'react-native-root-toast';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const BLUE = '#0046ff';
 const DOT_COLOR = '#ccc';
 const API_BASE_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
 
-// NUEVO: endpoint para tipos de comida
 const FOOD_TYPES_ENDPOINT = 'https://api.tab-track.com/api/catalogos/tipos-comida';
 
 export default function InfoPersonal({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // responsive helpers
   const wp = (p) => (width * Number(p)) / 100;
   const hp = (p) => (height * Number(p)) / 100;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // responsive values
   const iconSize = clamp(Math.round(width * 0.055), 18, 28);
   const headerPadV = clamp(Math.round(hp(3)), 8, 36);
   const headerPadH = clamp(Math.round(wp(4)), 8, 30);
@@ -51,7 +49,6 @@ export default function InfoPersonal({ navigation }) {
   const modalWidth = Math.min(Math.round(width * 0.9), 720);
   const titleFont = clamp(Math.round(width * 0.038), 20, 22);
 
-  // state
   const [user, setUser] = useState({
     nombre: '',
     apellido: '',
@@ -79,15 +76,16 @@ export default function InfoPersonal({ navigation }) {
   const currentInputRef = useRef(null);
   const keyboardListenerRef = useRef(null);
 
-  // NUEVO: estados para selector de tipo de comida
   const [foodOptions, setFoodOptions] = useState([]);
   const [foodLoading, setFoodLoading] = useState(false);
   const [selectorVisible, setSelectorVisible] = useState(false);
   const [foodFetchError, setFoodFetchError] = useState(null);
 
-  // combine safe area top with StatusBar height for Android
+  // nuevos estados para DatePicker
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerValue, setDatePickerValue] = useState(new Date());
+
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
-  // bottom safe for toast placement
   const bottomSafe = Math.round(insets.bottom || 0);
 
   useEffect(() => {
@@ -113,7 +111,6 @@ export default function InfoPersonal({ navigation }) {
           console.warn('Error leyendo user_profile_url desde AsyncStorage', e);
         }
 
-        // fetch official user info by email if available
         try {
           const mailToQuery = mail || '';
           if (mailToQuery) {
@@ -176,13 +173,11 @@ export default function InfoPersonal({ navigation }) {
         ToastLib.show('Error al cargar datos', { duration: 2000 });
       } finally {
         setLoading(false);
-        // NUEVO: iniciar fetch de tipos de comida una vez que ya cargó lo local
         fetchFoodTypes();
       }
     })();
   }, [navigation]);
 
-  // Keyboard listener: when keyboard hides finish inline edit
   useEffect(() => {
     const onHide = () => {
       if (editingKey) {
@@ -194,7 +189,6 @@ export default function InfoPersonal({ navigation }) {
     return () => {
       try { keyboardListenerRef.current && keyboardListenerRef.current.remove(); } catch (_) {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingKey, user]);
 
   const showToast = (message, cb, customStyle = styles.successToast, duration = 2000) => {
@@ -218,7 +212,6 @@ export default function InfoPersonal({ navigation }) {
     });
   };
 
-  // openModal (kept for compatibility)
   const openModal = (key, label) => {
     setFieldKey(key);
     setFieldLabel(label);
@@ -233,7 +226,6 @@ export default function InfoPersonal({ navigation }) {
     AsyncStorage.setItem(`user_${fieldKey}`, fieldValue);
   };
 
-  // finish inline edit: blur + save to AsyncStorage
   const finishInlineEdit = async (key) => {
     if (!key) {
       setEditingKey(null);
@@ -251,11 +243,33 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
-  // Modificado: si es tipo_comida abrimos selector, si no usamos inline edit como antes
   const enterInlineEdit = (key) => {
     if (key === 'tipo_comida') {
-      // abrir selector
       setSelectorVisible(true);
+      return;
+    }
+
+    // Si es cumpleaños: mostramos DatePicker en lugar de inline TextInput
+    if (key === 'cumpleanos') {
+      // Intentamos parsear la fecha actual para mostrar en el picker
+      let initial = new Date();
+      const cur = user.cumpleanos;
+      if (cur) {
+        // intentamos aceptar formatos ISO o DD/MM/YYYY
+        const tryIso = new Date(cur);
+        if (!isNaN(tryIso.getTime())) initial = tryIso;
+        else {
+          // si formato DD/MM/YYYY
+          const parts = String(cur).split('/').map(p => Number(p));
+          if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+            const dd = parts[0], mm = parts[1], yy = parts[2].length === 2 ? (2000 + parts[2]) : parts[2];
+            const dtmp = new Date(yy, mm - 1, dd);
+            if (!isNaN(dtmp.getTime())) initial = dtmp;
+          }
+        }
+      }
+      setDatePickerValue(initial);
+      setShowDatePicker(true);
       return;
     }
 
@@ -312,9 +326,6 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
-  // -----------------------
-  // NUEVO: fetch tipos de comida
-  // -----------------------
   const fetchFoodTypes = async () => {
     setFoodLoading(true);
     setFoodFetchError(null);
@@ -332,7 +343,6 @@ export default function InfoPersonal({ navigation }) {
       }
       const body = await resp.json();
       const items = Array.isArray(body.items) ? body.items : [];
-      // Normalize to objects with id + nombre
       setFoodOptions(items.map(it => ({ id: it.id, nombre: it.nombre })));
     } catch (err) {
       console.warn('Network error fetching tipos-comida', err);
@@ -341,6 +351,17 @@ export default function InfoPersonal({ navigation }) {
     } finally {
       setFoodLoading(false);
     }
+  };
+
+  // formatea fecha para mostrar en pantalla como DD/MM/YYYY
+  const formatDateDisplay = (d) => {
+    if (!d) return '';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return String(d);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(dt.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
   };
 
   if (loading) {
@@ -369,7 +390,6 @@ export default function InfoPersonal({ navigation }) {
     ['tipo_comida', 'Tipo de comida']
   ];
 
-  // NUEVO: selecciona una opción del selector y guarda local
   const onSelectFood = async (option) => {
     const value = option?.nombre ?? '';
     const updated = { ...user, tipo_comida: value };
@@ -381,6 +401,27 @@ export default function InfoPersonal({ navigation }) {
     }
     setSelectorVisible(false);
     showToast(`Seleccionado: ${value}`);
+  };
+
+  // manejador del DateTimePicker
+  const onDatePickerChange = async (event, selectedDate) => {
+    // En Android el datetimepicker se cierra al seleccionar o al cancelar
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+      if (event.type === 'dismissed') {
+        return;
+      }
+    }
+    if (selectedDate) {
+      const display = formatDateDisplay(selectedDate); // DD/MM/YYYY
+      setUser(prev => ({ ...prev, cumpleanos: display }));
+      try { await AsyncStorage.setItem('user_cumpleanos', display); } catch (e) {}
+    }
+    // Para iOS si el usuario interactúa (podrías mantener abierto hasta confirmar),
+    // aquí cerramos después del cambio para mantener consistencia.
+    if (Platform.OS === 'ios') {
+      setShowDatePicker(false);
+    }
   };
 
   return (
@@ -443,7 +484,7 @@ export default function InfoPersonal({ navigation }) {
               <Text style={[styles.fieldLabel, { fontSize: fieldFont }]}>{label}</Text>
 
               <View style={styles.fieldValueRow}>
-                {editingKey === key && key !== 'tipo_comida' ? (
+                {editingKey === key && key !== 'tipo_comida' && key !== 'cumpleanos' ? (
                   <TextInput
                     ref={(r) => { currentInputRef.current = r; }}
                     value={user[key] ?? ''}
@@ -457,10 +498,14 @@ export default function InfoPersonal({ navigation }) {
                     ]}
                     returnKeyType="done"
                     blurOnSubmit
+                    // teclado numérico si es teléfono
+                    keyboardType={key === 'telefono' ? 'phone-pad' : 'default'}
                   />
                 ) : (
-                  // si es tipo_comida mostramos el texto actual (y al presionar se abre selector via enterInlineEdit)
-                  <Text style={[styles.fieldValue, { fontSize: fieldFont }]}>{user[key] || 'No especificado'}</Text>
+                  // mostramos el valor normalmente; para la fecha usamos el valor formateado
+                  <Text style={[styles.fieldValue, { fontSize: fieldFont }]}>
+                    { key === 'cumpleanos' ? (user.cumpleanos ? user.cumpleanos : 'No especificado') : (user[key] || 'No especificado') }
+                  </Text>
                 )}
                 <View style={{ width: 8 }} />
               </View>
@@ -479,7 +524,7 @@ export default function InfoPersonal({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Generic edit modal kept (unchanged) */}
+      {/* Modal genérico */}
       <Modal transparent visible={modalVisible} animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalBackground}>
           <View style={[styles.modalContainer, { width: modalWidth, padding: Math.max(12, Math.round(wp(3))) }]}>
@@ -501,7 +546,7 @@ export default function InfoPersonal({ navigation }) {
         </View>
       </Modal>
 
-      {/* NUEVO: Selector modal para tipos de comida */}
+      {/* Selector tipo comida */}
       <Modal visible={selectorVisible} transparent animationType="slide" onRequestClose={() => setSelectorVisible(false)}>
         <View style={styles.selectorOverlay}>
           <View style={[styles.selectorContainer, { width: Math.min(modalWidth, Math.round(width * 0.96)) }]}>
@@ -550,7 +595,18 @@ export default function InfoPersonal({ navigation }) {
         </View>
       </Modal>
 
-      {/* Animated toast - respect bottom safe area */}
+      {/* DateTimePicker: se muestra solo cuando showDatePicker=true */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={datePickerValue || new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+          onChange={onDatePickerChange}
+          maximumDate={new Date(2100, 11, 31)}
+          minimumDate={new Date(1900, 0, 1)}
+        />
+      )}
+
       <Animated.View
         pointerEvents="none"
         style={[
@@ -603,7 +659,6 @@ const styles = StyleSheet.create({
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
 
-  // selector styles
   selectorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
   selectorContainer: { backgroundColor: '#fff', borderRadius: 12, maxHeight: '80%', overflow: 'hidden' },
   selectorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderColor: '#eee' },

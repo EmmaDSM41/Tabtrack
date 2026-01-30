@@ -21,13 +21,7 @@ import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 
-
 const staticWidth = Dimensions.get('window').width;
-const sampleNotifications = [
-  { id: 'n1', text: 'Tu reserva en La Pizzer\u00eda fue confirmada.', read: false },
-  { id: 'n2', text: 'Nueva oferta: 20% de descuento en Sushi Place.', read: false },
-  { id: 'n3', text: 'Recuerda calificar tu \u00faltima visita a Caf\u00e9 Central.', read: true }
-];
 
 const API_URL = 'https://api.tab-track.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
@@ -37,7 +31,7 @@ export default function ProfileResidence({ navigation }) {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [username, setUsername] = useState('');
-  const [profileUrl, setProfileUrl] = useState(null);  
+  const [profileUrl, setProfileUrl] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showAvatarOptions, setShowAvatarOptions] = useState(false);
@@ -46,10 +40,10 @@ export default function ProfileResidence({ navigation }) {
   const insets = useSafeAreaInsets();
   const wp = (p) => Math.round((p / 100) * width);
   const hp = (p) => Math.round((p / 100) * height);
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));  
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-   const topSafe = Math.round(insets.top || StatusBar.currentHeight || 0);
+  const topSafe = Math.round(insets.top || StatusBar.currentHeight || 0);
   const bottomSafe = Math.round(insets.bottom || 0);
 
   const headerHeight = clamp(hp(2), 34, 120);
@@ -64,9 +58,79 @@ export default function ProfileResidence({ navigation }) {
   const optionFont = clamp(rf(3.6), 14, 20);
   const smallText = clamp(rf(3.2), 12, 16);
 
-  useEffect(() => {
-    setNotifications(sampleNotifications);
+  const notificationsKeyRef = React.useRef('user_notifications');
 
+  const isMarketingNotification = (text) => {
+    if (!text) return false;
+    return /pizz|pizzer|pizza|oferta|descuent|promocion|promo|sushi/i.test(String(text));
+  };
+
+  useEffect(() => {
+    let listenerRef = null;
+    (async () => {
+      try {
+        let uid = await AsyncStorage.getItem('user_usuario_app_id');
+        const email = await AsyncStorage.getItem('user_email');
+        let storageKey = 'user_notifications';
+        if (uid && String(uid).trim()) storageKey = `user_notifications_${String(uid).trim()}`;
+        else if (email && String(email).trim()) storageKey = `user_notifications_${String(email).split('@')[0]}`;
+        notificationsKeyRef.current = storageKey;
+
+        const raw = await AsyncStorage.getItem(storageKey);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter(n => !isMarketingNotification(n?.text || n?.payload?.text || ''));
+              setNotifications(filtered);
+            } else {
+              setNotifications([]);
+            }
+          } catch (e) {
+            setNotifications([]);
+          }
+        } else {
+          setNotifications([]);
+        }
+      } catch (err) {
+        console.warn('Error cargando notificaciones desde AsyncStorage', err);
+        setNotifications([]);
+      }
+
+      listenerRef = DeviceEventEmitter.addListener('notificationReceived', async (notif) => {
+        try {
+          let normalized = notif || {};
+          if (!normalized.id) {
+            normalized = {
+              ...normalized,
+              id: `notif_${Date.now()}_${Math.floor(Math.random()*10000)}`,
+            };
+          }
+
+          const incomingText = String(normalized.text || normalized.payload?.text || '');
+          if (isMarketingNotification(incomingText)) {
+            return;
+          }
+
+          setNotifications(prev => {
+            const next = [normalized, ...(Array.isArray(prev) ? prev : [])].slice(0, 200);
+            try { AsyncStorage.setItem(notificationsKeyRef.current, JSON.stringify(next)).catch(()=>{}); } catch(e){}
+            return next;
+          });
+
+          try { Toast.show(normalized.text || 'Consumo aprobado', { duration: Toast.durations.SHORT }); } catch(e){}
+        } catch (e) {
+          console.warn('handler notificationReceived error', e);
+        }
+      });
+    })();
+
+    return () => {
+      try { listenerRef && listenerRef.remove(); } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         let fullname = await AsyncStorage.getItem('user_fullname');
@@ -90,15 +154,26 @@ export default function ProfileResidence({ navigation }) {
       try {
         const cached = await AsyncStorage.getItem('user_profile_url');
         if (cached) setProfileUrl(cached);
-      } catch (e) { /* noop */ }
+      } catch (e) { }
 
       await loadProfileFromApi();
     })();
   }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+
+  const markAllRead = async () => {
+    try {
+      const next = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(next);
+      try {
+        await AsyncStorage.setItem(notificationsKeyRef.current || 'user_notifications', JSON.stringify(next));
+      } catch (e) {
+        console.warn('Error persistiendo markAllRead', e);
+      }
+    } catch (e) {
+      console.warn('markAllRead error', e);
+    }
   };
 
   const handleLogout = async () => {
@@ -108,6 +183,21 @@ export default function ProfileResidence({ navigation }) {
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
       const email = await AsyncStorage.getItem('user_email');
       const currentId = uid || email || null;
+
+      try {
+        if (email) {
+          const profileCached = await AsyncStorage.getItem('user_profile_url');
+          const raw = await AsyncStorage.getItem('recent_accounts_v1');
+          let arr = raw ? JSON.parse(raw) : [];
+          arr = Array.isArray(arr) ? arr.filter(a => String(a.email).toLowerCase() !== String(email).toLowerCase()) : [];
+          arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
+          if (!Array.isArray(arr)) arr = [];
+          if (arr.length > 6) arr = arr.slice(0, 6);
+          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch(e) { console.warn('save recent_accounts failed', e); }
+        }
+      } catch (e) {
+        console.warn('Guardar recent account failed (pre-clean)', e);
+      }
 
       const preserveKeys = new Set();
 
@@ -121,6 +211,7 @@ export default function ProfileResidence({ navigation }) {
       }
       preserveKeys.add(visitsBase);
       preserveKeys.add(pendBase);
+      preserveKeys.add('recent_accounts_v1');
 
       const branchesPrefix = 'branches_cache_';
 
@@ -155,10 +246,29 @@ export default function ProfileResidence({ navigation }) {
         console.warn('Error removing persistent auth keys on logout', e);
       }
 
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }]
-      });
+      try {
+        if (email) {
+          await AsyncStorage.removeItem(`notifications_store_${email}`).catch(()=>null);
+          await AsyncStorage.removeItem(`notifications_seen_${email}`).catch(()=>null);
+        }
+      } catch (e) {
+        console.warn('Error removing notification store on logout', e);
+      }
+
+      try {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Recent' }]
+        });
+      } catch (e) {
+        console.warn('navigate RecentAccounts failed, falling back to Login', e);
+        try {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' } ]
+          });
+        } catch (_) {  }
+      }
 
       Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
     } catch (err) {
@@ -169,10 +279,9 @@ export default function ProfileResidence({ navigation }) {
           index: 0,
           routes: [{ name: 'Login' }]
         });
-      } catch (_) { /* noop */ }
+      } catch (_) {  }
     }
   };
-
 
   const getAuthHeaders = (extra = {}) => {
     const base = { 'Content-Type': 'application/json', ...extra };
@@ -202,7 +311,7 @@ export default function ProfileResidence({ navigation }) {
         setProfileUrl(url);
         try {
           await AsyncStorage.setItem('user_profile_url', url);
-        } catch (e) { /* noop */ }
+        } catch (e) {  }
 
         try {
           DeviceEventEmitter.emit('profileUpdated', url);
@@ -220,7 +329,6 @@ export default function ProfileResidence({ navigation }) {
       setProfileLoading(false);
     }
   };
-
 
   const onSelectImage = async () => {
     try {
@@ -317,7 +425,7 @@ export default function ProfileResidence({ navigation }) {
       });
 
       if (!commitRes.ok) {
-        const txt = await commitRes.text().catch(()=>null);
+        const txt = await commitRes.text().catch(() => null);
         console.warn('Commit failed', commitRes.status, txt);
         Toast.show('No se pudo confirmar la imagen', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -370,7 +478,7 @@ export default function ProfileResidence({ navigation }) {
 
       try {
         await AsyncStorage.removeItem('user_profile_url').catch(()=>{});
-      } catch (e) { /* noop */ }
+      } catch (e) { }
 
       setProfileUrl(null);
 
@@ -382,7 +490,7 @@ export default function ProfileResidence({ navigation }) {
 
       try {
         await loadProfileFromApi();
-      } catch (_) { /* noop */ }
+      } catch (_) {  }
     } catch (err) {
       console.warn('removeProfilePhoto error', err);
       Toast.show('Error al eliminar foto', { duration: Toast.durations.SHORT });
@@ -400,6 +508,47 @@ export default function ProfileResidence({ navigation }) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
+
+  function NotificationRow({ n }) {
+    const dateLabel = n.date || n.createdAt ? new Date(n.date || n.createdAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const title = 'Consumo aprobado';
+    const amount = Number(n.amount ?? n.total ?? n.payload?.total ?? n.payload?.amount ?? 0) || 0;
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}
+        onPress={() => {
+          if (n.saleId || n.payload?.sale_id) {
+            try {
+              navigation.navigate('ConfirmacionConsumo', {
+                transactionId: n.saleId ?? n.payload?.sale_id,
+                amount: amount,
+                date: n.date || n.payload?.closed_at || n.createdAt,
+                rawResponse: n.payload || n
+              });
+            } catch (e) {  }
+          }
+        }}
+      >
+        <View style={styles.notLeft}>
+          <Text style={styles.notBranch} numberOfLines={1}>{title}</Text>
+{/*           { (n.saleId || n.payload?.sale_id) ? <Text style={styles.notSale}>Venta: {n.saleId ?? n.payload?.sale_id}</Text> : null }*/}
+          <Text style={styles.notDate}>{dateLabel}</Text>
+        </View>
+
+        <View style={[styles.notRight, { minWidth: 90 }]}>
+          <Text style={styles.notAmount}>{ amount > 0 ? formatMoney(amount) : '—' }</Text>
+          <Text style={styles.notCurrency}>{ amount > 0 ? 'MXN' : '' }</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  function formatMoney(n) {
+    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  }
+
   return (
     <SafeAreaView style={[styles.container, { paddingTop: topSafe, paddingBottom: Math.max(12, bottomSafe) }]}>
       <Modal visible={showNotifications} transparent animationType="slide">
@@ -412,11 +561,13 @@ export default function ProfileResidence({ navigation }) {
               </TouchableOpacity>
             </View>
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
-              {notifications.map(n => (
-                <View key={n.id} style={[styles.notificationItem, n.read ? styles.read : styles.unread]}>
-                  <Text style={[styles.notificationText, { fontSize: clamp(rf(3.6), 13, 16) }]}>{n.text}</Text>
+              {notifications && notifications.length > 0 ? (
+                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+              ) : (
+                <View style={styles.noNotifications}>
+                  <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
             <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
               <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
@@ -550,8 +701,7 @@ export default function ProfileResidence({ navigation }) {
             optionFont={optionFont}
           />
           <Option icon="card-outline" label="Métodos de Pago" onPress={() => navigation.navigate('Payments')} optionFont={optionFont} />
-{/*           <Option icon="document-text-outline" label="Facturación" onPress={() => navigation.navigate('Facturacion')} optionFont={optionFont} />*/} 
-          <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('Security')} optionFont={optionFont} />
+          <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('SecurityResidence')} optionFont={optionFont} />
           <Option icon="help-circle-outline" label="Ayuda / FAQ" onPress={() => navigation.navigate('Help')} optionFont={optionFont} />
           <Option icon="refresh-circle-outline" label="Actualizar contraseña" onPress={() => navigation.navigate('ChangePassword')} optionFont={optionFont} />
           <Option icon="log-out-outline" label="Cerrar sesión" onPress={() => setShowLogoutModal(true)} optionFont={optionFont} />
@@ -568,7 +718,6 @@ export default function ProfileResidence({ navigation }) {
         >
           <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Consulta términos y condiciones</Text>
         </TouchableOpacity>
-
 
         <TouchableOpacity
           style={[
@@ -607,7 +756,6 @@ export default function ProfileResidence({ navigation }) {
           <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack</Text>
         </TouchableOpacity>
 
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -639,12 +787,38 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   modalTitle: { fontWeight: '600', color: '#333' },
   modalList: { paddingHorizontal: 16 },
-  notificationItem: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  notificationText: { color: '#333' },
-  unread: { backgroundColor: '#eef5ff' },
-  read: { backgroundColor: '#fff' },
+
+  notificationItemLarge: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#eef3ff',
+    backgroundColor: '#fff'
+  },
+  unreadCard: { backgroundColor: '#f2f8ff', borderColor: '#d7e8ff' },
+  readCard: { backgroundColor: '#ffffff', borderColor: '#f0f0f0' },
+
+  notLeft: { flex: 1, paddingRight: 8 },
+  notRight: { alignItems: 'flex-end', justifyContent: 'center', minWidth: 80 },
+
+  notBranch: { fontWeight: '800', fontSize: 14, color: '#111', marginBottom: 2 },
+  notSale: { color: '#666', fontSize: 12, marginBottom: 2 },
+  notDate: { color: '#888', fontSize: 11 },
+
+  notAmount: { fontWeight: '900', fontSize: 16, color: '#0b58ff' },
+  notCurrency: { color: '#666', fontSize: 11 },
+
+  noNotifications: { padding: 28, alignItems: 'center', justifyContent: 'center' },
+  noNotificationsText: { color: '#666' },
+
   markReadButton: { padding: 12, backgroundColor: '#0046ff', alignItems: 'center', margin: 16, borderRadius: 8 },
   markReadText: { color: '#fff', fontWeight: '600' },
+
   logoutModalBox: { backgroundColor: '#fff', borderRadius: 12, alignItems: 'center' },
   logoutTitle: { fontWeight: '700', color: '#0046ff', marginBottom: 12 },
   logoutMessage: { color: '#333', textAlign: 'center', marginBottom: 20 },

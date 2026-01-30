@@ -17,6 +17,8 @@ import PaymentMethodsResidence from './PaymentMethodsResidence';
 import MiembrosResidence from './MiembrosResidence';
 import CuentaResidence from './CuentaResidence';
 import ConfirmacionConsumo from './ConfirmacionConsumo';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import SecurityResidence from './SecurityResidence';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -25,8 +27,6 @@ function FeedResidenceStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
        <Stack.Screen name="FeedResicende" component={FeedResidence} />
- 
- 
     </Stack.Navigator>
   );
 }
@@ -38,9 +38,6 @@ function QrResidenceStack() {
        <Stack.Screen name="Miembros" component={MiembrosResidence} />
        <Stack.Screen name="CuentaResidence" component={CuentaResidence} />
        <Stack.Screen name="ConfirmacionConsumo" component={ConfirmacionConsumo} />
-
-
- 
     </Stack.Navigator>
   );
 }
@@ -49,7 +46,6 @@ function ExperiencesResidenceStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
        <Stack.Screen name="ExperiencesResidence" component={ExperiencesResidence} />
- 
      </Stack.Navigator>
   );
 }
@@ -62,16 +58,18 @@ function ProfileResidenceStack() {
        <Stack.Screen name="Payments" component={PaymentMethodsResidence} />
        <Stack.Screen name="InfoPersonal" component={InfoPersonal} />
        <Stack.Screen name="Facturacion" component={Facturacion} />
-       <Stack.Screen name="Security" component={SesionAndSecurity} />
-       <Stack.Screen name="Help" component={Help} />
+        <Stack.Screen name="Help" component={Help} />
        <Stack.Screen name="Terms" component={TermsAndConditions} />
        <Stack.Screen name="ChangePassword" component={ChangePassword} />
- 
+       <Stack.Screen name="SecurityResidence" component={SecurityResidence} />
     </Stack.Navigator>
   );
 }
 
 export default function HomeResidence() {
+  const insets = useSafeAreaInsets();
+  const extra = 5;
+
   return (
     <Tab.Navigator
       initialRouteName="QR" 
@@ -98,7 +96,12 @@ export default function HomeResidence() {
         },
         tabBarActiveTintColor: '#007aff',
         tabBarInactiveTintColor: 'gray',
-        tabBarStyle: { paddingVertical: 5, height: 60 },
+        tabBarStyle: {
+          paddingVertical: 5,
+          paddingBottom: (insets.bottom || 0) + extra,
+          height: 60 + (insets.bottom || 0),
+          backgroundColor: '#fff',
+        },
       })}
     >
       <Tab.Screen name="Feed" component={FeedResidenceStack} />

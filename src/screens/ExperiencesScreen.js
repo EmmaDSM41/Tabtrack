@@ -509,7 +509,8 @@ export default function VisitsScreen(props) {
       const desdeStr = formatDateYMD(desdeCandidate);
       const hastaStr = formatDateYMD(new Date()); 
 
-      const urlVentas = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
+      const base = API_BASE_URL.replace(/\/$/, '');
+      const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
       let resVentas;
       try {
         resVentas = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
@@ -526,9 +527,38 @@ export default function VisitsScreen(props) {
         setFetchingSales(false);
         return;
       }
-      const jsonVentas = await resVentas.json().catch(() => ({}));
-      const ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
-      if (!ventaArray.length) {
+      let jsonVentas = await resVentas.json().catch(() => ({}));
+      let ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
+
+      // --- FALLBACK: si NO hay resultados para la fecha seleccionada, intentamos buscar en los últimos 10 días ---
+      if (!ventaArray || ventaArray.length === 0) {
+        // no cambiamos la fecha seleccionada del usuario; solo intentamos traer datos adicionales
+        const last10 = new Date();
+        last10.setDate(last10.getDate() - 9); // últimos 10 días (hoy y 9 días atrás)
+        const last10DesdeStr = formatDateYMD(last10);
+        const last10Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last10DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
+
+        try {
+          const resLast10 = await fetch(last10Url, { method: 'GET', headers: getAuthHeaders() });
+          if (resLast10 && resLast10.ok) {
+            const jsonLast = await resLast10.json().catch(() => ({}));
+            const ventaArrayLast = Array.isArray(jsonLast?.venta_id) ? jsonLast.venta_id : [];
+            if (ventaArrayLast && ventaArrayLast.length > 0) {
+              // usamos estos resultados (últimos 10 días)
+              ventaArray = ventaArrayLast;
+              // opcional: informar al usuario que se mostraron los últimos 10 días (opcional, no forzado)
+              // Toast.show('Mostrando visitas de los últimos 10 días.', { duration: Toast.durations.SHORT });
+            }
+          } else {
+            // nothing - leave ventaArray empty
+          }
+        } catch (e) {
+          console.warn('fallback last10 fetch error', e);
+        }
+      }
+
+      if (!ventaArray || ventaArray.length === 0) {
+        // Si aún no hay resultados, avisamos al usuario (como antes)
         Toast.show('No se encontraron ventas en ese rango', { duration: Toast.durations.SHORT });
         setVisits([]);
         setFetchingSales(false);
@@ -726,7 +756,7 @@ export default function VisitsScreen(props) {
       <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
-          <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>
+{/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
