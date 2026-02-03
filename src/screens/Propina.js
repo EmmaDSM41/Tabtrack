@@ -48,14 +48,12 @@ export default function Propina() {
   const initialPercent = incomingTipApplied ? Number(incomingTipApplied.percent || 0) : null;
   const initialOther = incomingTipApplied && ![10,15,20,25].includes(initialPercent) ? String(initialPercent) : '';
 
-  // ---------- MODIFICACIÓN: seleccionar 15% por defecto si no viene tipApplied ----------
-  // Si incomingTipApplied existe respetamos lo que venga; si no existe, por defecto 15%
+ 
   const [selectedPercent, setSelectedPercent] = useState(initialPercent ?? 15);
   const [otherPercent, setOtherPercent] = useState(initialOther);
   const [customActive, setCustomActive] = useState(Boolean(initialOther));
   const [hasAppliedBefore, setHasAppliedBefore] = useState(Boolean(incomingTipApplied));
-  // -------------------------------------------------------------------------------------
-
+ 
   useEffect(() => {
     const tip = route?.params?.tipApplied ?? route?.params?.tip_applied ?? null;
     if (tip) {

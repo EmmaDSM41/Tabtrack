@@ -39,7 +39,6 @@ export default function SesionAndSecurity({ navigation }) {
 
         setUsername(displayName);
 
-        // <-- AÑADIDO: leer url de foto de perfil cacheada y guardarla en el estado local
         try {
           const cachedUrl = await AsyncStorage.getItem('user_profile_url');
           if (cachedUrl) setProfileUrl(cachedUrl);

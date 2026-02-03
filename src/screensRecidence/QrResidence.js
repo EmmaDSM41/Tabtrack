@@ -29,7 +29,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc'; 
+const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY'; 
 
 const STORAGE_KEYS = {
   API_HOST: 'api_host',
@@ -535,12 +535,13 @@ export default function QrResidence({ navigation }) {
           saldo_mensual: Number(b.saldo_mensual ?? (json.departamento && json.departamento.saldo_mensual) ?? 0) || 0,
         });
       } else if (json && json.departamento && typeof json.departamento === 'object' && json.departamento.saldo_mensual !== undefined) {
-        // fallback parse
+        // CORRECCIÓN: no asignar monto_mensual_usado con saldo_mensual (eso provocaba que usado tomara el valor del saldo)
+        // ahora intentamos tomar las propiedades reales si existen en 'departamento'
         setDeptBilling({
           moneda: json.departamento.moneda ?? 'MXN',
-          monto_mensual_usado: Number(json.departamento.saldo_mensual ?? 0) || 0,
-          porcentaje_usado: 0,
-          saldo_disponible: Number(json.departamento.saldo_mensual ?? 0) || 0,
+          monto_mensual_usado: Number(json.departamento.monto_mensual_usado ?? 0) || 0,
+          porcentaje_usado: Number(json.departamento.porcentaje_usado ?? 0) || 0,
+          saldo_disponible: Number(json.departamento.saldo_disponible ?? json.departamento.saldo_mensual ?? 0) || 0,
           saldo_mensual: Number(json.departamento.saldo_mensual ?? 0) || 0,
         });
       } else {

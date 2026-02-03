@@ -19,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 'Comunidad', 'Menu'];
 
 const API_URL = 'https://api.residence.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 
 export default function FeedResicende() {
   const navigation = useNavigation();
@@ -330,16 +330,15 @@ export default function FeedResicende() {
   const renderItem = ({ item }) => {
     const urgent = item.priority === 'urgente';
 
-    // Reserve a width for the urgent badge, but only apply it to the title row and the date row.
-    // The body will NOT get reduced width (so it occupies same width as non-urgent cards).
-    const estimatedUrgentBadgeReserve = Math.round(Math.max(72, wp(22))); // espacio reservado para urgente
+
+    const estimatedUrgentBadgeReserve = Math.round(Math.max(72, wp(22))); 
 
     return (
       <TouchableOpacity
         activeOpacity={0.92}
-        onPress={() => {
+/*         onPress={() => {
           if (navigation && navigation.navigate) navigation.navigate('AvisoDetalle', { id: item.id, raw: item.raw });
-        }}
+        }} */
         style={[
           stylesN.card,
           urgent

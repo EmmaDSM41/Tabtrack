@@ -28,7 +28,7 @@ import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NzM4MjQyNiwianRpIjoiODQyODVmZmUtZDVjYi00OGUxLTk1MDItMmY3NWY2NDI2NmE1IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NjczODI0MjYsImV4cCI6MTc2OTk3NDQyNiwicm9sIjoiRWRpdG9yIn0.tx84js9-CPGmjLKVPtPeVhVMsQiRtCeNcfw4J4Q2hyc';
+const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -144,11 +144,65 @@ export default function ExperiencesScreen() {
           if (idx >= 0) {
             months[idx].billing = p.billing ?? null;
             months[idx].counts = p.counts ?? { closed_count: 0, open_count: 0 };
-            const monto = (p.billing && Number(p.billing.monto_mensual_usado)) ? Number(p.billing.monto_mensual_usado) : 0;
-            months[idx].amount = monto;
+            // amount debe reflejar el monto usado (0 también es válido)
+            const monto = (p.billing && (p.billing.monto_mensual_usado !== undefined && p.billing.monto_mensual_usado !== null))
+              ? Number(p.billing.monto_mensual_usado)
+              : 0;
+            months[idx].amount = Number.isNaN(Number(monto)) ? 0 : monto;
             months[idx].transactions = ((p.counts && (Number(p.counts.closed_count) || 0)) + (p.counts && (Number(p.counts.open_count) || 0))) || 0;
           }
         });
+      }
+
+      // --- ADICIONAL: intentar obtener billing DETALLADO (detalle=true) para el mes actual ---
+      try {
+        const currentPeriodo = `${year}${String(now.getMonth() + 1).padStart(2,'0')}`;
+        const idxCur = months.findIndex(m => m.periodo === currentPeriodo);
+        if (idxCur >= 0) {
+          const detailPath = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo_desde=${encodeURIComponent(currentPeriodo)}&periodo_hasta=${encodeURIComponent(currentPeriodo)}&detalle=true&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
+          const detailUrl = `${base}${detailPath}`;
+          const resDet = await fetch(detailUrl, { method: 'GET', headers });
+          if (resDet && resDet.ok) {
+            let jsonDet = null;
+            try { jsonDet = await resDet.json(); } catch (e) { jsonDet = null; }
+            // buscar billing en la respuesta detallada
+            let billingDet = null;
+            let countsDet = null;
+            if (jsonDet) {
+              if (jsonDet.periodos && Array.isArray(jsonDet.periodos) && jsonDet.periodos.length > 0) {
+                billingDet = jsonDet.periodos[0].billing ?? billingDet;
+                countsDet = jsonDet.periodos[0].counts ?? countsDet;
+              }
+              if (!billingDet && jsonDet.billing) billingDet = jsonDet.billing;
+              // fallback: buscar cualquier key con 'billing'
+              if (!billingDet) {
+                for (const k of Object.keys(jsonDet)) {
+                  if (k.toLowerCase().includes('billing') && jsonDet[k]) { billingDet = jsonDet[k]; break; }
+                }
+              }
+            }
+            if (billingDet) {
+              months[idxCur].billing = billingDet;
+              // monto usado (0 es válido)
+              if (billingDet.monto_mensual_usado !== undefined && billingDet.monto_mensual_usado !== null) {
+                const mmu = Number(billingDet.monto_mensual_usado);
+                months[idxCur].amount = Number.isNaN(mmu) ? 0 : mmu;
+              } else {
+                months[idxCur].amount = months[idxCur].amount || 0;
+              }
+              // transactions: intentar tomar de counts si existe
+              if (countsDet) {
+                months[idxCur].transactions = ((countsDet.closed_count && Number(countsDet.closed_count)) || 0) + ((countsDet.open_count && Number(countsDet.open_count)) || 0);
+              } else if (billingDet && billingDet.transactions !== undefined && billingDet.transactions !== null) {
+                const t = Number(billingDet.transactions);
+                months[idxCur].transactions = Number.isNaN(t) ? months[idxCur].transactions : t;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // no bloquear si falla el detalle
+        console.warn('[dept-history] detalle fetch error', e);
       }
 
       setMonthsData(months);
@@ -424,8 +478,6 @@ export default function ExperiencesScreen() {
         failOnCancel: false,
       });
 
-
-
     } catch (err) {
       console.warn('exportPayment error:', err);
       Alert.alert('Error', 'No fue posible generar/compartir el PDF. Asegúrate de instalar: pdf-lib, react-native-fs y react-native-share y recompilar la app. ' + (err?.message || ''));
@@ -577,20 +629,47 @@ export default function ExperiencesScreen() {
   let assignedBalance = 3500.0; 
   let consumed = 425.0;
   let available = assignedBalance - consumed;
+
   if (Array.isArray(monthsData) && monthsData.length) {
     const cur = monthsData.find(m => m.periodo === `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`);
     if (cur && cur.billing) {
-      assignedBalance = Number(cur.billing.saldo_mensual ?? cur.billing.saldo_mensual ?? assignedBalance) || assignedBalance;
-      consumed = Number(cur.billing.monto_mensual_usado ?? consumed) || consumed;
-      available = Number(cur.billing.saldo_disponible ?? (assignedBalance - consumed)) || (assignedBalance - consumed);
+      // Asignar saldo_mensual incluso si es 0 (por eso comprobamos undefined/null)
+      if (cur.billing.saldo_mensual !== undefined && cur.billing.saldo_mensual !== null) {
+        const n = Number(cur.billing.saldo_mensual);
+        if (!Number.isNaN(n)) assignedBalance = n;
+      }
+      // monto_mensual_usado: 0 también es válido
+      if (cur.billing.monto_mensual_usado !== undefined && cur.billing.monto_mensual_usado !== null) {
+        const n2 = Number(cur.billing.monto_mensual_usado);
+        if (!Number.isNaN(n2)) consumed = n2;
+      }
+      // saldo_disponible preferible usarlo si está presente (incluso 0)
+      if (cur.billing.saldo_disponible !== undefined && cur.billing.saldo_disponible !== null) {
+        const n3 = Number(cur.billing.saldo_disponible);
+        if (!Number.isNaN(n3)) {
+          available = n3;
+        } else {
+          available = assignedBalance - consumed;
+        }
+      } else {
+        available = assignedBalance - consumed;
+      }
     } else {
-      const firstWithSaldo = monthsData.find(m => m.billing && m.billing.saldo_mensual);
+      // Buscar un mes con saldo definido (aunque sea 0)
+      const firstWithSaldo = monthsData.find(m => m.billing && (m.billing.saldo_mensual !== undefined && m.billing.saldo_mensual !== null));
       if (firstWithSaldo && firstWithSaldo.billing) {
-        assignedBalance = Number(firstWithSaldo.billing.saldo_mensual) || assignedBalance;
+        const n = Number(firstWithSaldo.billing.saldo_mensual);
+        if (!Number.isNaN(n)) assignedBalance = n;
       }
     }
   }
-  const utilization = Math.round((consumed / Math.max(1, assignedBalance)) * 1000) / 10;
+
+  let utilization = 0;
+  if (typeof assignedBalance === 'number' && assignedBalance > 0) {
+    utilization = Math.round((consumed / assignedBalance) * 1000) / 10;
+  } else {
+    utilization = 0;
+  }
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -666,7 +745,7 @@ export default function ExperiencesScreen() {
               </View>
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text style={styles.infoTitle}>Tu saldo se renueva el primer día de cada mes</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('InfoSaldo')}>
+                <TouchableOpacity  >
                   <Text style={styles.infoLink}>Saldo no utilizado no se acumula</Text>
                 </TouchableOpacity>
               </View>
