@@ -154,7 +154,6 @@ export default function ExperiencesScreen() {
         });
       }
 
-      // --- ADICIONAL: intentar obtener billing DETALLADO (detalle=true) para el mes actual ---
       try {
         const currentPeriodo = `${year}${String(now.getMonth() + 1).padStart(2,'0')}`;
         const idxCur = months.findIndex(m => m.periodo === currentPeriodo);
@@ -165,7 +164,6 @@ export default function ExperiencesScreen() {
           if (resDet && resDet.ok) {
             let jsonDet = null;
             try { jsonDet = await resDet.json(); } catch (e) { jsonDet = null; }
-            // buscar billing en la respuesta detallada
             let billingDet = null;
             let countsDet = null;
             if (jsonDet) {
@@ -174,7 +172,6 @@ export default function ExperiencesScreen() {
                 countsDet = jsonDet.periodos[0].counts ?? countsDet;
               }
               if (!billingDet && jsonDet.billing) billingDet = jsonDet.billing;
-              // fallback: buscar cualquier key con 'billing'
               if (!billingDet) {
                 for (const k of Object.keys(jsonDet)) {
                   if (k.toLowerCase().includes('billing') && jsonDet[k]) { billingDet = jsonDet[k]; break; }
@@ -183,14 +180,12 @@ export default function ExperiencesScreen() {
             }
             if (billingDet) {
               months[idxCur].billing = billingDet;
-              // monto usado (0 es válido)
               if (billingDet.monto_mensual_usado !== undefined && billingDet.monto_mensual_usado !== null) {
                 const mmu = Number(billingDet.monto_mensual_usado);
                 months[idxCur].amount = Number.isNaN(mmu) ? 0 : mmu;
               } else {
                 months[idxCur].amount = months[idxCur].amount || 0;
               }
-              // transactions: intentar tomar de counts si existe
               if (countsDet) {
                 months[idxCur].transactions = ((countsDet.closed_count && Number(countsDet.closed_count)) || 0) + ((countsDet.open_count && Number(countsDet.open_count)) || 0);
               } else if (billingDet && billingDet.transactions !== undefined && billingDet.transactions !== null) {
@@ -201,26 +196,18 @@ export default function ExperiencesScreen() {
           }
         }
       } catch (e) {
-        // no bloquear si falla el detalle
         console.warn('[dept-history] detalle fetch error', e);
       }
 
-      // ---------- HERE: rotate months so current month appears first and past months go to the end ----------
       try {
-        const rotateIndex = new Date().getMonth(); // 0-based index (0 = Jan). We want months[rotateIndex] to be first.
+        const rotateIndex = new Date().getMonth(); 
         if (rotateIndex > 0 && months.length === 12) {
           const rotated = months.slice(rotateIndex).concat(months.slice(0, rotateIndex));
-          // keep months variable reference to rotated for UI
-          // (we do not alter any other fields)
-          // replace months with rotated result
-          // note: if rotateIndex === 0 (January), rotated === months (no change)
-          // This ensures that after a month completes it will be placed at the end.
-          // e.g., on Feb (rotateIndex=1) => months[1]..months[11], months[0]
+
           months.length = 0;
           months.push(...rotated);
         }
       } catch (e) {
-        // fail silently, keep original order
         console.warn('[dept-history] rotate months error', e);
       }
 
@@ -652,21 +639,17 @@ export default function ExperiencesScreen() {
   if (Array.isArray(monthsData) && monthsData.length) {
     const cur = monthsData.find(m => m.periodo === `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`);
     if (cur && cur.billing) {
-      // Asignar saldo_mensual incluso si es 0 (por eso comprobamos undefined/null)
       if (cur.billing.saldo_mensual !== undefined && cur.billing.saldo_mensual !== null) {
         const n = Number(cur.billing.saldo_mensual);
         if (!Number.isNaN(n)) assignedBalance = n;
       }
-      // monto_mensual_usado: 0 también es válido
       if (cur.billing.monto_mensual_usado !== undefined && cur.billing.monto_mensual_usado !== null) {
         const n2 = Number(cur.billing.monto_mensual_usado);
         if (!Number.isNaN(n2)) consumed = n2;
       }
-      // saldo_disponible preferible usarlo si está presente (incluso 0)
       if (cur.billing.saldo_disponible !== undefined && cur.billing.saldo_disponible !== null) {
         const n3 = Number(cur.billing.saldo_disponible);
         if (!Number.isNaN(n3)) {
-          // KEEP: use provided saldo_disponible (it can be negative)
           available = n3;
         } else {
           available = assignedBalance - consumed;
@@ -675,7 +658,6 @@ export default function ExperiencesScreen() {
         available = assignedBalance - consumed;
       }
     } else {
-      // Buscar un mes con saldo definido (aunque sea 0)
       const firstWithSaldo = monthsData.find(m => m.billing && (m.billing.saldo_mensual !== undefined && m.billing.saldo_mensual !== null));
       if (firstWithSaldo && firstWithSaldo.billing) {
         const n = Number(firstWithSaldo.billing.saldo_mensual);
@@ -684,11 +666,9 @@ export default function ExperiencesScreen() {
     }
   }
 
-  // ---------- NEW: determine if available is negative (only formatting/display, no logic change elsewhere) ----------
   const availableNumber = Number(available) || 0;
   const availableIsNegative = availableNumber < 0;
   const formattedAvailableForDisplay = `${availableIsNegative ? '-' : ''}$${Math.abs(availableNumber).toFixed(2)}`;
-  // -------------------------------------------------------------------------
 
   let utilization = 0;
   if (typeof assignedBalance === 'number' && assignedBalance > 0) {

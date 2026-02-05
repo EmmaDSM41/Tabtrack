@@ -535,8 +535,7 @@ export default function QrResidence({ navigation }) {
           saldo_mensual: Number(b.saldo_mensual ?? (json.departamento && json.departamento.saldo_mensual) ?? 0) || 0,
         });
       } else if (json && json.departamento && typeof json.departamento === 'object' && json.departamento.saldo_mensual !== undefined) {
-        // CORRECCIÓN: no asignar monto_mensual_usado con saldo_mensual (eso provocaba que usado tomara el valor del saldo)
-        // ahora intentamos tomar las propiedades reales si existen en 'departamento'
+
         setDeptBilling({
           moneda: json.departamento.moneda ?? 'MXN',
           monto_mensual_usado: Number(json.departamento.monto_mensual_usado ?? 0) || 0,
