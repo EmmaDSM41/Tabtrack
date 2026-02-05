@@ -577,7 +577,14 @@ export default function QrResidence({ navigation }) {
   const available = deptBilling ? Number(deptBilling.saldo_disponible || 0) : fallbackAvailable;
   const utilization = (consumed + available) > 0 ? Math.round((consumed / (consumed + available)) * 1000) / 10 : 0;
   const consumedDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(consumed).toFixed(2)}` : `${fallbackConsumed.toFixed(2)}`);
-  const availableDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(available).toFixed(2)}` : `${fallbackAvailable.toFixed(2)}`);
+
+  // ---------- NEW: compute formatted available display and color if negative ----------
+  const availableNumber = deptHistoryLoading ? null : (deptBilling ? Number(available) : Number(fallbackAvailable));
+  const availableIsNegative = availableNumber !== null && availableNumber < 0;
+  const formattedAvailableDisplay = deptHistoryLoading ? '…' : (availableIsNegative ? `-$${Math.abs(availableNumber).toFixed(2)}` : `$${availableNumber.toFixed(2)}`);
+  const availableTextColor = deptHistoryLoading ? '#fff' : (availableIsNegative ? '#FF3B30' : '#fff');
+  // -------------------------------------------------------------------------------
+
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
   const buttonsTop = holeTop + qrSize + buttonsGap;
@@ -632,8 +639,8 @@ export default function QrResidence({ navigation }) {
 
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={styles.gradientSmallLabel}>Disponible</Text>
-                <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900' }]}>
-                  ${availableDisplay}
+                <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900', color: availableTextColor }]}>
+                  {formattedAvailableDisplay}
                 </Text>
               </View>
             </View>
@@ -747,7 +754,7 @@ export default function QrResidence({ navigation }) {
           <TouchableOpacity
             activeOpacity={1}
             onPress={() => navigation.navigate('Miembros')}
-            style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}
+            style={[styles.floatSecondary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16), marginTop: 0 }]}
           >
             <View style={styles.actionContent}>
               <Ionicons name="person-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />

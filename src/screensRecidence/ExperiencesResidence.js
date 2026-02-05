@@ -205,6 +205,25 @@ export default function ExperiencesScreen() {
         console.warn('[dept-history] detalle fetch error', e);
       }
 
+      // ---------- HERE: rotate months so current month appears first and past months go to the end ----------
+      try {
+        const rotateIndex = new Date().getMonth(); // 0-based index (0 = Jan). We want months[rotateIndex] to be first.
+        if (rotateIndex > 0 && months.length === 12) {
+          const rotated = months.slice(rotateIndex).concat(months.slice(0, rotateIndex));
+          // keep months variable reference to rotated for UI
+          // (we do not alter any other fields)
+          // replace months with rotated result
+          // note: if rotateIndex === 0 (January), rotated === months (no change)
+          // This ensures that after a month completes it will be placed at the end.
+          // e.g., on Feb (rotateIndex=1) => months[1]..months[11], months[0]
+          months.length = 0;
+          months.push(...rotated);
+        }
+      } catch (e) {
+        // fail silently, keep original order
+        console.warn('[dept-history] rotate months error', e);
+      }
+
       setMonthsData(months);
     } catch (err) {
       console.warn('fetchYearHistory error', err);
@@ -409,7 +428,7 @@ export default function ExperiencesScreen() {
         y: y - 26,
         size: 10,
         font: helvetica,
-        color: rgb(0.42, 0.42, 0.42),
+        color: rgb(0.42,0.42,0.42),
       });
 
       y -= 60;
@@ -647,6 +666,7 @@ export default function ExperiencesScreen() {
       if (cur.billing.saldo_disponible !== undefined && cur.billing.saldo_disponible !== null) {
         const n3 = Number(cur.billing.saldo_disponible);
         if (!Number.isNaN(n3)) {
+          // KEEP: use provided saldo_disponible (it can be negative)
           available = n3;
         } else {
           available = assignedBalance - consumed;
@@ -663,6 +683,12 @@ export default function ExperiencesScreen() {
       }
     }
   }
+
+  // ---------- NEW: determine if available is negative (only formatting/display, no logic change elsewhere) ----------
+  const availableNumber = Number(available) || 0;
+  const availableIsNegative = availableNumber < 0;
+  const formattedAvailableForDisplay = `${availableIsNegative ? '-' : ''}$${Math.abs(availableNumber).toFixed(2)}`;
+  // -------------------------------------------------------------------------
 
   let utilization = 0;
   if (typeof assignedBalance === 'number' && assignedBalance > 0) {
@@ -715,9 +741,13 @@ export default function ExperiencesScreen() {
 
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.whiteSmallLabel}>Disponible</Text>
-                    <Text style={[styles.whiteSmallValue, { fontWeight: '800' }]}>
-                      ${Number(available).toFixed(2)}
+
+                    {/* ---------- UPDATED DISPLAY: show negative and color red when available < 0 ---------- */}
+                    <Text style={[styles.whiteSmallValue, { fontWeight: '800', color: availableIsNegative ? '#FF3B30' : '#fff' }]}>
+                      {formattedAvailableForDisplay}
                     </Text>
+                    {/* ------------------------------------------------------------------------------- */}
+
                   </View>
                 </View>
 
