@@ -632,8 +632,8 @@ export default function ExperiencesScreen() {
 
   const now = new Date();
   const currentMonthIdx = now.getMonth();
-  let assignedBalance = 3500.0; 
-  let consumed = 425.0;
+  let assignedBalance = 0; 
+  let consumed = 0;
   let available = assignedBalance - consumed;
 
   if (Array.isArray(monthsData) && monthsData.length) {
@@ -647,15 +647,22 @@ export default function ExperiencesScreen() {
         const n2 = Number(cur.billing.monto_mensual_usado);
         if (!Number.isNaN(n2)) consumed = n2;
       }
+
+      // --- NUEVA LÓGICA: siempre calcular assignedBalance - consumed y usarlo si es negativo ---
+      const computedAvailable = assignedBalance - consumed;
+
+      let apiAvailable = null;
       if (cur.billing.saldo_disponible !== undefined && cur.billing.saldo_disponible !== null) {
         const n3 = Number(cur.billing.saldo_disponible);
-        if (!Number.isNaN(n3)) {
-          available = n3;
-        } else {
-          available = assignedBalance - consumed;
-        }
+        if (!Number.isNaN(n3)) apiAvailable = n3;
+      }
+
+      if (computedAvailable < 0) {
+        available = computedAvailable;
+      } else if (apiAvailable !== null) {
+        available = apiAvailable;
       } else {
-        available = assignedBalance - consumed;
+        available = computedAvailable;
       }
     } else {
       const firstWithSaldo = monthsData.find(m => m.billing && (m.billing.saldo_mensual !== undefined && m.billing.saldo_mensual !== null));
@@ -722,11 +729,9 @@ export default function ExperiencesScreen() {
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.whiteSmallLabel}>Disponible</Text>
 
-                    {/* ---------- UPDATED DISPLAY: show negative and color red when available < 0 ---------- */}
                     <Text style={[styles.whiteSmallValue, { fontWeight: '800', color: availableIsNegative ? '#FF3B30' : '#fff' }]}>
                       {formattedAvailableForDisplay}
                     </Text>
-                    {/* ------------------------------------------------------------------------------- */}
 
                   </View>
                 </View>

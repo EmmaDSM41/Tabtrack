@@ -37,6 +37,7 @@ import PaymentScreen from './PaymentScreen';
 import OpenPay from './OpenPay';
 import Stripe from './Stripe';
 import ConfirmacionPago from './ConfirmacionPago';
+import SaleDetail from './PagoDetail';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -115,6 +116,7 @@ function ProfileStackScreen() {
       <Stack.Screen name="Dividir" component={Dividir} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Restaurant" component={RestaurantDetailScreen} />
+      <Stack.Screen name="SaleDetail" component={SaleDetail} />
     </Stack.Navigator>
   );
 }

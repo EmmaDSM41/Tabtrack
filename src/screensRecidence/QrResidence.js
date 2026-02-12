@@ -573,16 +573,42 @@ export default function QrResidence({ navigation }) {
   }
 
   const consumed = deptBilling ? Number(deptBilling.monto_mensual_usado || 0) : fallbackConsumed;
-  const available = deptBilling ? Number(deptBilling.saldo_disponible || 0) : fallbackAvailable;
-  const utilization = (consumed + available) > 0 ? Math.round((consumed / (consumed + available)) * 1000) / 10 : 0;
+
+  // --- NUEVA LÓGICA: calcular disponible y mostrar negativo si corresponde ---
+  // Si el API trae saldo_mensual y monto_mensual_usado, calculamos computedAvailable = saldo_mensual - monto_mensual_usado.
+  // Si computedAvailable < 0, preferimos mostrar ese negativo . Si no, usamos saldo_disponible del API cuando exista.
+  let availableNumber;
+  if (deptHistoryLoading) {
+    availableNumber = null;
+  } else if (deptBilling) {
+    const saldoMensual = Number(deptBilling.saldo_mensual || 0);
+    const montoUsado = Number(deptBilling.monto_mensual_usado || 0);
+    const computedAvailable = saldoMensual - montoUsado;
+
+    const apiAvailRaw = deptBilling.saldo_disponible;
+    const apiAvailable = (apiAvailRaw !== undefined && apiAvailRaw !== null && !Number.isNaN(Number(apiAvailRaw))) ? Number(apiAvailRaw) : null;
+
+    if (!Number.isNaN(computedAvailable) && computedAvailable < 0) {
+      availableNumber = computedAvailable;
+    } else if (apiAvailable !== null) {
+      availableNumber = apiAvailable;
+    } else {
+      availableNumber = computedAvailable;
+    }
+  } else {
+    availableNumber = Number(fallbackAvailable);
+  }
+  const utilization = (consumed + (availableNumber !== null ? availableNumber : fallbackAvailable)) > 0
+    ? Math.round((consumed / (consumed + (availableNumber !== null ? availableNumber : fallbackAvailable))) * 1000) / 10
+    : 0;
+
   const consumedDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(consumed).toFixed(2)}` : `${fallbackConsumed.toFixed(2)}`);
 
-  // ---------- NEW: compute formatted available display and color if negative ----------
-  const availableNumber = deptHistoryLoading ? null : (deptBilling ? Number(available) : Number(fallbackAvailable));
   const availableIsNegative = availableNumber !== null && availableNumber < 0;
-  const formattedAvailableDisplay = deptHistoryLoading ? '…' : (availableIsNegative ? `-$${Math.abs(availableNumber).toFixed(2)}` : `$${availableNumber.toFixed(2)}`);
+  const formattedAvailableDisplay = deptHistoryLoading
+    ? '…'
+    : (availableIsNegative ? `-$${Math.abs(availableNumber).toFixed(2)}` : `$${Number(availableNumber).toFixed(2)}`);
   const availableTextColor = deptHistoryLoading ? '#fff' : (availableIsNegative ? '#FF3B30' : '#fff');
-  // -------------------------------------------------------------------------------
 
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 

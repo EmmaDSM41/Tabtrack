@@ -13,6 +13,7 @@ import {
   PixelRatio,
   ActivityIndicator,
   DeviceEventEmitter,
+  Linking,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,7 +32,7 @@ const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6
 export default function ProfileScreen({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [notifications, setNotifications] = useState([]); 
+  const [notifications, setNotifications] = useState([]);
   const [username, setUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -61,8 +62,8 @@ export default function ProfileScreen({ navigation }) {
 
   const pollIntervalRef = useRef(null);
   const isMountedRef = useRef(true);
-  const emailRef = useRef(null); 
-  const MAX_STORE = 100; 
+  const emailRef = useRef(null);
+  const MAX_STORE = 100;
 
   useEffect(() => {
     (async () => {
@@ -101,7 +102,7 @@ export default function ProfileScreen({ navigation }) {
       if (emailRef.current) {
         const stored = await loadStoredNotifications(emailRef.current);
         if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
           setNotifications(sorted);
         }
       }
@@ -126,7 +127,7 @@ export default function ProfileScreen({ navigation }) {
       }
       await fetchTodayNotificationsOnce();
     })();
-    return () => {};
+    return () => { };
   }, []));
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -221,7 +222,8 @@ export default function ProfileScreen({ navigation }) {
       let added = false;
 
       for (const venta of ventas) {
-        const saleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? null;
+        const ventaSaleId = venta?.venta_id ?? venta?.sale_id ?? venta?.ventaId ?? venta?.saleId ?? null;
+
         const pagos = Array.isArray(venta?.pagos) ? venta.pagos : [];
         if ((!Array.isArray(pagos) || pagos.length === 0) && Array.isArray(venta?.items_consumidos)) {
           const items = venta.items_consumidos;
@@ -229,18 +231,28 @@ export default function ProfileScreen({ navigation }) {
             const item = items[i];
             const state = String(item?.estado ?? '').toLowerCase();
             if (state === 'paid' || state === 'confirmed') {
+              const saleId = item?.venta_id ?? item?.sale_id ?? item?.ventaId ?? item?.saleId ?? ventaSaleId ?? null;
               const unique = paymentUniqueId(saleId, item, i);
               if (seenSet.has(unique) || storedById.has(unique)) continue;
+
               const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
               const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
               const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+
+              const branchId = venta?.sucursal_id ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+                item?.sucursal_id ?? item?.sucursalId ?? item?.branch_id ?? item?.branchId ?? null;
+
+              const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
               const notif = {
                 id: unique,
                 text: buildNotificationText({ branch, amount, date, saleId }),
                 amount: Number(amount || 0),
                 branch: branch || '',
+                branchId: branchId ?? null,
                 date,
                 saleId,
+                url: splitsUrl, 
                 read: false,
               };
               stored.unshift(notif);
@@ -256,18 +268,30 @@ export default function ProfileScreen({ navigation }) {
           const pago = pagos[i];
           const status = String(pago?.status ?? pago?.estado ?? '').toLowerCase();
           if (status !== 'confirmed' && status !== 'paid') continue;
+
+          const saleId = pago?.sale_id ?? pago?.venta_id ?? pago?.saleId ?? pago?.ventaId ?? ventaSaleId ?? null;
+
           const unique = paymentUniqueId(saleId, pago, i);
           if (seenSet.has(unique) || storedById.has(unique)) continue;
+
           const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
           const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
           const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+
+          const branchId = venta?.sucursal_id ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+            pago?.sucursal_id ?? pago?.sucursalId ?? pago?.branch_id ?? pago?.branchId ?? null;
+
+          const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
           const notif = {
             id: unique,
             text: buildNotificationText({ branch, amount, date, saleId }),
             amount: Number(amount || 0),
             branch: branch || '',
+            branchId: branchId ?? null,
             date,
             saleId,
+            url: splitsUrl,
             read: false,
           };
           stored.unshift(notif);
@@ -278,13 +302,13 @@ export default function ProfileScreen({ navigation }) {
       }
 
       if (added) {
-        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        const uniq = Array.from(storedById.values()).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
         await saveSeenIds(email, seenSet);
         await saveStoredNotifications(email, uniq);
         if (isMountedRef.current) setNotifications(uniq);
       } else {
         if (isMountedRef.current) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
           setNotifications(sorted);
         }
       }
@@ -305,6 +329,54 @@ export default function ProfileScreen({ navigation }) {
       console.warn('markAllRead err', e);
     }
   }, [notifications]);
+
+
+  const markNotificationAsRead = async (notifId) => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => n.id === notifId ? { ...n, read: true } : n);
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markNotificationAsRead err', e);
+    }
+  };
+
+  const handleNotificationPress = async (n) => {
+    try {
+      if (!n) return;
+      if (!n.read) await markNotificationAsRead(n.id);
+
+      setShowNotifications(false);
+
+      if (n.saleId && n.branchId) {
+        try {
+          navigation.navigate('SaleDetail', {
+            saleId: String(n.saleId),
+            branchId: String(n.branchId),
+          });
+          return;
+        } catch (e) {
+          console.warn('navigate to SaleDetail failed', e);
+        }
+      }
+
+      if (n.url) {
+        try {
+          await Linking.openURL(n.url);
+          return;
+        } catch (e) {
+          console.warn('open url failed', e);
+        }
+      }
+
+      Toast.show('Faltan datos de venta o sucursal en esta notificación.', { duration: Toast.durations.SHORT });
+    } catch (err) {
+      console.warn('handleNotificationPress err', err);
+    }
+  };
 
 
   const getAuthHeaders = (extra = {}) => {
@@ -344,8 +416,8 @@ export default function ProfileScreen({ navigation }) {
         }
       } else {
         setProfileUrl(null);
-        try { await AsyncStorage.removeItem('user_profile_url').catch(()=>null); } catch(_) {}
-        try { DeviceEventEmitter.emit('profileUpdated', null); } catch(e) { /**/ }
+        try { await AsyncStorage.removeItem('user_profile_url').catch(() => null); } catch (_) { }
+        try { DeviceEventEmitter.emit('profileUpdated', null); } catch (e) { /**/ }
       }
     } catch (err) {
       console.warn('Error cargando foto de perfil:', err);
@@ -403,7 +475,7 @@ export default function ProfileScreen({ navigation }) {
       });
 
       if (!presignRes.ok) {
-        const txt = await presignRes.text().catch(()=>null);
+        const txt = await presignRes.text().catch(() => null);
         console.warn('presign failed', presignRes.status, txt);
         Toast.show('No se pudo iniciar la subida', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -433,7 +505,7 @@ export default function ProfileScreen({ navigation }) {
       });
 
       if (!putRes.ok) {
-        const txt = await putRes.text().catch(()=>null);
+        const txt = await putRes.text().catch(() => null);
         console.warn('Upload PUT failed', putRes.status, txt);
         Toast.show('Error al subir la imagen', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -501,7 +573,7 @@ export default function ProfileScreen({ navigation }) {
       }
 
       try {
-        await AsyncStorage.removeItem('user_profile_url').catch(()=>{});
+        await AsyncStorage.removeItem('user_profile_url').catch(() => { });
       } catch (e) { /* noop */ }
 
       setProfileUrl(null);
@@ -553,7 +625,7 @@ export default function ProfileScreen({ navigation }) {
           arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
           if (!Array.isArray(arr)) arr = [];
           if (arr.length > 6) arr = arr.slice(0, 6);
-          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch(e) { console.warn('save recent_accounts failed', e); }
+          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch (e) { console.warn('save recent_accounts failed', e); }
         }
       } catch (e) {
         console.warn('Guardar recent account failed (pre-clean)', e);
@@ -618,7 +690,7 @@ export default function ProfileScreen({ navigation }) {
             index: 0,
             routes: [{ name: 'Login' }]
           });
-        } catch (_) { /* noop */ }
+        } catch (_) {  }
       }
 
       Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
@@ -630,17 +702,17 @@ export default function ProfileScreen({ navigation }) {
           index: 0,
           routes: [{ name: 'Login' }]
         });
-      } catch (_) { /* noop */ }
+      } catch (_) {  }
     }
   };
 
-  function NotificationRow({ n }) {
+  function NotificationRow({ n, onPress }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
-      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+      <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
-{/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
+          {/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
@@ -648,7 +720,7 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
           <Text style={styles.notCurrency}>MXN</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -667,13 +739,19 @@ export default function ProfileScreen({ navigation }) {
             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-{/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
+                {/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
               </TouchableOpacity>
             </View>
 
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (
-                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+                notifications.map(n => (
+                  <NotificationRow
+                    key={n.id}
+                    n={n}
+                    onPress={() => handleNotificationPress(n)}
+                  />
+                ))
               ) : (
                 <View style={styles.noNotifications}>
                   <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
@@ -849,6 +927,19 @@ export default function ProfileScreen({ navigation }) {
           ]}
           onPress={async () => {
             try {
+              // 1) Si ya tenemos la bandera explícita, navegar directo (evita re-pedir código)
+              const verified = await AsyncStorage.getItem('user_residence_verified');
+              if (verified === 'true') {
+                try {
+                  navigation.navigate('HomeResidence');
+                  return;
+                } catch (e) {
+                  console.warn('navigate HomeResidence failed (verified path)', e);
+                  // si por alguna razón no podemos navegar, caemos al comportamiento original
+                }
+              }
+
+              // 2) Si no está verificado localmente, mantenemos TU flujo original (leer user_residence_activo)
               const val = await AsyncStorage.getItem('user_residence_activo');
               if (String(val) === 'true') {
                 try {
@@ -864,10 +955,11 @@ export default function ProfileScreen({ navigation }) {
                 return;
               }
             } catch (err) {
-              console.warn('Error reading user_residence_activo from AsyncStorage', err);
+              console.warn('Error in switch button onPress (verified check + fallback)', err);
               navigation.navigate('CodeResidence');
             }
           }}
+
           hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
         >
           <LinearGradient

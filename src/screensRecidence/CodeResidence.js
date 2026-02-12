@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DEFAULT_API_BASE = 'https://api.residence.tab-track.com';
-const DEFAULT_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY'; 
+const DEFAULT_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 
 export default function CodeResidence(props) {
   const navigation = useNavigation();
@@ -56,7 +56,6 @@ export default function CodeResidence(props) {
   }, []);
 
   const showToast = (message, success = false, duration = 1800, cb) => {
-    // clear previous timeout if any
     if (toastHideTimeoutRef.current) {
       clearTimeout(toastHideTimeoutRef.current);
       toastHideTimeoutRef.current = null;
@@ -64,7 +63,7 @@ export default function CodeResidence(props) {
     setToastMsg(String(message ?? ''));
     setToastSuccess(!!success);
 
-    toastAnim.setValue(0); 
+    toastAnim.setValue(0);
     Animated.timing(toastAnim, {
       toValue: 1,
       duration: 300,
@@ -85,7 +84,7 @@ export default function CodeResidence(props) {
     });
   };
 
-  const getStoredEmail = async () => {
+  const getStoredEmailLocal = async () => {
     const keysToTry = ['user_email', 'user_mail', 'userEmail', 'email'];
     try {
       for (const k of keysToTry) {
@@ -103,7 +102,7 @@ export default function CodeResidence(props) {
   };
 
   const callActivateApi = async (mail, tokenToSend) => {
-    const { host, token: apiToken } = await getApiConfig();
+    const { host, token: apiTokenFromConfig } = await getApiConfig();
     let base = (host || DEFAULT_API_BASE).replace(/\/$/, '');
     let endpoint = '';
     if (base.match(/\/api\/mobileapp$/i)) {
@@ -120,8 +119,8 @@ export default function CodeResidence(props) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     };
-    if (apiToken && apiToken.length > 0) {
-      headers.Authorization = `Bearer ${apiToken}`;
+    if (apiTokenFromConfig && apiTokenFromConfig.length > 0) {
+      headers.Authorization = `Bearer ${apiTokenFromConfig}`;
     }
 
     const body = { mail: mail || '', token: tokenToSend || '' };
@@ -135,7 +134,6 @@ export default function CodeResidence(props) {
 
       let json = null;
       try { json = await res.json(); } catch (e) { json = null; }
-
       return { ok: res.ok, status: res.status, json, endpoint };
     } catch (err) {
       console.warn('fetch error calling activate endpoint', err, endpoint);
@@ -166,7 +164,7 @@ export default function CodeResidence(props) {
     try {
       setLoading(true);
 
-      const mailFromStorage = await getStoredEmail();
+      const mailFromStorage = await getStoredEmailLocal();
       if (!mailFromStorage) {
         setLoading(false);
         showToast('Correo no disponible. Asegúrate de haber iniciado sesión.', false);
@@ -183,9 +181,8 @@ export default function CodeResidence(props) {
         return;
       }
 
-      setLoading(false);
-
       if (result.ok) {
+        setLoading(false);
         try {
           navigation.navigate('SplashResidence', { residenceCode: trimmed });
         } catch (e) {
@@ -195,6 +192,7 @@ export default function CodeResidence(props) {
         return;
       }
 
+      setLoading(false);
       const serverMsg =
         (result.json && (result.json.error || result.json.message || result.json.msg)) ??
         `Error del servidor (${result.status}) en ${result.endpoint ?? 'unknown'}`;
@@ -372,7 +370,7 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     alignSelf: 'center',
-    backgroundColor: 'rgb(0, 50, 186)', 
+    backgroundColor: 'rgb(0, 50, 186)',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,

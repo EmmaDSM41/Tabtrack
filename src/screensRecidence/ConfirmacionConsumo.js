@@ -1,4 +1,3 @@
-// ConfirmacionConsumo.js
 import React from 'react';
 import {
   SafeAreaView,
@@ -20,7 +19,6 @@ export default function ConfirmacionConsumo() {
   const route = useRoute();
   const { width, height } = useWindowDimensions();
 
-  // ahora recibimos los datos que envia CuentaResidence
   const {
     amount = null,
     date = null,
