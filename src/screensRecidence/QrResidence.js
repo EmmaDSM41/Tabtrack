@@ -102,7 +102,6 @@ const resolveApiHost = async (raw) => {
 };
 
 const buildHeaders = async () => {
-
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
   if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
   return headers;
@@ -128,18 +127,14 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
     let loopAnim;
     if (active) {
       loopAnim = Animated.loop(
-        Animated.sequence([
-          Animated.timing(scale, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-          Animated.timing(scale, { toValue: 1.0, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        ])
+        Animated.sequence([ Animated.timing(scale, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+                            Animated.timing(scale, { toValue: 1.0, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }) ])
       );
       loopAnim.start();
     } else {
       Animated.timing(scale, { toValue: 1, duration: 150, useNativeDriver: true }).start();
     }
-    return () => {
-      if (loopAnim) loopAnim.stop();
-    };
+    return () => { if (loopAnim) loopAnim.stop(); };
   }, [active, scale]);
 
   return (
@@ -181,7 +176,6 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
             <View style={modalStyles.iconCol}>
               <AnimatedIconPulse name={ok ? 'checkmark-circle' : 'alert-circle'} size={34} color={accent} active={ok} />
             </View>
-
             <View style={modalStyles.contentCol}>
               <Text style={[modalStyles.title, { color: accent }]}>{ok ? 'Venta activa' : (loading ? 'Estado' : 'Estado')}</Text>
               <Text style={modalStyles.message} numberOfLines={2}>
@@ -192,15 +186,8 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
           </View>
 
           <View style={modalStyles.rowBottom}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.btnGhost}>
-              <Text style={modalStyles.btnGhostText}>Cerrar</Text>
-            </TouchableOpacity>
-
-            {ok ? (
-              <TouchableOpacity onPress={onScan} style={[modalStyles.btnPrimary, { backgroundColor: accent }]}>
-                <Text style={modalStyles.btnPrimaryText}>Ir a venta</Text>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity onPress={onClose} style={modalStyles.btnGhost}><Text style={modalStyles.btnGhostText}>Cerrar</Text></TouchableOpacity>
+            {ok ? (<TouchableOpacity onPress={onScan} style={[modalStyles.btnPrimary, { backgroundColor: accent }]}><Text style={modalStyles.btnPrimaryText}>Ir a venta</Text></TouchableOpacity>) : null}
           </View>
 
           {loading ? (
@@ -237,19 +224,17 @@ export default function QrResidence({ navigation }) {
   const [deptIdStored, setDeptIdStored] = useState(null);
 
   const [scanTarget, setScanTarget] = useState(null); 
-
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
 
   const baseHeader = 56;
-  const headerHeight = clamp(rf(baseHeader), 48, 110);
+  const headerHeight = clamp(rf(baseHeader), 78, 110);
 
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
   const gradientCardHeight = Math.round(Math.max(80, Math.min(160, height * 0.14)));
   const gradientCardLeftRight = Math.round(Math.max(12, width * 0.06));
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
-
-  const gradientSeparation = 8;
+  const gradientSeparation = -5;
 
   const holeGap = clamp(rf(45), 45, 90);
   const buttonsGap = clamp(rf(40), 56, 140);
@@ -263,7 +248,8 @@ export default function QrResidence({ navigation }) {
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
 
-  const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 24, Math.round(height * 0.48));
+
+  const CAMERA_HEIGHT = height;
 
   const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
   const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
@@ -273,6 +259,12 @@ export default function QrResidence({ navigation }) {
   const fallbackConsumed = 425.0;
   const fallbackAvailable = 3075.0;
   const fallbackUtilization = Math.round((fallbackConsumed / (fallbackConsumed + fallbackAvailable)) * 1000) / 10;
+
+  const deviceAspect = height / width;
+  const preferRatio = deviceAspect > 2.0 ? '16:9' : '4:3';
+
+  const cameraScaleAndroid = 1.06;
+  const cameraScale = Platform.OS === 'android' ? cameraScaleAndroid : 1.0;
 
   useEffect(() => {
     (async () => {
@@ -574,9 +566,6 @@ export default function QrResidence({ navigation }) {
 
   const consumed = deptBilling ? Number(deptBilling.monto_mensual_usado || 0) : fallbackConsumed;
 
-  // --- NUEVA LÓGICA: calcular disponible y mostrar negativo si corresponde ---
-  // Si el API trae saldo_mensual y monto_mensual_usado, calculamos computedAvailable = saldo_mensual - monto_mensual_usado.
-  // Si computedAvailable < 0, preferimos mostrar ese negativo . Si no, usamos saldo_disponible del API cuando exista.
   let availableNumber;
   if (deptHistoryLoading) {
     availableNumber = null;
@@ -612,94 +601,44 @@ export default function QrResidence({ navigation }) {
 
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
-  const buttonsTop = holeTop + qrSize + buttonsGap;
+  const bottomButtonsOffset = insets.bottom + 24;
 
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: '#000', paddingTop: insets.top }}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={{ flex:1, backgroundColor: 'transparent',paddingTop: insets.top  }} edges={['left','right','top']}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
-      <View style={[styles.header, { height: headerHeight }]}>
-        <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
-          <MaterialCommunityIcons
-            name="face-agent"
-            size={rf(22)}
-            color="#0046ff"
-          />
-        </TouchableOpacity>
-
-        <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>
-
-        <TouchableOpacity onPress={toggleFlash} style={styles.iconBtn} activeOpacity={1}>
-          <Ionicons name={flashEnabled ? 'flashlight' : 'flashlight-outline'} size={rf(22)} color="#0046ff" />
-        </TouchableOpacity>
-      </View>
-
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: 'absolute',
-          top: insets.top + headerHeight + gradientSeparation,
-          left: gradientCardLeftRight,
-          right: gradientCardLeftRight,
-          zIndex: 60,
-        }}
-      >
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.gradientCardSmall, { height: gradientCardHeight, borderRadius: 14, padding: gradientInnerPad }]}
-        >
-          {deptHistoryLoading ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={[styles.gradientSmallLabel, { marginLeft: 8 }]}>Cargando consumo del departamento…</Text>
-            </View>
-          ) : (
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                <Text style={styles.gradientSmallLabel}>Usado</Text>
-                <Text style={styles.gradientSmallValue}>${consumedDisplay}</Text>
-              </View>
-
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.gradientSmallLabel}>Disponible</Text>
-                <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900', color: availableTextColor }]}>
-                  {formattedAvailableDisplay}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          <View style={{ height: 10 }} />
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={styles.progressTrackSmall}>
-              <View style={[styles.progressFillSmall, { width: `${Math.min(100, Math.max(0, utilization))}%` }]} />
-            </View>
-            <Text style={styles.progressLabelSmall}>{deptHistoryLoading ? '…' : utilizationDisplay} utilizado</Text>
-          </View>
-        </LinearGradient>
-      </View>
-
-      <View style={[styles.cameraWrapper, { height: CAMERA_HEIGHT }]}>
+      <View style={[styles.cameraWrapper, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
         {scannerActive && (
           <QRCodeScanner
             ref={scannerRef}
             onRead={onSuccess}
-            cameraStyle={[styles.camera, { height: CAMERA_HEIGHT }]}
+            containerStyle={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', overflow: 'hidden'
+            }}
+            cameraStyle={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'transparent',
+              transform: [{ scaleX: cameraScale }, { scaleY: cameraScale }],
+            }}
             flashMode={flashEnabled ? RNCamera.Constants.FlashMode.torch : RNCamera.Constants.FlashMode.off}
             showMarker={false}
             reactivate={false}
             topViewStyle={styles.zero}
             bottomViewStyle={styles.zero}
+            cameraProps={{ ratio: preferRatio }}
           />
         )}
 
-        <View style={[styles.overlay, { height: CAMERA_HEIGHT }]}>
+        <View style={[styles.overlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
-          <View style={{
+{/*           <View style={{
             position: 'absolute',
             top: logoTopPos,
             left: 0,
@@ -721,7 +660,7 @@ export default function QrResidence({ navigation }) {
                 elevation: 4,
               }}
             />
-          </View>
+          </View> */}
 
           <View style={{ flexDirection: 'row' }}>
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
@@ -738,26 +677,10 @@ export default function QrResidence({ navigation }) {
                 }}
               />
 
-              <View style={{
-                position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc,
-                borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff',
-                borderTopLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc,
-                borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff',
-                borderTopRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc,
-                borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff',
-                borderBottomLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc,
-                borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff',
-                borderBottomRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
+              <View style={{ position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderTopLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderTopRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderBottomLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderBottomRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
             </View>
 
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
@@ -766,7 +689,7 @@ export default function QrResidence({ navigation }) {
           <View style={[styles.overlayRow, { flex: 1, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
         </View>
 
-        <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, width, alignItems: 'center', zIndex: 40 }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', bottom: bottomButtonsOffset, left: 0, width, alignItems: 'center', zIndex: 40 }}>
           <TouchableOpacity activeOpacity={1} onPress={() => startManualScan('Cuenta')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
               <Ionicons name="qr-code-outline" size={rf(18)} color="#fff" style={{ marginRight: 12 }} />
@@ -787,6 +710,59 @@ export default function QrResidence({ navigation }) {
             </View>
           </TouchableOpacity>
         </View>
+      </View>
+
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
+          <MaterialCommunityIcons name="face-agent" size={rf(22)} color="#ffffff" />
+        </TouchableOpacity>
+
+        <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>
+
+        <TouchableOpacity onPress={toggleFlash} style={styles.iconBtn} activeOpacity={1}>
+          <Ionicons name={flashEnabled ? 'flashlight' : 'flashlight-outline'} size={rf(22)} color="#ffffff" />
+        </TouchableOpacity>
+      </View>
+
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          top: insets.top + headerHeight + gradientSeparation,
+          left: gradientCardLeftRight,
+          right: gradientCardLeftRight,
+          zIndex: 60,
+        }}
+      >
+        <LinearGradient colors={gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.gradientCardSmall, { height: gradientCardHeight, borderRadius: 14, padding: gradientInnerPad }]}>
+          {deptHistoryLoading ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={[styles.gradientSmallLabel, { marginLeft: 8 }]}>Cargando consumo del departamento…</Text>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={styles.gradientSmallLabel}>Usado</Text>
+                <Text style={styles.gradientSmallValue}>${consumedDisplay}</Text>
+              </View>
+
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.gradientSmallLabel}>Disponible</Text>
+                <Text style={[styles.gradientSmallValue, { fontSize: Math.round(clamp(rf(20), 18, 26)), fontWeight: '900', color: availableTextColor }]}>{formattedAvailableDisplay}</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={{ height: 10 }} />
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={styles.progressTrackSmall}>
+              <View style={[styles.progressFillSmall, { width: `${Math.min(100, Math.max(0, utilization))}%` }]} />
+            </View>
+            <Text style={styles.progressLabelSmall}>{deptHistoryLoading ? '…' : utilizationDisplay} utilizado</Text>
+          </View>
+        </LinearGradient>
       </View>
 
       <AnimatedStatusModal
@@ -823,11 +799,12 @@ const modalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+  root: { flex: 1, },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   loadingText: { color: '#fff' },
 
   header: {
+    position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
@@ -835,16 +812,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     zIndex: 200,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#e6eefc',
   },
   iconBtn: { width: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#0046ff', fontWeight: '700' },
+  headerTitle: { color: '#ffffff', fontWeight: '700' },
 
-  cameraWrapper: { width: '100%', position: 'relative' },
-  camera: { width: '100%', position: 'absolute', top: 0, left: 0 },
+  cameraWrapper: { width: '100%' },
+  camera: { width: '100%' },
 
   overlay: { position: 'absolute', top: 0, left: 0, width: '100%', zIndex: 10 },
   overlayRow: { width: '100%' },
@@ -860,14 +835,6 @@ const styles = StyleSheet.create({
   secondaryActionText: { color: '#fff', fontWeight: '700' },
 
   zero: { height: 0, flex: 0 },
-
-  statusModalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.45)' },
-  statusModalBox: { width: '86%', backgroundColor: '#fff', borderRadius: 12, padding: 18, alignItems: 'flex-start' },
-  statusTitle: { fontSize: 18, fontWeight: '700', color: '#0046ff', marginBottom: 8 },
-  statusMessage: { fontSize: 15, color: '#333', marginBottom: 6 },
-  statusDetails: { fontSize: 13, color: '#666', marginBottom: 6 },
-  statusBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  statusBtnText: { fontSize: 14, fontWeight: '700' },
 
   gradientCardSmall: {
     width: '100%',

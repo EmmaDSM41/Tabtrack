@@ -36,8 +36,9 @@ function getInitials(name) {
 }
 
 export default function MiembrosResidence() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   const route = useRoute();
   const navigation = useNavigation();
@@ -114,7 +115,6 @@ export default function MiembrosResidence() {
           return json;
         };
 
-        // Consultar el departamento usando el id obtenido de AsyncStorage
         const deptUrl = `${BASE}/api/residence/departamentos/${encodeURIComponent(departamento_id)}`;
         let deptResp = null;
         try {
@@ -248,17 +248,39 @@ export default function MiembrosResidence() {
     return () => {
       mounted = false;
     };
-  }, []); // se ejecuta una vez: usamos AsyncStorage para obtener el departamento
+  }, []); 
+
+  const baseScale = width / 375;
+  const headerPaddingTop = clamp(Math.round(rf(12) + (height > 800 ? 6 : 0)), 50, 90);
+  const headerPaddingBottom = clamp(Math.round(rf(6) + (height > 800 ? 4 : 0)), 12, 32);
+  const headerBorderRadius = Math.round(clamp(rf(20) + Math.floor(baseScale * 4), 12, 36));
+
+  const titleFont = Math.round(clamp(rf(20) * (1 + (baseScale - 1) * 0.22), 16, 30));
+  const subtitleFont = Math.round(clamp(rf(12) * (1 + (baseScale - 1) * 0.18), 11, 20));
+  const nameFont = Math.round(clamp(rf(16) * (1 + (baseScale - 1) * 0.14), 14, 20));
+  const relationFont = Math.round(clamp(rf(13), 11, 16));
+  const contactFont = Math.round(clamp(rf(13), 11, 16));
+  const avatarInitialsFont = Math.round(clamp(rf(18), 14, 28));
+
+  const avatarSize = clamp(Math.round(56 * baseScale), 44, 92);
+  const rowVerticalPadding = clamp(Math.round(12 * baseScale), 8, 22);
+  const listPadHorizontal = clamp(Math.round(14 * baseScale), 10, 28);
+
+  const contactIconSize = Math.round(clamp(rf(14) * (1 + (baseScale - 1) * 0.1), 12, 22));
+
+  const backBtnPadV = clamp(Math.round(10 * baseScale), 8, 16);
+  const backBtnPadH = clamp(Math.round(20 * baseScale), 14, 34);
+  const backBtnMinWidth = clamp(Math.round(140 * baseScale), 110, 260);
+  const dividerMarginTop = Math.round(rowVerticalPadding * 0.9);
 
   const renderItem = ({ item, index }) => {
     const initials = getInitials(item.name);
     const grad = AVATAR_GRADIENTS[index % AVATAR_GRADIENTS.length];
-    const avatarSize = rf(56);
     const borderRadius = Math.round(avatarSize / 2);
 
     return (
       <View style={styles.rowWrap}>
-        <View style={styles.rowInner}>
+        <View style={[styles.rowInner, { paddingVertical: rowVerticalPadding }]}>
           {item.photo ? (
             <Image
               source={{ uri: item.photo }}
@@ -278,7 +300,7 @@ export default function MiembrosResidence() {
                 { width: avatarSize, height: avatarSize, borderRadius },
               ]}
             >
-              <Text style={[styles.avatarInitials, { fontSize: Math.round(rf(18)) }]}>
+              <Text style={[styles.avatarInitials, { fontSize: avatarInitialsFont }]}>
                 {initials}
               </Text>
             </LinearGradient>
@@ -286,44 +308,44 @@ export default function MiembrosResidence() {
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              <Text style={[styles.nameText, { fontSize: Math.round(rf(16)) }]} numberOfLines={2}>
+              <Text style={[styles.nameText, { fontSize: nameFont }]} numberOfLines={2}>
                 {item.name}
               </Text>
 
               {item.badge ? (
                 <View style={styles.badgeWrap}>
-                  <Text style={[styles.badgeText, { fontSize: Math.round(rf(11)) }]}>{item.badge}</Text>
+                  <Text style={[styles.badgeText, { fontSize: Math.round(clamp(rf(11) * baseScale, 10, 14)) }]}>{item.badge}</Text>
                 </View>
               ) : null}
             </View>
 
-            <Text style={[styles.relationText, { fontSize: Math.round(rf(13)) }]}>
+            <Text style={[styles.relationText, { fontSize: relationFont }]}>
               {item.relation}
             </Text>
 
-            <View style={styles.contactRow}>
+            <View style={[styles.contactRow, { marginTop: Math.round(clamp(6 * baseScale, 4, 10)) }]}>
               <Ionicons
                 name="call-outline"
-                size={Math.round(rf(14))}
+                size={contactIconSize}
                 color="#6b7280"
                 style={{ marginRight: 8 }}
               />
-              <Text style={[styles.contactText, { fontSize: Math.round(rf(13)) }]}>{item.phone}</Text>
+              <Text style={[styles.contactText, { fontSize: contactFont }]}>{item.phone}</Text>
             </View>
 
-            <View style={[styles.contactRow, { marginTop: 6 }]}>
+            <View style={[styles.contactRow, { marginTop: Math.round(clamp(6 * baseScale, 4, 10)) }]}>
               <Ionicons
                 name="mail-outline"
-                size={Math.round(rf(14))}
+                size={contactIconSize}
                 color="#6b7280"
                 style={{ marginRight: 8 }}
               />
-              <Text style={[styles.contactText, { fontSize: Math.round(rf(13)) }]}>{item.email}</Text>
+              <Text style={[styles.contactText, { fontSize: contactFont }]}>{item.email}</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.divider} />
+        <View style={[styles.divider, { marginTop: dividerMarginTop }]} />
       </View>
     );
   };
@@ -331,12 +353,18 @@ export default function MiembrosResidence() {
   const ListFooter = () => (
     <View style={{ alignItems: 'center', marginVertical: 18 }}>
       <TouchableOpacity
-        style={styles.backButton}
+        style={[
+          styles.backButton,
+          {
+            paddingVertical: backBtnPadV,
+            paddingHorizontal: backBtnPadH,
+            minWidth: backBtnMinWidth,
+          },
+        ]}
         onPress={() => {
           try {
             navigation.navigate('QrResidence');
           } catch (e) {
-            // fallback: try goBack
             try { navigation.goBack?.(); } catch (e2) {}
           }
         }}
@@ -353,16 +381,34 @@ export default function MiembrosResidence() {
         colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
         start={{ x: 0, y: 1 }}
         end={{ x: 1, y: 0 }}
-        style={styles.header}
+        style={[
+          styles.header,
+          {
+            paddingTop: headerPaddingTop,
+            paddingBottom: headerPaddingBottom,
+            paddingHorizontal: listPadHorizontal,
+            borderBottomLeftRadius: headerBorderRadius,
+            borderBottomRightRadius: headerBorderRadius,
+          },
+        ]}
       >
-        <Text style={[styles.title, { fontSize: rf(18) }]}>{departmentLabel}</Text>
-        <Text style={[styles.subtitle, { fontSize: rf(12) }]}>
+        <Text style={[styles.title, { fontSize: titleFont }]} numberOfLines={1}>
+          {departmentLabel}
+        </Text>
+        <Text style={[styles.subtitle, { fontSize: subtitleFont, marginTop: Math.round(clamp(6 * baseScale, 4, 10)) }]}>
           {loading ? 'Cargando residentes...' : `${residentCount} residentes registrados`}
         </Text>
       </LinearGradient>
 
       <FlatList
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingHorizontal: listPadHorizontal,
+            paddingTop: Math.round(clamp(18 * baseScale, 12, 30)),
+            paddingBottom: Math.round(clamp(36 * baseScale, 20, 56)),
+          },
+        ]}
         data={residents}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
@@ -384,8 +430,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
 
   header: {
-    paddingTop: 30,
-    paddingBottom: 18,
+    paddingTop: 48,
+    paddingBottom: 22,
     paddingHorizontal: 18,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
@@ -396,17 +442,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   title: { color: '#fff', fontWeight: '800' },
-  subtitle: { color: 'rgba(255,255,255,0.9)', marginTop: 6 },
+  subtitle: { color: 'rgba(255,255,255,0.9)' },
 
   listContent: {
-    paddingHorizontal: 14,
-    paddingTop: 18,
-    paddingBottom: 36,
     backgroundColor: '#fff',
   },
 
   rowWrap: { backgroundColor: '#fff' },
-  rowInner: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 14 },
+  rowInner: { flexDirection: 'row', alignItems: 'flex-start'  },
   avatar: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -437,22 +480,18 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: '#6D28D9', fontWeight: '700' },
 
-  relationText: { color: '#6b7280', marginTop: 6 },
+  relationText: { color: '#6b7280' },
 
   contactRow: { flexDirection: 'row', alignItems: 'center' },
   contactText: { color: '#374151' },
 
-  divider: { height: 1, backgroundColor: '#f1f3f5', marginTop: 12 },
+  divider: { height: 1, backgroundColor: '#f1f3f5' },
 
-  /* nuevo estilo para el botón volver */
   backButton: {
     backgroundColor: '#0046ff',
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 26,
     borderWidth: 1,
     borderColor: '#E6E9EE',
-    minWidth: 140,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 1,

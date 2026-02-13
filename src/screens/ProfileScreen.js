@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ScrollView,
   View,
@@ -356,6 +356,7 @@ export default function ProfileScreen({ navigation }) {
           navigation.navigate('SaleDetail', {
             saleId: String(n.saleId),
             branchId: String(n.branchId),
+            branchName: n.branch ?? '', 
           });
           return;
         } catch (e) {
@@ -628,7 +629,7 @@ export default function ProfileScreen({ navigation }) {
           try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch (e) { console.warn('save recent_accounts failed', e); }
         }
       } catch (e) {
-        console.warn('Guardar recent account failed (pre-clean)', e);
+        console.warn('Guardar recent_account failed (pre-clean)', e);
       }
 
       const preserveKeys = new Set();
@@ -927,7 +928,6 @@ export default function ProfileScreen({ navigation }) {
           ]}
           onPress={async () => {
             try {
-              // 1) Si ya tenemos la bandera explícita, navegar directo (evita re-pedir código)
               const verified = await AsyncStorage.getItem('user_residence_verified');
               if (verified === 'true') {
                 try {
@@ -935,11 +935,9 @@ export default function ProfileScreen({ navigation }) {
                   return;
                 } catch (e) {
                   console.warn('navigate HomeResidence failed (verified path)', e);
-                  // si por alguna razón no podemos navegar, caemos al comportamiento original
                 }
               }
 
-              // 2) Si no está verificado localmente, mantenemos TU flujo original (leer user_residence_activo)
               const val = await AsyncStorage.getItem('user_residence_activo');
               if (String(val) === 'true') {
                 try {

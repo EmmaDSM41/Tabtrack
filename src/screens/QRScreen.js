@@ -17,6 +17,7 @@ import {
   Linking,
   PixelRatio,
   Image,
+  useWindowDimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCodeScanner from 'react-native-qrcode-scanner';
@@ -24,11 +25,9 @@ import { RNCamera } from 'react-native-camera';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
- 
 const API_BASE_FALLBACK = 'https://api.tab-track.com';
 const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 
@@ -37,9 +36,9 @@ const STORAGE_KEYS = {
   API_TOKEN: 'api_token',
 };
 
- const WHATSAPP_FULL_URL = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20'; // <-- reemplaza por tu URL completa
+const WHATSAPP_FULL_URL = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
 
- const openWhatsApp = async () => {
+const openWhatsApp = async () => {
   try {
     await Linking.openURL(WHATSAPP_FULL_URL);
     return;
@@ -64,9 +63,6 @@ const STORAGE_KEYS = {
   );
 };
 
-// -----------------------------
-// Helpers (igual que antes)
-// -----------------------------
 const extractTokenFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
   const m1 = raw.match(/\/r\/([^\/?#]+)/i);
@@ -101,7 +97,6 @@ const resolveApiHost = async (raw) => {
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.API_HOST);
     if (stored) return stored.replace(/\/$/, '');
   } catch (err) {
-    // noop
   }
   return API_BASE_FALLBACK.replace(/\/$/, '');
 };
@@ -112,7 +107,6 @@ const buildHeaders = async () => {
     const storedToken = await AsyncStorage.getItem(STORAGE_KEYS.API_TOKEN);
     if (storedToken) token = storedToken;
   } catch (err) {
-    // noop
   }
 
   const headers = { 'Content-Type': 'application/json' };
@@ -133,10 +127,6 @@ const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
   }
 };
 
-// -----------------------------
-// Small components: pulsing icon + animated modal
-// -----------------------------
-
 function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false }) {
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -156,7 +146,7 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
     return () => {
       if (loopAnim) loopAnim.stop();
     };
-  }, [active]);
+  }, [active, scale]);
 
   return (
     <Animated.View style={{ transform: [{ scale }], alignItems: 'center', justifyContent: 'center' }}>
@@ -165,7 +155,6 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
   );
 }
 
-// AnimatedStatusModal ahora recibe headerHeight para ubicarse dinámicamente
 function AnimatedStatusModal({ visible, loading, result, onClose, onScan, headerHeight = 56 }) {
   const translateY = useRef(new Animated.Value(-260)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -182,7 +171,7 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
         Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start();
     }
-  }, [visible, headerHeight]);
+  }, [visible, headerHeight, translateY, opacity]);
 
   if (!visible) return null;
 
@@ -232,23 +221,19 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
   );
 }
 
-// -----------------------------
-// Componente principal QRScreen (responsive, sin cambiar lógica)
-// -----------------------------
+
 export default function QRScreen({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // responsive helpers
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // Estados UI
   const [hasPermission, setHasPermission] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
   const [flashEnabled, setFlashEnabled] = useState(false);
-  const [allowScan, setAllowScan] = useState(false); // para Escanear QR (manual)
-  const [allowScanForStatus, setAllowScanForStatus] = useState(false); // para Status
+  const [allowScan, setAllowScan] = useState(false);
+  const [allowScanForStatus, setAllowScanForStatus] = useState(false);
   const [statusModalVisible, setStatusModalVisible] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusResult, setStatusResult] = useState(null);
@@ -257,26 +242,23 @@ export default function QRScreen({ navigation }) {
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
 
-  // UI config (responsive)
   const baseHeader = 56;
-  const headerHeight = clamp(rf(baseHeader), 48, 110);
+  const headerHeight = clamp(rf(baseHeader), 100, 110);
   const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
-  const holeTop = headerHeight + clamp(rf(64), 72, 140);
+  const holeTop = headerHeight + clamp(rf(144), 92, 140);
   const holeLeft = Math.round((width - qrSize) / 2);
   const cornerArc = clamp(64, 40, 96);
   const cornerThickness = Math.max(8, Math.round((width / 375) * 10));
   const cornerOuterRadius = Math.round(Math.min(qrSize, 320) * 0.06);
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
-  const CAMERA_HEIGHT = Math.max(height - headerHeight - insets.bottom - 16, Math.round(height * 0.6));
 
-  // --- LOGO sizing for the new element (responsive and caps) ---
-  const logoMaxWidth = Math.round(Math.min(160, width * 0.36)); // cap absolute
-  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38)); // relative to qrSize but capped
-  const logoHeight = Math.round(logoWidth * 0.5); // aspect ratio (ajustable)
-  // position above hole: leave unaggressive offset so it sits clearly above the QR frame
+  const CAMERA_HEIGHT = height;
+
+  const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
+  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
+  const logoHeight = Math.round(logoWidth * 0.5);
   const logoTopPos = Math.max(12, holeTop - logoHeight - Math.round(logoHeight * 0.35));
-  // ------------------------------------------------
 
   useEffect(() => {
     (async () => {
@@ -308,7 +290,6 @@ export default function QRScreen({ navigation }) {
         setHasPermission(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
   useFocusEffect(
@@ -469,49 +450,48 @@ export default function QRScreen({ navigation }) {
     );
   }
 
-  const buttonsTop = holeTop + qrSize + clamp(rf(48), 80, 160);
+  const bottomButtonsOffset = insets.bottom + 24;
+
+  const cameraScaleAndroid = 1.06;
+  const cameraScale = Platform.OS === 'android' ? cameraScaleAndroid : 1.0;
+  const deviceAspect = height / width;
+  const preferRatio = deviceAspect > 2.0 ? '16:9' : '4:3';
 
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: '#000', paddingTop: insets.top }}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={{ flex:1, backgroundColor: 'transparent' }} edges={['left','right','top']}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
-      {/* Header */}
-      <View style={[styles.header, { height: headerHeight }]}>
-        <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
-          <MaterialCommunityIcons
-            name="face-agent"
-            size={rf(22)}
-            color="#0046ff"
-          />
-        </TouchableOpacity>
-
-        <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>
-
-        <TouchableOpacity onPress={toggleFlash} style={styles.iconBtn} activeOpacity={1}>
-          <Ionicons name={flashEnabled ? 'flashlight' : 'flashlight-outline'} size={rf(22)} color="#0046ff" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Cámara */}
-      <View style={[styles.cameraWrapper, { height: CAMERA_HEIGHT }]}>
+      <View style={[styles.cameraWrapper, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
         {scannerActive && (
           <QRCodeScanner
             ref={scannerRef}
             onRead={onSuccess}
-            cameraStyle={[styles.camera, { height: CAMERA_HEIGHT }]}
+            containerStyle={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', overflow: 'hidden'
+            }}
+            cameraStyle={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'transparent',
+              transform: [{ scaleX: cameraScale }, { scaleY: cameraScale }],
+            }}
             flashMode={flashEnabled ? RNCamera.Constants.FlashMode.torch : RNCamera.Constants.FlashMode.off}
             showMarker={false}
             reactivate={false}
             topViewStyle={styles.zero}
             bottomViewStyle={styles.zero}
+            cameraProps={{ ratio: preferRatio }}
           />
         )}
 
-        {/* Overlay (hueco para QR) */}
-        <View style={[styles.overlay, { height: CAMERA_HEIGHT }]}>
+        <View style={[styles.overlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
-          {/* --- LOGO: ahora sin recuadro blanco, más grande y un poco por encima del recuadro --- */}
           <View style={{
             position: 'absolute',
             top: logoTopPos,
@@ -519,16 +499,14 @@ export default function QRScreen({ navigation }) {
             right: 0,
             alignItems: 'center',
             zIndex: 30,
-            pointerEvents: 'none', // no intercepta toques
+            pointerEvents: 'none',
           }}>
-            {/* Ajusta la ruta del require si tu logo está en otra carpeta */}
             <Image
               source={require('../../assets/images/logo2.png')}
               style={{
                 width: logoWidth,
                 height: logoHeight,
                 resizeMode: 'contain',
-                // sombra sutil para que destaque sin fondo blanco
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.12,
@@ -537,7 +515,6 @@ export default function QRScreen({ navigation }) {
               }}
             />
           </View>
-          {/* ------------------------------------------------------------------------------- */}
 
           <View style={{ flexDirection: 'row' }}>
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
@@ -554,27 +531,10 @@ export default function QRScreen({ navigation }) {
                 }}
               />
 
-              {/* esquinas */}
-              <View style={{
-                position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc,
-                borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff',
-                borderTopLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc,
-                borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff',
-                borderTopRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc,
-                borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff',
-                borderBottomLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
-              <View style={{
-                position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc,
-                borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff',
-                borderBottomRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent',
-              }} />
+              <View style={{ position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderTopLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderTopRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderBottomLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
+              <View style={{ position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderBottomRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
             </View>
 
             <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
@@ -583,8 +543,7 @@ export default function QRScreen({ navigation }) {
           <View style={[styles.overlayRow, { flex: 1, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
         </View>
 
-        {/* Botones flotantes */}
-        <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, width, alignItems: 'center', zIndex: 40 }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', bottom: bottomButtonsOffset, left: 0, width, alignItems: 'center', zIndex: 40 }}>
           <TouchableOpacity activeOpacity={1} onPress={startManualScan} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
               <Ionicons name="qr-code-outline" size={rf(18)} color="#fff" style={{ marginRight: 12 }} />
@@ -603,7 +562,18 @@ export default function QRScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Animated Modal (aparece por encima del header) */}
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
+          <MaterialCommunityIcons name="face-agent" size={rf(22)} color="#ffffff" />
+        </TouchableOpacity>
+
+        <Text style={[styles.headerTitle, { fontSize: clamp(rf(18), 14, 22) }]}>Escanear QR</Text>
+
+        <TouchableOpacity onPress={toggleFlash} style={styles.iconBtn} activeOpacity={1}>
+          <Ionicons name={flashEnabled ? 'flashlight' : 'flashlight-outline'} size={rf(22)} color="#ffffff" />
+        </TouchableOpacity>
+      </View>
+
       <AnimatedStatusModal
         visible={statusModalVisible}
         loading={statusLoading}
@@ -619,9 +589,7 @@ export default function QRScreen({ navigation }) {
   );
 }
 
-// -----------------------------
-// Estilos (conservé tus estilos y añadí modalStyles)
-// -----------------------------
+
 const modalStyles = StyleSheet.create({
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, elevation: 9999, zIndex: 9999 },
   card: { marginHorizontal: 12, borderRadius: 12, padding: 14, borderLeftWidth: 4, shadowColor: '#fff', shadowOpacity: 0.12, shadowOffset: { width: 0, height: 6 }, shadowRadius: 12, elevation: 8 },
@@ -641,11 +609,12 @@ const modalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+  root: { flex: 1, backgroundColor: '#000'},
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   loadingText: { color: '#fff' },
 
   header: {
+    position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
@@ -653,16 +622,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     zIndex: 200,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#e6eefc',
   },
   iconBtn: { width: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#0046ff', fontWeight: '700' },
+  headerTitle: { color: '#ffffff', fontWeight: '700' },
 
-  cameraWrapper: { width: '100%', position: 'relative' },
-  camera: { width: '100%', position: 'absolute', top: 0, left: 0 },
+  cameraWrapper: { width: '100%' },
+  camera: { width: '100%' },
 
   overlay: { position: 'absolute', top: 0, left: 0, width: '100%', zIndex: 10 },
   overlayRow: { width: '100%' },

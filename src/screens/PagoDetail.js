@@ -8,13 +8,12 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
-  Image,
   useWindowDimensions,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const API_URL = 'https://api.tab-track.com';
+const API_URL = 'https://api.tab-track.com'; 
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY'; 
 
 function getAuthHeaders(extra = {}) {
@@ -35,16 +34,14 @@ export default function SaleDetail() {
   const {
     saleId: routeSaleId = null,
     branchId: routeBranchId = null,
-    restaurantId: routeRestaurantId = null,
+    branchName: routeBranchNameParam = null, 
   } = route.params || {};
 
+  const routeBranchFallback = route.params?.branch ?? null;
+
   const [loading, setLoading] = useState(true);
-  const [branchLoading, setBranchLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
-
-  const [branchInfo, setBranchInfo] = useState(null);
-  const [branchLogo, setBranchLogo] = useState(null);
 
   useEffect(() => {
     if (!routeSaleId || !routeBranchId) {
@@ -54,19 +51,6 @@ export default function SaleDetail() {
     }
     fetchSplits(routeBranchId, routeSaleId);
   }, [routeSaleId, routeBranchId]);
-
-
-  useEffect(() => {
-    const restaurantFromData = data?.restaurante_id ?? data?.restauranteId ?? null;
-    const restaurantToUse = routeRestaurantId ?? restaurantFromData;
-
-    if (restaurantToUse && routeBranchId) {
-      fetchBranchInfo(restaurantToUse, routeBranchId);
-    } else {
-      setBranchInfo((prev) => prev || null);
-      setBranchLogo((prev) => prev || null);
-    }
-  }, [data, routeRestaurantId, routeBranchId]);
 
   const fetchSplits = async (branchId, saleId) => {
     try {
@@ -80,57 +64,13 @@ export default function SaleDetail() {
         const txt = await res.text().catch(() => null);
         throw new Error(`Error fetching splits: ${res?.status ?? 'no-res'} ${txt || ''}`);
       }
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       setData(json || null);
     } catch (err) {
       console.warn('fetchSplits err', err);
       setError(err.message || 'Error al obtener detalles de la venta.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchBranchInfo = async (restaurantId, branchId) => {
-    try {
-      setBranchLoading(true);
-      const base = API_URL.replace(/\/$/, '');
-      const url = `${base}/api/restaurantes/${encodeURIComponent(restaurantId)}/sucursales`;
-      const headers = getAuthHeaders();
-      const res = await fetch(url, { method: 'GET', headers });
-      if (!res || !res.ok) {
-        const txt = await res.text().catch(() => null);
-        console.warn('fetchBranchInfo failed', res?.status, txt);
-        setBranchLoading(false);
-        return;
-      }
-      const json = await res.json();
-
-      const list =
-        Array.isArray(json?.sucursales) ? json.sucursales :
-        Array.isArray(json) ? json :
-        Array.isArray(json?.data) ? json.data :
-        null;
-
-      let found = null;
-      if (Array.isArray(list)) {
-        found = list.find((s) => String(s?.id ?? s?.sucursal_id ?? s?.sucursalId) === String(branchId));
-      } else {
-        if (json && String(json?.id ?? json?.sucursal_id) === String(branchId)) found = json;
-      }
-
-      if (found) {
-        const img = found.imagen_logo_url ?? null;
-        const name = found.nombre ?? null;
-
-        setBranchInfo((prev) => ({ ...(prev || {}), ...found, nombre: name || prev?.nombre || '' }));
-        if (img) setBranchLogo(img);
-      } else {
-        console.warn('Sucursal no encontrada en respuesta de restaurantes', branchId, restaurantId);
-      }
-    } catch (err) {
-      console.warn('fetchBranchInfo err', err);
-    } finally {
-      setBranchLoading(false);
     }
   };
 
@@ -181,14 +121,7 @@ export default function SaleDetail() {
     <View style={[styles.txCard, { padding: s(12), borderRadius: s(12) }]}>
       <View style={styles.txHeader}>
         <View style={styles.txHeaderLeft}>
-          <Text style={[styles.txTitle, { fontSize: s(14) }]}>{branchInfo?.nombre ?? `Sucursal ${routeBranchId ?? ''}`}</Text>
-
-          {item.payer ? (
-            <Text style={[styles.payerText, { fontSize: s(12) }]}>
-              Pagó: <Text style={[styles.payerBold, { fontSize: s(12) }]}>{item.payer}</Text>
-            </Text>
-          ) : null}
-
+          <Text style={[styles.txTitle, { fontSize: s(14) }]}>{item.payer ? `Pagó: ${item.payer}` : 'Pagador desconocido'}</Text>
         </View>
 
         <View style={styles.txHeaderRight}>
@@ -220,11 +153,17 @@ export default function SaleDetail() {
     </View>
   );
 
-  const headerPaddingTop = (insets?.top || 0) + s(10);
+  const headerPaddingTop = (insets?.top || 0) + s(12);
+
+  const displayBranchName = (() => {
+    const fromRoute = (routeBranchFallback ?? routeBranchNameParam) ?? null;
+    if (fromRoute && String(fromRoute).trim()) return String(fromRoute).trim();
+    return `Sucursal ${routeBranchId ?? ''}`;
+  })();
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, { paddingTop: headerPaddingTop, paddingBottom: s(12) }]}>
+      <View style={[styles.header, { paddingTop: headerPaddingTop, paddingBottom: s(10) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backIconWrap}>
           <Text style={[styles.backIcon, { fontSize: s(28) }]}>‹</Text>
         </TouchableOpacity>
@@ -248,23 +187,15 @@ export default function SaleDetail() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: s(16), paddingBottom: s(40) }}>
-          <View style={[styles.topCard, { padding: s(12), borderRadius: s(12) }]}>
-            <View style={{ marginRight: s(12) }}>
-              {branchLogo ? (
-                <Image source={{ uri: branchLogo }} style={{ width: s(72), height: s(72), borderRadius: s(10) }} resizeMode="cover" />
-              ) : (
-                <View style={[styles.logoPlaceholder, { width: s(72), height: s(72), borderRadius: s(10) }]}>
-                  <Text style={[styles.logoInitial, { fontSize: s(20) }]}>{(branchInfo?.nombre ?? 'SUC').slice(0, 2).toUpperCase()}</Text>
-                </View>
-              )}
-            </View>
-
+          <View style={[styles.topCard, { padding: s(16), borderRadius: s(12) }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.branchName, { fontSize: s(16) }]}>{branchInfo?.nombre ?? `Sucursal ${routeBranchId ?? ''}`}</Text>
+              <Text style={[styles.branchNameBig, { fontSize: s(20) }]} numberOfLines={2} ellipsizeMode="tail">
+                {displayBranchName}
+              </Text>
 
-              <View style={{ marginTop: s(8) }}>
-                <Text style={[styles.smallMeta, { fontSize: s(13) }]}>Pago: <Text style={[styles.boldText, { fontSize: s(13) }]}>{formatMoney(totalSubtotal)} MXN</Text></Text>
-                <Text style={[styles.smallMeta, { marginTop: s(6), fontSize: s(13) }]}>Propinas: <Text style={[styles.boldText, { fontSize: s(13) }]}>{formatMoney(totalTips)} MXN</Text></Text>
+              <View style={{ marginTop: s(10) }}>
+                <Text style={[styles.smallMeta, { fontSize: s(13) }]}>Pago: <Text style={[styles.boldText, { fontSize: s(14) }]}>{formatMoney(totalSubtotal)} MXN</Text></Text>
+                <Text style={[styles.smallMeta, { marginTop: s(6), fontSize: s(13) }]}>Propinas: <Text style={[styles.boldText, { fontSize: s(14) }]}>{formatMoney(totalTips)} MXN</Text></Text>
               </View>
             </View>
           </View>
@@ -313,6 +244,9 @@ const styles = StyleSheet.create({
     borderColor: '#eef6ff',
     alignItems: 'center',
   },
+
+  branchNameBig: { fontWeight: '900', color: '#0b58ff' },
+
   logoPlaceholder: { backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   logoInitial: { color: '#0046ff', fontWeight: '900' },
   branchName: { fontWeight: '900', color: '#111' },
