@@ -54,12 +54,12 @@ export default function ExperiencesScreen() {
   const gradientColors = ['#9F4CFF', '#6A43FF', '#2C7DFF'];
 
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(null); 
+  const [selectedMonth, setSelectedMonth] = useState(null);
   const animY = useRef(new Animated.Value(0)).current;
   const [expandedTxIds, setExpandedTxIds] = useState([]);
 
   const [deptId, setDeptId] = useState(null);
-  const [monthsData, setMonthsData] = useState([]); 
+  const [monthsData, setMonthsData] = useState([]);
   const [loadingMonths, setLoadingMonths] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
@@ -97,7 +97,7 @@ export default function ExperiencesScreen() {
       const year = now.getFullYear();
       const periodo_desde = `${year}01`;
       const periodo_hasta = `${year}12`;
-      const tzOffset = -360; 
+      const tzOffset = -360;
 
       const base = API_BASE_FALLBACK.replace(/\/$/, '');
       const path = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo_desde)}&periodo_hasta=${encodeURIComponent(periodo_hasta)}&detalle=false&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
@@ -124,7 +124,7 @@ export default function ExperiencesScreen() {
       const months = [];
       for (let m = 1; m <= 12; m++) {
         const mm = String(m).padStart(2, '0');
-        const periodo = `${year}${mm}`; 
+        const periodo = `${year}${mm}`;
         months.push({
           periodo,
           month: m,
@@ -144,7 +144,6 @@ export default function ExperiencesScreen() {
           if (idx >= 0) {
             months[idx].billing = p.billing ?? null;
             months[idx].counts = p.counts ?? { closed_count: 0, open_count: 0 };
-            // amount debe reflejar el monto usado (0 también es válido)
             const monto = (p.billing && (p.billing.monto_mensual_usado !== undefined && p.billing.monto_mensual_usado !== null))
               ? Number(p.billing.monto_mensual_usado)
               : 0;
@@ -200,10 +199,9 @@ export default function ExperiencesScreen() {
       }
 
       try {
-        const rotateIndex = new Date().getMonth(); 
+        const rotateIndex = new Date().getMonth();
         if (rotateIndex > 0 && months.length === 12) {
           const rotated = months.slice(rotateIndex).concat(months.slice(0, rotateIndex));
-
           months.length = 0;
           months.push(...rotated);
         }
@@ -219,7 +217,6 @@ export default function ExperiencesScreen() {
       setLoadingMonths(false);
     }
   }, []);
-
 
   const fetchMonthDetail = useCallback(async (periodo) => {
     if (!deptId) {
@@ -252,6 +249,7 @@ export default function ExperiencesScreen() {
 
 
       let rawConsumptions = null;
+
       if (json && Array.isArray(json.consumptions)) {
         rawConsumptions = json.consumptions;
       } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0 && Array.isArray(json.periodos[0].consumptions)) {
@@ -379,7 +377,7 @@ export default function ExperiencesScreen() {
 
       const pdfDoc = await PDFDocument.create();
       const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const pageSize = [612, 792]; 
+      const pageSize = [612, 792];
       let page = pdfDoc.addPage(pageSize);
       let { width: pW, height: pH } = page.getSize();
 
@@ -509,9 +507,37 @@ export default function ExperiencesScreen() {
     });
   };
 
+  const formatMoney = (n, {currencySign = '', negativeSign = '-'} = {}) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return '…';
+
+    const isNeg = num < 0;
+    const absNum = Math.abs(num);
+
+
+    let formatted;
+    try {
+      if (typeof Intl !== 'undefined' && Intl.NumberFormat) {
+        formatted = new Intl.NumberFormat('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(absNum);
+      } else {
+        throw new Error('Intl not available');
+      }
+    } catch (err) {
+      const parts = absNum.toFixed(2).split('.');
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      formatted = parts.join('.');
+    }
+
+    return `${isNeg ? negativeSign : ''}${currencySign}${formatted}`;
+  };
+
   const renderTransaction = (tx) => {
     const expanded = expandedTxIds.includes(tx.id);
-    const computedSubtotal = (Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty)||1)), 0) : 0).toFixed(2);
+    const computedSubtotalNum = Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty)||1)), 0) : 0;
+    const computedSubtotal = +computedSubtotalNum.toFixed(2);
 
     return (
       <View key={tx.id} style={sheetStyles.personCard}>
@@ -532,7 +558,7 @@ export default function ExperiencesScreen() {
           </View>
 
           <View style={sheetStyles.personRight}>
-            <Text style={sheetStyles.personAmount}>${Number(tx.amount).toFixed(2)}</Text>
+            <Text style={sheetStyles.personAmount}>{formatMoney(tx.amount, { currencySign: '$' })}</Text>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#6B21A8" />
             {tx.sale_id ? <Text style={{ color: '#94A3B8', marginTop: 6, fontSize: 12 }}>#{tx.sale_id}</Text> : null}
             {tx.estado ? <Text style={{ color: '#94A3B8', marginTop: 2, fontSize: 12 }}>{tx.estado}</Text> : null}
@@ -544,7 +570,7 @@ export default function ExperiencesScreen() {
             {tx.items.map((it) => (
               <View key={it.id} style={sheetStyles.personItemRow}>
                 <Text style={sheetStyles.personItemLabel}>{it.label} {it.qty && it.qty > 1 ? `x${it.qty}` : ''}</Text>
-                <Text style={sheetStyles.personItemPrice}>${Number((it.price || 0) * (it.qty || 1)).toFixed(2)}</Text>
+                <Text style={sheetStyles.personItemPrice}>{formatMoney((it.price || 0) * (it.qty || 1), { currencySign: '$' })}</Text>
               </View>
             ))}
 
@@ -552,7 +578,7 @@ export default function ExperiencesScreen() {
 
             <View style={sheetStyles.personSummaryRow}>
               <Text style={sheetStyles.personSummaryLabel}>Subtotal</Text>
-              <Text style={sheetStyles.personSummaryValue}>${computedSubtotal}</Text>
+              <Text style={sheetStyles.personSummaryValue}>{formatMoney(computedSubtotal, { currencySign: '$' })}</Text>
             </View>
 
             {tx.fecha_apertura ? <Text style={{ color: '#6b7280', marginTop: 8 }}>Apertura: {new Date(tx.fecha_apertura).toLocaleString()}</Text> : null}
@@ -563,7 +589,7 @@ export default function ExperiencesScreen() {
     );
   };
 
-  const listData = monthsData.length ? monthsData : [
+  const listDataFallback = [
     {
       periodo: `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2,'0')}`,
       month: new Date().getMonth() + 1,
@@ -586,7 +612,7 @@ export default function ExperiencesScreen() {
           <View style={styles.paymentTopRow}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
               <View style={[styles.paymentIconWrap, { width: 52, height: 52, borderRadius: 12 }]}>
-                <Ionicons name="time-outline" size={20} color={isHasMov ? '#7C3AED' : '#94A3B8'} />
+                <Ionicons name="cash-outline" size={20} color={isHasMov ? '#7C3AED' : '#94A3B8'} />
               </View>
 
               <View style={{ marginLeft: 14, flex: 1 }}>
@@ -599,7 +625,7 @@ export default function ExperiencesScreen() {
             </View>
 
             <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-              <Text style={styles.paymentAmount}>${Number(item.amount).toFixed(2)}</Text>
+              <Text style={styles.paymentAmount}>{formatMoney(item.amount, { currencySign: '$' })}</Text>
 
               {item.transactions > 0 ? (
                 <View style={[styles.badge, styles.badgePending]}>
@@ -632,7 +658,7 @@ export default function ExperiencesScreen() {
 
   const now = new Date();
   const currentMonthIdx = now.getMonth();
-  let assignedBalance = 0; 
+  let assignedBalance = 0;
   let consumed = 0;
   let available = assignedBalance - consumed;
 
@@ -648,7 +674,6 @@ export default function ExperiencesScreen() {
         if (!Number.isNaN(n2)) consumed = n2;
       }
 
-      // --- NUEVA LÓGICA: siempre calcular assignedBalance - consumed y usarlo si es negativo ---
       const computedAvailable = assignedBalance - consumed;
 
       let apiAvailable = null;
@@ -675,7 +700,10 @@ export default function ExperiencesScreen() {
 
   const availableNumber = Number(available) || 0;
   const availableIsNegative = availableNumber < 0;
-  const formattedAvailableForDisplay = `${availableIsNegative ? '-' : ''}$${Math.abs(availableNumber).toFixed(2)}`;
+
+  const formattedAvailableForDisplay = availableIsNegative
+    ? formatMoney(-Math.abs(availableNumber), { currencySign: '$' })
+    : formatMoney(availableNumber, { currencySign: '$' });
 
   let utilization = 0;
   if (typeof assignedBalance === 'number' && assignedBalance > 0) {
@@ -683,6 +711,19 @@ export default function ExperiencesScreen() {
   } else {
     utilization = 0;
   }
+
+  const computeVisibleMonths = () => {
+    if (!Array.isArray(monthsData) || monthsData.length === 0) return listDataFallback;
+    const currentMonthNumber = now.getMonth() + 1; // 1..12
+    const upto = monthsData.filter(m => Number(m.month) <= currentMonthNumber);
+    const currentObj = upto.find(m => Number(m.month) === currentMonthNumber) || null;
+    const prev = upto.filter(m => Number(m.month) !== currentMonthNumber).sort((a,b) => Number(b.month) - Number(a.month));
+    if (currentObj) {
+      return [currentObj, ...prev];
+    }
+    return upto.length ? upto : listDataFallback;
+  };
+  const listData = (monthsData && monthsData.length) ? computeVisibleMonths() : listDataFallback;
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -715,7 +756,7 @@ export default function ExperiencesScreen() {
 
                 <Text style={styles.smallWhite}>Saldo asignado</Text>
                 <Text style={[styles.bigWhiteAmount, { fontSize: bigAmountFont }]}>
-                  ${Number(assignedBalance).toFixed(2)}
+                  {formatMoney(assignedBalance, { currencySign: '$' })}
                 </Text>
               </View>
 
@@ -723,7 +764,7 @@ export default function ExperiencesScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View>
                     <Text style={styles.whiteSmallLabel}>Consumido</Text>
-                    <Text style={styles.whiteSmallValue}>${Number(consumed).toFixed(2)}</Text>
+                    <Text style={styles.whiteSmallValue}>{formatMoney(consumed, { currencySign: '$' })}</Text>
                   </View>
 
                   <View style={{ alignItems: 'flex-end' }}>
@@ -837,7 +878,7 @@ export default function ExperiencesScreen() {
                 <Text style={sheetStyles.totalLabel}>Total del periodo</Text>
                 <Text style={sheetStyles.totalSubs}>{selectedMonth?.transactions ?? 0} transacciones realizadas</Text>
               </View>
-              <Text style={sheetStyles.totalAmount}>${Number(selectedMonth?.amount ?? 0).toFixed(2)}</Text>
+              <Text style={sheetStyles.totalAmount}>{formatMoney(selectedMonth?.amount ?? 0, { currencySign: '$' })}</Text>
             </View>
 
             <Text style={sheetStyles.sectionHeading}>Detalle de consumos</Text>
@@ -864,7 +905,7 @@ export default function ExperiencesScreen() {
               </View>
               <View style={sheetStyles.footerRight}>
                 <Text style={sheetStyles.footerLabel}>Total</Text>
-                <Text style={sheetStyles.footerValue}>${Number(selectedMonth?.amount ?? 0).toFixed(2)}</Text>
+                <Text style={sheetStyles.footerValue}>{formatMoney(selectedMonth?.amount ?? 0, { currencySign: '$' })}</Text>
               </View> */}
             </View>
 

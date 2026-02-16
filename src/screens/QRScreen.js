@@ -245,7 +245,7 @@ export default function QRScreen({ navigation }) {
   const baseHeader = 56;
   const headerHeight = clamp(rf(baseHeader), 100, 110);
   const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
-  const holeTop = headerHeight + clamp(rf(144), 92, 140);
+  const holeTop = headerHeight + clamp(rf(114), 92, 140);
   const holeLeft = Math.round((width - qrSize) / 2);
   const cornerArc = clamp(64, 40, 96);
   const cornerThickness = Math.max(8, Math.round((width / 375) * 10));
@@ -450,7 +450,7 @@ export default function QRScreen({ navigation }) {
     );
   }
 
-  const bottomButtonsOffset = insets.bottom + 24;
+  const bottomButtonsOffset = insets.bottom + 79;
 
   const cameraScaleAndroid = 1.06;
   const cameraScale = Platform.OS === 'android' ? cameraScaleAndroid : 1.0;

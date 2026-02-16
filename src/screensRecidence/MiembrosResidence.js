@@ -251,7 +251,7 @@ export default function MiembrosResidence() {
   }, []); 
 
   const baseScale = width / 375;
-  const headerPaddingTop = clamp(Math.round(rf(12) + (height > 800 ? 6 : 0)), 50, 90);
+  const headerPaddingTop = clamp(Math.round(rf(12) + (height > 800 ? 6 : 0)), 80, 90);
   const headerPaddingBottom = clamp(Math.round(rf(6) + (height > 800 ? 4 : 0)), 12, 32);
   const headerBorderRadius = Math.round(clamp(rf(20) + Math.floor(baseScale * 4), 12, 36));
 

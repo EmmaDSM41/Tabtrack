@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   View,
@@ -10,6 +10,7 @@ import {
   FlatList,
   Pressable,
   Image,
+  ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -44,6 +45,11 @@ export default function FeedResicende() {
   const [notices, setNotices] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
 
+  const filterBtnRef = useRef(null);
+  const flatListRef = useRef(null);
+  const [scrollY, setScrollY] = useState(0);
+  const [filterBtnRect, setFilterBtnRect] = useState(null);
+
   const getHeaders = () => {
     const h = { Accept: 'application/json', 'Content-Type': 'application/json' };
     if (TOKEN && TOKEN.trim()) h.Authorization = `Bearer ${TOKEN}`;
@@ -74,7 +80,6 @@ export default function FeedResicende() {
     return null;
   };
 
-  // helper para formatear fecha como DD/MM/YY HH:MM (sin segundos)
   const formatDateShortWithTime = (dateRaw) => {
     if (!dateRaw) return '';
     const d = new Date(dateRaw);
@@ -95,7 +100,6 @@ export default function FeedResicende() {
       ? String(categoryRaw).charAt(0).toUpperCase() + String(categoryRaw).slice(1).toLowerCase()
       : 'Comunidad';
     const dateRaw = apiItem.publicado_en ?? apiItem.publicado ?? apiItem.date ?? null;
-    // formato pedido: DD/MM/YY HH:MM (sin segundos)
     const date = dateRaw ? formatDateShortWithTime(dateRaw) : '';
     const body = apiItem.contenido ?? apiItem.body ?? '';
     const priorityRaw = (apiItem.prioridad ?? apiItem.priority ?? '').toString().toLowerCase();
@@ -327,18 +331,53 @@ export default function FeedResicende() {
     rf,
   });
 
+  const dropdownMaxHeight = Math.round(Math.min(height * 0.55, 360));
+  const bottomNavHeight = Math.round(Math.min(96, hp(9))); 
+
+  const extraBottomWhenDropdown = dropdownVisible ? dropdownMaxHeight + bottomNavHeight + 40 : 28;
+
+  const openDropdownAndEnsureVisible = () => {
+    if (filterBtnRef.current && filterBtnRef.current.measureInWindow) {
+      filterBtnRef.current.measureInWindow((x, y, w, h) => {
+        setFilterBtnRect({ x, y, w, h });
+        const spaceBelow = height - (y + h) - bottomNavHeight; 
+        const dropdownH = dropdownMaxHeight;
+        if (spaceBelow < dropdownH) {
+          const needed = dropdownH - spaceBelow + 16; 
+          const target = Math.max(0, scrollY + needed);
+          if (flatListRef.current && typeof flatListRef.current.scrollToOffset === 'function') {
+            flatListRef.current.scrollToOffset({ offset: target, animated: true });
+            setTimeout(() => {
+              setDropdownVisible(true);
+            }, 240);
+          } else {
+            setDropdownVisible(true);
+          }
+        } else {
+          setDropdownVisible(true);
+        }
+      });
+    } else {
+      setFilterBtnRect(null);
+      setDropdownVisible(true);
+    }
+  };
+
+  const toggleDropdown = () => {
+    if (dropdownVisible) {
+      setDropdownVisible(false);
+    } else {
+      openDropdownAndEnsureVisible();
+    }
+  };
+
   const renderItem = ({ item }) => {
     const urgent = item.priority === 'urgente';
-
-
-    const estimatedUrgentBadgeReserve = Math.round(Math.max(72, wp(22))); 
+    const estimatedUrgentBadgeReserve = Math.round(Math.max(72, wp(22)));
 
     return (
       <TouchableOpacity
         activeOpacity={0.92}
-/*         onPress={() => {
-          if (navigation && navigation.navigate) navigation.navigate('AvisoDetalle', { id: item.id, raw: item.raw });
-        }} */
         style={[
           stylesN.card,
           urgent
@@ -358,8 +397,6 @@ export default function FeedResicende() {
           </View>
 
           <View style={stylesN.cardContent}>
-            {/* Title row: reserve marginRight when urgent so the title doesn't touch the badge.
-                We allow title to wrap (up to 2 lines) so it does not get cut. */}
             <View style={[stylesN.cardHeaderRow, { marginRight: urgent ? estimatedUrgentBadgeReserve : 0 }]}>
               <Text style={[stylesN.cardTitle, { fontSize: titleSize }]} numberOfLines={2}>
                 {item.title}
@@ -368,7 +405,6 @@ export default function FeedResicende() {
 
             <View style={{ height: 8 }} />
 
-            {/* Tags + date row: add paddingRight when urgent so date doesn't go under the badge */}
             <View style={[stylesN.rowSpaceBetween, { paddingRight: urgent ? estimatedUrgentBadgeReserve : 0 }]}>
               <View style={stylesN.tagsRow}>
                 <View style={stylesN.categoryPill}>
@@ -381,7 +417,6 @@ export default function FeedResicende() {
 
             <View style={{ height: 10 }} />
 
-            {/* Body: allowed to grow freely (no padding right reserved), so it will be same width as non-urgent cards */}
             <Text style={[stylesN.cardBody, { fontSize: bodySize }]}>
               {item.body}
             </Text>
@@ -391,7 +426,6 @@ export default function FeedResicende() {
     );
   };
 
-  // Render restaurants strip + filter + heading (estaba en ListHeader anteriormente)
   const HeaderWithFilterAndRestaurants = () => (
     <View>
       <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(hp(2)) }}>
@@ -546,14 +580,13 @@ export default function FeedResicende() {
         )}
       </View>
 
-      {/* ESPACIO */}
       <View style={{ height: Math.round(hp(2)) }} />
 
-      {/* FILTRO y TITULO "Avisos Recientes" */}
       <View style={{ paddingHorizontal: outerPadNotices, zIndex: 9999, elevation: 9999, overflow: 'visible' }}>
         <View style={{ position: 'relative' }}>
           <Pressable
-            onPress={() => setDropdownVisible((s) => !s)}
+            ref={filterBtnRef}
+            onPress={toggleDropdown}
             style={({ pressed }) => [
               stylesN.filterBtn,
               { height: filterBtnHeight, opacity: pressed ? 0.92 : 1 },
@@ -573,15 +606,18 @@ export default function FeedResicende() {
                   top: filterBtnHeight + 10,
                   zIndex: 99999,
                   elevation: 99999,
-                  overflow: 'visible',
+                  overflow: 'hidden',
+                  maxHeight: dropdownMaxHeight,
                 },
               ]}
             >
-              {FILTER_OPTIONS.map((opt) => (
-                <TouchableOpacity key={opt} onPress={() => onSelectFilter(opt)} style={stylesN.dropdownOption}>
-                  <Text style={[stylesN.dropdownText, opt === selectedFilter ? { fontWeight: '800' } : {}]}>{opt}</Text>
-                </TouchableOpacity>
-              ))}
+              <ScrollView nestedScrollEnabled contentContainerStyle={{}} showsVerticalScrollIndicator>
+                {FILTER_OPTIONS.map((opt) => (
+                  <TouchableOpacity key={opt} onPress={() => onSelectFilter(opt)} style={stylesN.dropdownOption}>
+                    <Text style={[stylesN.dropdownText, opt === selectedFilter ? { fontWeight: '800' } : {}]}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -617,11 +653,14 @@ export default function FeedResicende() {
       </LinearGradient>
 
       <FlatList
+        ref={flatListRef}
         data={filteredNotices}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 28, paddingTop: 8 }}
+        onScroll={({ nativeEvent }) => setScrollY(nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingBottom: extraBottomWhenDropdown, paddingTop: 8 }}
         ListHeaderComponent={HeaderWithFilterAndRestaurants}
         ListHeaderComponentStyle={{ overflow: 'visible', zIndex: 9999, elevation: 9999 }}
         ListEmptyComponent={<Text style={{ color: '#6b7280', padding: 16 }}>No se encontraron avisos para este filtro.</Text>}
@@ -784,7 +823,7 @@ function makeStyles({ outerPad, cardRadius, iconBoxSize, titleSize, bodySize, sm
       marginTop: 0,
       borderWidth: 1,
       borderColor: '#EEF2F7',
-      overflow: 'visible',
+      overflow: 'hidden',
       shadowColor: '#000',
       shadowOpacity: 0.06,
       shadowOffset: { width: 0, height: 8 },

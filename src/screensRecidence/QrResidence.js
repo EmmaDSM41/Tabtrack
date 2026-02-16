@@ -601,7 +601,7 @@ export default function QrResidence({ navigation }) {
 
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
-  const bottomButtonsOffset = insets.bottom + 24;
+  const bottomButtonsOffset = insets.bottom + 44;
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: 'transparent',paddingTop: insets.top  }} edges={['left','right','top']}>

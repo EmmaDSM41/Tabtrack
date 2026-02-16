@@ -97,6 +97,7 @@ function ExperiencesStackScreen() {
       <Stack.Screen name="Calificar" component={Calificar} />
       <Stack.Screen name="Opinion" component={OpinionScreen} />
       <Stack.Screen name="OpinionSucces" component={OpinionSuccessScreen} />
+      <Stack.Screen name="SaleDetail" component={SaleDetail} />
      </Stack.Navigator>
   );
 }

@@ -238,13 +238,20 @@ export default function DetailScreen({ navigation, route }) {
               const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
               const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
               const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+
+              const branchId = venta?.sucursal_id ?? venta?.sucursal ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+                item?.sucursal_id ?? item?.sucursalId ?? item?.branch_id ?? item?.branchId ?? null;
+              const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
               const notif = {
                 id: unique,
                 text: buildNotificationText({ branch, amount, date, saleId }),
                 amount: Number(amount || 0),
                 branch: branch || '',
+                branchId: branchId ?? null,
                 date,
                 saleId,
+                url: splitsUrl,
                 read: false,
               };
               stored.unshift(notif);
@@ -265,13 +272,20 @@ export default function DetailScreen({ navigation, route }) {
           const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
           const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
           const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+
+          const branchId = venta?.sucursal_id ?? venta?.sucursal ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+            pago?.sucursal_id ?? pago?.sucursalId ?? pago?.branch_id ?? pago?.branchId ?? null;
+          const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
           const notif = {
             id: unique,
             text: buildNotificationText({ branch, amount, date, saleId }),
             amount: Number(amount || 0),
             branch: branch || '',
+            branchId: branchId ?? null,
             date,
             saleId,
+            url: splitsUrl,
             read: false,
           };
           stored.unshift(notif);
@@ -307,6 +321,19 @@ export default function DetailScreen({ navigation, route }) {
       }
     } catch (e) {
       console.warn('markAllRead err', e);
+    }
+  };
+
+  const markNotificationAsRead = async (notifId) => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => (n.id === notifId ? { ...n, read: true } : n));
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markNotificationAsRead err', e);
     }
   };
 
@@ -553,7 +580,7 @@ export default function DetailScreen({ navigation, route }) {
           }
         }
 
-        const thisTx = s.payment_transaction_id ?? s.paymentTransactionId ?? null;
+        const thisTx = s.payment_transaction_id ?? s.paymentTransactionId ?? s.payment_transactionId ?? s.transaction_id ?? s.transactionId ?? null;
         let thisSplitTip = 0;
         if (thisTx && Array.isArray(propinasArr)) {
           for (const p of propinasArr) {
@@ -843,10 +870,10 @@ export default function DetailScreen({ navigation, route }) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  function NotificationRow({ n }) {
+  function NotificationRow({ n, onPress }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
-      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+      <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
           {/* <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text> */}
@@ -857,9 +884,44 @@ export default function DetailScreen({ navigation, route }) {
           <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
           <Text style={styles.notCurrency}>MXN</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   }
+
+  const handleNotificationPress = async (n) => {
+    try {
+      if (!n) return;
+      if (!n.read) await markNotificationAsRead(n.id);
+
+      setShowNotifications(false);
+
+      if (n.saleId && n.branchId) {
+        try {
+          navigation.navigate('SaleDetail', {
+            saleId: String(n.saleId),
+            branchId: String(n.branchId),
+            branchName: n.branch ?? '',
+          });
+          return;
+        } catch (e) {
+          console.warn('navigate to SaleDetail failed', e);
+        }
+      }
+
+      if (n.url) {
+        try {
+          await Linking.openURL(n.url);
+          return;
+        } catch (e) {
+          console.warn('open url failed', e);
+        }
+      }
+
+      Alert.alert('Notificación', 'Faltan datos de venta o sucursal en esta notificación.');
+    } catch (err) {
+      console.warn('handleNotificationPress err', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -993,7 +1055,7 @@ export default function DetailScreen({ navigation, route }) {
 
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (
-                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+                notifications.map(n => <NotificationRow key={n.id} n={n} onPress={() => handleNotificationPress(n)} />)
               ) : (
                 <View style={styles.noNotifications}>
                   <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
@@ -1211,7 +1273,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '600', color: BLUE },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   logo: { resizeMode: 'contain' },
-  scrollContent: { /* padding dinamico desde JSX */ },
+  scrollContent: {  },
   sectionHeading: { fontWeight: '600', color: BLUE, marginBottom: 16 },
   totalRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   totalLogoWrapper: { borderWidth: 1, borderColor: BLUE, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },

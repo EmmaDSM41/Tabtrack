@@ -14,6 +14,7 @@ import {
   Platform,
   useWindowDimensions,
   PixelRatio,
+  Linking,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -74,7 +75,6 @@ function getAuthHeaders(extra = {}) {
   return base;
 }
 
-
 function parseToLocalDate(value) {
   if (value === undefined || value === null) return null;
   try {
@@ -100,7 +100,7 @@ function parseToLocalDate(value) {
       const hour = Number(spaceDateTime[4]);
       const minute = Number(spaceDateTime[5]);
       const second = Number(spaceDateTime[6] ?? 0);
-      return new Date(year, month, day, hour, minute, second); 
+      return new Date(year, month, day, hour, minute, second);
     }
 
     const dateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -127,7 +127,7 @@ function parseToLocalDate(value) {
 
 export default function VisitsScreen(props) {
   const navigation = useNavigation();
-  const { width, wp, hp, rf, clamp } = useResponsive(); 
+  const { width, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const bottomSafe = Math.round(insets?.bottom ?? 0);
@@ -145,14 +145,12 @@ export default function VisitsScreen(props) {
 
   const pollIntervalRef = useRef(null);
   const isMountedRef = useRef(true);
-  const emailRef = useRef(null); 
-  const MAX_STORE = 100; 
+  const emailRef = useRef(null);
+  const MAX_STORE = 100;
 
-  // --- CAMBIO SOLICITADO: por defecto mostrar los últimos 10 días (hoy y 9 días atrás)
   const defaultDesde = new Date();
   defaultDesde.setDate(defaultDesde.getDate() - 9);
-  const [desdeDate, setDesdeDate] = useState(defaultDesde); 
-  // --- fin cambio
+  const [desdeDate, setDesdeDate] = useState(defaultDesde);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -281,13 +279,20 @@ export default function VisitsScreen(props) {
               const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
               const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
               const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
+
+              const branchId = venta?.sucursal_id ?? venta?.sucursal ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+                item?.sucursal_id ?? item?.sucursalId ?? item?.branch_id ?? item?.branchId ?? null;
+              const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
               const notif = {
                 id: unique,
                 text: buildNotificationText({ branch, amount, date, saleId }),
                 amount: Number(amount || 0),
                 branch: branch || '',
+                branchId: branchId ?? null,
                 date,
                 saleId,
+                url: splitsUrl,
                 read: false,
               };
               stored.unshift(notif);
@@ -308,13 +313,20 @@ export default function VisitsScreen(props) {
           const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
           const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
           const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
+
+          const branchId = venta?.sucursal_id ?? venta?.sucursal ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
+            pago?.sucursal_id ?? pago?.sucursalId ?? pago?.branch_id ?? pago?.branchId ?? null;
+          const splitsUrl = (saleId && branchId) ? `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits` : null;
+
           const notif = {
             id: unique,
             text: buildNotificationText({ branch, amount, date, saleId }),
             amount: Number(amount || 0),
             branch: branch || '',
+            branchId: branchId ?? null,
             date,
             saleId,
+            url: splitsUrl,
             read: false,
           };
           stored.unshift(notif);
@@ -353,6 +365,19 @@ export default function VisitsScreen(props) {
     }
   }, [notifications]);
 
+  const markNotificationAsRead = useCallback(async (notifId) => {
+    try {
+      const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
+      const updated = notifications.map(n => n.id === notifId ? { ...n, read: true } : n);
+      setNotifications(updated);
+      if (email) {
+        await saveStoredNotifications(email, updated);
+      }
+    } catch (e) {
+      console.warn('markNotificationAsRead err', e);
+    }
+  }, [notifications]);
+  // -->
 
   const loadProfileFromApi = useCallback(async () => {
     try {
@@ -475,7 +500,7 @@ export default function VisitsScreen(props) {
         if (!Number.isNaN(n)) return n;
       }
     }
-    const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
+    const items = Array.isArray(saleEntry?.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
     if (Array.isArray(items) && items.length > 0) {
       let sum = 0;
       for (const it of items) {
@@ -512,7 +537,7 @@ export default function VisitsScreen(props) {
       }
 
       const desdeStr = formatDateYMD(desdeCandidate);
-      const hastaStr = formatDateYMD(new Date()); 
+      const hastaStr = formatDateYMD(new Date());
 
       const base = API_BASE_URL.replace(/\/$/, '');
       const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
@@ -535,11 +560,9 @@ export default function VisitsScreen(props) {
       let jsonVentas = await resVentas.json().catch(() => ({}));
       let ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
 
-      // --- FALLBACK: si NO hay resultados para la fecha seleccionada, intentamos buscar en los últimos 10 días ---
       if (!ventaArray || ventaArray.length === 0) {
-        // no cambiamos la fecha seleccionada del usuario; solo intentamos traer datos adicionales
         const last10 = new Date();
-        last10.setDate(last10.getDate() - 9); // últimos 10 días (hoy y 9 días atrás)
+        last10.setDate(last10.getDate() - 9); 
         const last10DesdeStr = formatDateYMD(last10);
         const last10Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last10DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
 
@@ -549,13 +572,9 @@ export default function VisitsScreen(props) {
             const jsonLast = await resLast10.json().catch(() => ({}));
             const ventaArrayLast = Array.isArray(jsonLast?.venta_id) ? jsonLast.venta_id : [];
             if (ventaArrayLast && ventaArrayLast.length > 0) {
-              // usamos estos resultados (últimos 10 días)
               ventaArray = ventaArrayLast;
-              // opcional: informar al usuario que se mostraron los últimos 10 días (opcional, no forzado)
-              // Toast.show('Mostrando visitas de los últimos 10 días.', { duration: Toast.durations.SHORT });
             }
           } else {
-            // nothing - leave ventaArray empty
           }
         } catch (e) {
           console.warn('fallback last10 fetch error', e);
@@ -563,7 +582,6 @@ export default function VisitsScreen(props) {
       }
 
       if (!ventaArray || ventaArray.length === 0) {
-        // Si aún no hay resultados, avisamos al usuario (como antes)
         Toast.show('No se encontraron ventas en ese rango', { duration: Toast.durations.SHORT });
         setVisits([]);
         setFetchingSales(false);
@@ -596,7 +614,7 @@ export default function VisitsScreen(props) {
             const fechaCierre = fechaCierreRaw;
             const key = `${rootVentaId}_${rootSucursalId}`;
             const candidate = {
-              id: `${rootVentaId}_${rootSucursalId}`, 
+              id: `${rootVentaId}_${rootSucursalId}`,
               sale_id: rootVentaId ?? saleEntry?.venta_id ?? saleEntry?.sale_id ?? null,
               restaurante_id: saleEntry?.restaurante_id ?? saleEntry?.restaurante ?? null,
               sucursal_id: saleEntry?.sucursal_id ?? rootSucursalId ?? saleEntry?.sucursal ?? null,
@@ -640,7 +658,7 @@ export default function VisitsScreen(props) {
                   if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
                 }
               }
-            } catch (e) { /* ignore enrichment errors */ }
+            } catch (e) {  }
 
             if (visitsMap.has(key)) {
               const existing = visitsMap.get(key);
@@ -659,7 +677,7 @@ export default function VisitsScreen(props) {
             } else {
               visitsMap.set(key, candidate);
             }
-          }; 
+          };
 
           if (emailsObj && typeof emailsObj === 'object') {
             for (const emailKey of Object.keys(emailsObj)) {
@@ -680,7 +698,7 @@ export default function VisitsScreen(props) {
           console.warn('error processing venta entry', err);
           continue;
         }
-      } 
+      }
 
       const detailedVisits = Array.from(visitsMap.values());
       detailedVisits.sort((a, b) => {
@@ -742,7 +760,7 @@ export default function VisitsScreen(props) {
 
   const onPressDesde = () => setShowDatePicker(true);
   const onChangeDate = (event, selectedDate) => {
-    setShowDatePicker(Platform.OS === 'ios'); 
+    setShowDatePicker(Platform.OS === 'ios');
     if (event?.type === 'dismissed') {
       return;
     }
@@ -755,10 +773,10 @@ export default function VisitsScreen(props) {
     return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
   }
 
-  function NotificationRow({ n }) {
+  function NotificationRow({ n, onPress }) {
     const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
-      <View style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}>
+      <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
 {/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
@@ -769,9 +787,44 @@ export default function VisitsScreen(props) {
           <Text style={styles.notAmount}>{formatMoney(n.amount ?? 0)}</Text>
           <Text style={styles.notCurrency}>MXN</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   }
+
+  const handleNotificationPress = async (n) => {
+    try {
+      if (!n) return;
+      if (!n.read) await markNotificationAsRead(n.id);
+
+      setShowNotifications(false);
+
+      if (n.saleId && n.branchId) {
+        try {
+          navigation.navigate('SaleDetail', {
+            saleId: String(n.saleId),
+            branchId: String(n.branchId),
+            branchName: n.branch ?? '',
+          });
+          return;
+        } catch (e) {
+          console.warn('navigate to SaleDetail failed', e);
+        }
+      }
+
+      if (n.url) {
+        try {
+          await Linking.openURL(n.url);
+          return;
+        } catch (e) {
+          console.warn('open url failed', e);
+        }
+      }
+
+      Toast.show('Faltan datos de venta o sucursal en esta notificación.', { duration: Toast.durations.SHORT });
+    } catch (err) {
+      console.warn('handleNotificationPress err', err);
+    }
+  };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -820,7 +873,7 @@ export default function VisitsScreen(props) {
 
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (
-                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+                notifications.map(n => <NotificationRow key={n.id} n={n} onPress={() => handleNotificationPress(n)} />)
               ) : (
                 <View style={styles.noNotifications}>
                   <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
@@ -872,7 +925,7 @@ export default function VisitsScreen(props) {
           value={desdeDate}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
-          maximumDate={new Date()} 
+          maximumDate={new Date()}
           onChange={onChangeDate}
         />
       )}
