@@ -119,6 +119,13 @@ export default function OpenPay() {
     return { ok: false, reason: 'timeout' };
   };
 
+  const showPaymentError = (title, message, details = null) => {
+    console.warn('Navigating to ErrorPago:', title, message, details);
+    try { setProcessing(false); } catch (e) {  }
+    try { setLoading(false); } catch (e) {  }
+    navigation.navigate('ErrorPago', { title: String(title || 'Error'), message: String(message || 'Ocurrió un problema procesando el pago.'), details: details ? String(details) : null, transactionId: null });
+  };
+
   const handleWebMessage = async (event) => {
     try {
       const raw = event.nativeEvent.data;
@@ -166,7 +173,7 @@ export default function OpenPay() {
             '',
           cantidad: Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 1,
           precio_unitario: Number(
-            it.precio_unitario ??   
+            it.precio_unitario ??
             it.unitPrice ??
             it.price ??
             it.precio_item ??
@@ -214,14 +221,17 @@ export default function OpenPay() {
           if (!res.ok) {
             const serverMsg = json && (json.error || json.message) ? (json.error || json.message) : `Error del servidor (${res.status})`;
             setProcessing(false);
-            Alert.alert('Error', String(serverMsg));
+            // navigate to ErrorPago instead of alert
+            showPaymentError('Error creando transacción', String(serverMsg), json ? JSON.stringify(json) : null);
+            console.log('createTransaction error:', json);
             return;
           }
 
           const transactionId = json?.transaction_id ?? json?.data?.transaction_id ?? json?.data?.transactionId ?? json?.transactionId ?? null;
           if (!transactionId) {
             setProcessing(false);
-            Alert.alert('Error', 'El servidor no devolvió transaction_id. Revisa la respuesta en logs.');
+            // navigate to ErrorPago instead of alert
+            showPaymentError('Error', 'El servidor no devolvió transaction_id. Revisa la respuesta en logs.', json ? JSON.stringify(json) : null);
             console.log('createTransaction response:', json);
             return;
           }
@@ -241,20 +251,19 @@ export default function OpenPay() {
             }
             return;
           } else {
-            Alert.alert('Pendiente', 'Transacción creada pero no se confirmó el pago inmediatamente.');
-            navigation.goBack();
+            showPaymentError('Pendiente', 'Transacción creada pero no se confirmó el pago inmediatamente.', pollResult ? JSON.stringify(pollResult) : null);
             return;
           }
         } catch (err) {
           console.warn('Error creando transaccion con token', err);
           setProcessing(false);
-          Alert.alert('Error', 'No se pudo crear la transacción. Revisa la conexión y la URL.');
+          showPaymentError('Error', 'No se pudo crear la transacción. Revisa la conexión y la URL.', err ? JSON.stringify(err) : null);
         }
       }
 
       if (data.type === 'error') {
         setProcessing(false);
-        Alert.alert('Error', String(data.message || 'Ocurrió un error en la ventana de pago.'));
+        showPaymentError('Error', String(data.message || 'Ocurrió un error en la ventana de pago.'), data ? JSON.stringify(data) : null);
         return;
       }
     } catch (err) {
@@ -355,7 +364,7 @@ export default function OpenPay() {
         setLoading(false);
       } catch (err) {
         console.warn('fetchCredsAndSendInit error', err);
-        Alert.alert('Error', 'No se pudieron obtener las credenciales de OpenPay. Revisa servidor/configuración.');
+        showPaymentError('Error', 'No se pudieron obtener las credenciales de OpenPay. Revisa servidor/configuración.', err ? String(err) : null);
         setLoading(false);
       }
     })();
@@ -373,7 +382,7 @@ export default function OpenPay() {
       webviewRef.current && webviewRef.current.postMessage(JSON.stringify({ type: 'create_token', cardData }));
     } catch (e) {
       console.warn('postMessage create_token failed', e);
-      Alert.alert('Error', 'No se pudo iniciar la creación del token.');
+      showPaymentError('Error', 'No se pudo iniciar la creación del token.', e ? String(e) : null);
       setProcessing(false);
     }
   };

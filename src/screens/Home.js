@@ -38,6 +38,7 @@ import OpenPay from './OpenPay';
 import Stripe from './Stripe';
 import ConfirmacionPago from './ConfirmacionPago';
 import SaleDetail from './PagoDetail';
+import ErrorPago from './ErrorPago';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -58,6 +59,7 @@ function QRStackScreen() {
       <Stack.Screen name="Openpay" component={OpenPay} />
       <Stack.Screen name="Stripe" component={Stripe} />
       <Stack.Screen name="ConfirmacionPago" component={ConfirmacionPago} />
+      <Stack.Screen name="ErrorPago" component={ErrorPago} />
     </Stack.Navigator>
   );
 }

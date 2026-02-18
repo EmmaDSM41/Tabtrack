@@ -601,9 +601,10 @@ export default function EqualSplit() {
             />
 
             <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-              <TouchableOpacity onPress={handleCancelPeople} disabled={modalConfirmLoading} style={{ flex:1, marginRight:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor:'#f3f4f6', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+{/*               <TouchableOpacity onPress={handleCancelPeople} disabled={modalConfirmLoading} style={{ flex:1, marginRight:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor:'#f3f4f6', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={{ color:'#374151', fontWeight:'700' }}>Cancelar</Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
+             
 
               <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 {modalConfirmLoading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'800' }}>Confirmar</Text>}

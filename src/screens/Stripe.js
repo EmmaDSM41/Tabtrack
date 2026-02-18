@@ -126,33 +126,12 @@ export default function StripePay() {
     return Array.isArray(items)
       ? items.map(it => ({
           codigo_item: String(
-            it.codigo_item ??
-            it.codigo ??
-            it.code ??
-            it.original_line_id ??
-            it.id ??
-            ''
+            it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? it.id ?? ''
           ),
           nombre_item:
-            it.nombre_item ??
-            it.nombre ??
-            it.name ??
-            it.title ??
-            '',
-          cantidad: Number(
-            it.cantidad ??
-            it.qty ??
-            it.quantity ??
-            1
-          ) || 1,
-          precio_unitario: Number(
-            it.precio_unitario ??   
-            it.precio ??           
-            it.precio_item ??       
-            it.unitPrice ??        
-            it.price ??             
-            0
-          ) || 0,
+            it.nombre_item ?? it.nombre ?? it.name ?? it.title ?? '',
+          cantidad: Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 1,
+          precio_unitario: Number(it.precio_unitario ?? it.precio ?? it.precio_item ?? it.unitPrice ?? it.price ?? 0) || 0,
         }))
       : [];
   };
@@ -200,6 +179,15 @@ export default function StripePay() {
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) return 'Ingresa un correo electrónico válido';
     if (!cardDetails || !cardDetails.complete) return 'Ingresa los datos de la tarjeta';
     return null;
+  };
+
+  // NUEVO: en vez de modal/alert, navegamos a la pantalla ErrorPago
+  const showPaymentError = (title, message, details = null) => {
+    console.warn('Navigating to ErrorPago:', title, message, details);
+    setProcessing(false);
+    setLoading(false);
+    // pasa info a la pantalla de error
+    navigation.navigate('ErrorPago', { title: String(title || 'Error'), message: String(message || 'Ocurrió un problema procesando el pago.'), details: details ? String(details) : null });
   };
 
   const onPayPress = async () => {
@@ -261,7 +249,8 @@ export default function StripePay() {
       if (!res.ok) {
         const serverMsg = json && (json.error || json.message) ? (json.error || json.message) : `Error del servidor (${res.status})`;
         setProcessing(false);
-        Alert.alert('Error creando transacción', String(serverMsg));
+        // Navegar a pantalla de error con mensaje del servidor y detalles (json)
+        showPaymentError('Error creando transacción', String(serverMsg), json ? JSON.stringify(json) : null);
         console.log('createTransaction error:', json);
         return;
       }
@@ -280,7 +269,7 @@ export default function StripePay() {
 
       if (!transactionId) {
         setProcessing(false);
-        Alert.alert('Error', 'El servidor no devolvió transaction_id. Revisa la respuesta en consola.');
+        showPaymentError('Error', 'El servidor no devolvió transaction_id. Revisa la respuesta en consola.', json ? JSON.stringify(json) : null);
         console.log('createTransaction response:', json);
         return;
       }
@@ -303,8 +292,8 @@ export default function StripePay() {
           if (error) {
             console.warn('confirmPayment error', error);
             setProcessing(false);
-            Alert.alert('Pago no procesado', error.message ?? 'Error al confirmar el pago con Stripe.');
-            try { navigation.navigate('QRMain'); } catch (e) { /* ignore */ }
+            // Navegar a pantalla de error con el mensaje de Stripe (si lo hay) y código
+            showPaymentError('Pago no procesado', error.message ?? 'Error al confirmar el pago con Stripe.', error.code ? `code: ${error.code}` : JSON.stringify(error));
             return;
           }
 
@@ -324,26 +313,25 @@ export default function StripePay() {
               } catch (e) { console.warn('navigate PaymentSuccessScreen failed', e); }
               return;
             } else {
-              Alert.alert('Pendiente', 'Pago confirmado por Stripe pero el servidor aún no refleja la venta como pagada.');
-              try { navigation.navigate('QRMain'); } catch (e) { /* ignore */ }
+              // Mostrar pantalla de error/pending con detalle del poll
+              showPaymentError('Pendiente', 'Pago confirmado por Stripe pero el servidor aún no refleja la venta como pagada.', pollResult ? JSON.stringify(pollResult) : null);
               return;
             }
           } else {
             setProcessing(false);
-            Alert.alert('Pago no completado', `Estado del pago: ${String(paymentIntent?.status)}`);
-            try { navigation.navigate('QRMain'); } catch (e) { /* ignore */ }
+            // Llevar a pantalla de error con el estado devuelto
+            showPaymentError('Pago no completado', `Estado del pago: ${String(paymentIntent?.status)}`, paymentIntent ? JSON.stringify(paymentIntent) : null);
             return;
           }
         } catch (err) {
           console.warn('confirmPayment exception', err);
           setProcessing(false);
-          Alert.alert('Error', 'Ocurrió un error confirmando el pago con Stripe.');
-          try { navigation.navigate('QRMain'); } catch (e) { /* ignore */ }
+          showPaymentError('Error', 'Ocurrió un error confirmando el pago con Stripe.', err ? JSON.stringify(err) : null);
           return;
         }
       } else {
         setProcessing(false);
-        Alert.alert('Falta client_secret', 'El servidor no devolvió client_secret. Revisa la respuesta en consola.');
+        showPaymentError('Falta client_secret', 'El servidor no devolvió client_secret. Revisa la respuesta en consola.', json ? JSON.stringify(json) : null);
         console.log('createTransaction response (no client_secret):', json);
         return;
       }
@@ -351,7 +339,7 @@ export default function StripePay() {
       console.warn('Error creando transacción stripe', err);
       setProcessing(false);
       setLoading(false);
-      Alert.alert('Error', 'No se pudo conectar con el servidor de pagos. Revisa la URL y el token.');
+      showPaymentError('Error', 'No se pudo conectar con el servidor de pagos. Revisa la URL y el token.', err ? JSON.stringify(err) : null);
     }
   };
 
@@ -438,12 +426,12 @@ export default function StripePay() {
               <Ionicons name="mail-outline" size={18} color="#6b7280" style={styles.inputIcon} />
               <TextInput style={styles.input} placeholder="Correo electrónico" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" placeholderTextColor="#96a0b8" />
             </View>
-                      <View style={{ marginTop: PAY_BTN_MARGIN, alignItems: 'center' }}>
-            <TouchableOpacity style={[styles.payBtn, { width: Math.min(560, winW - PADDING * 2) }]} onPress={onPayPress} activeOpacity={0.9} disabled={processing || loading}>
-              {processing ? <ActivityIndicator color={whiteColor} style={{ marginRight: 10 }} /> : <Ionicons name="card-outline" size={18} color={'#ffffff'} style={{ marginRight: 8 }} />}
-              <Text style={styles.payBtnText}>{processing ? 'Procesando…' : 'Pagar'}</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={{ marginTop: PAY_BTN_MARGIN, alignItems: 'center' }}>
+              <TouchableOpacity style={[styles.payBtn, { width: Math.min(560, winW - PADDING * 2) }]} onPress={onPayPress} activeOpacity={0.9} disabled={processing || loading}>
+                {processing ? <ActivityIndicator color={whiteColor} style={{ marginRight: 10 }} /> : <Ionicons name="card-outline" size={18} color={'#ffffff'} style={{ marginRight: 8 }} />}
+                <Text style={styles.payBtnText}>{processing ? 'Procesando…' : 'Pagar'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
 

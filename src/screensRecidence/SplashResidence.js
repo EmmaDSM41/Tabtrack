@@ -296,7 +296,7 @@ export default function SplashResidence() {
       <View style={styles.container}>
         <View style={{ alignItems: 'center', marginTop: logoTopMargin }}>
           <Image
-            source={require('../../assets/images/logo.png')}
+            source={require('../../assets/images/LogoRes.jpeg')}
             style={{ width: logoSize, height: Math.round(logoSize * 0.58), resizeMode: 'contain' }}
           />
         </View>

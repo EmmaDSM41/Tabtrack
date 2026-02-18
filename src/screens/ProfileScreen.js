@@ -968,7 +968,7 @@ export default function ProfileScreen({ navigation }) {
           />
 
           <Image
-            source={require('../../assets/images/logo2.png')}
+            source={require('../../assets/images/LogoResB.png')}
             style={{
               width: Math.round(clamp(rf(3.8), 18, 28)),
               height: Math.round(clamp(rf(3.8), 18, 28)),

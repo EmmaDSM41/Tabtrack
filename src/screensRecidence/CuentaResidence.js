@@ -1,4 +1,3 @@
-// CuentaResidence.js
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
@@ -168,6 +167,11 @@ export default function CuentaResidence() {
   const [noSaleModalVisible, setNoSaleModalVisible] = useState(false);
   const [noSaleModalMessage, setNoSaleModalMessage] = useState('');
 
+  const [accountOpening, setAccountOpening] = useState(false);
+  const [accountOpened, setAccountOpened] = useState(false);
+  const [canOpenAccount, setCanOpenAccount] = useState(false);
+  const [approveLoading, setApproveLoading] = useState(false);
+
   const [discountAmount, setDiscountAmount] = useState(0);
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
@@ -182,11 +186,6 @@ export default function CuentaResidence() {
     setNoSaleModalVisible(false);
     try { navigation.navigate('QrResidence'); } catch (e) { try { navigation.goBack?.(); } catch(e) {} }
   };
-
-  const [accountOpening, setAccountOpening] = useState(false);
-  const [accountOpened, setAccountOpened] = useState(false);
-  const [canOpenAccount, setCanOpenAccount] = useState(false);
-  const [approveLoading, setApproveLoading] = useState(false);
 
   const applyResolveJsonToState = useCallback((json) => {
     try {
@@ -439,7 +438,6 @@ export default function CuentaResidence() {
 
       const json = await res.json();
 
-      // Guardamos visita como antes
       try {
         if (json && json.sale_id) {
           const visitToSave = {
@@ -458,7 +456,6 @@ export default function CuentaResidence() {
         }
       } catch (e) { console.warn('Could not save visit after approve', e); }
 
-      // --------- NOTIFICACIÓN: crear, persistir y emitir ----------
       try {
         const amountVal = Number(json.total ?? totalConsumo) || 0;
         const notifId = `notif_${Date.now()}_${Math.floor(Math.random()*10000)}`;
@@ -492,9 +489,7 @@ export default function CuentaResidence() {
       } catch (e) {
         console.warn('Error creando notificación tras aprobar consumo', e);
       }
-      // ------------------------------------------------------------
 
-      // Navegar a confirmación de consumo
       try {
         navigation.navigate('ConfirmacionConsumo', {
           amount: Number(json.total ?? totalConsumo) || 0,
@@ -504,6 +499,8 @@ export default function CuentaResidence() {
           restauranteId: json.restaurante_id ?? restauranteId,
           sucursalId: json.sucursal_id ?? sucursalId,
           rawResponse: json,
+          // ADICIÓN: envío de edificio_id hacia la pantalla de confirmación
+          edificioId: json.edificio_id ?? json.edificioId ?? null,
         });
       } catch (e) {
         try { navigation.navigate('QrResidence'); } catch(er) {}
