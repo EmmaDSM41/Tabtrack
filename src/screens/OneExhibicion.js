@@ -441,7 +441,7 @@ export default function OneExhibicion() {
           <View style={{ height: 12 }} />
 
           <TouchableOpacity style={styles.primaryButton} onPress={goToPropina} activeOpacity={0.9}>
-            <Text style={styles.primaryButtonText}>Pagar</Text>
+            <Text style={styles.primaryButtonText}>Continuar</Text>
           </TouchableOpacity>
 
 {/*           <TouchableOpacity style={styles.ghostButton} onPress={handlePay} activeOpacity={0.9}>

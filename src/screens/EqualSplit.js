@@ -572,7 +572,7 @@ export default function EqualSplit() {
             activeOpacity={0.9}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.primaryButtonText}>{hasTipApplied ? 'Pagar' : 'Pagar'}</Text>
+            <Text style={styles.primaryButtonText}>{hasTipApplied ? 'Continuar' : 'Continuar'}</Text>
           </TouchableOpacity>
 
           <View style={styles.buttonsWrap}>

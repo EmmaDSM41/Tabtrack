@@ -179,7 +179,7 @@ export default function Consumo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.tipApplied, route?.params?.tipAmount, route?.params?.totalWithTip, route?.params]);
 
-  const addTipLabel = tipApplied ? 'Pagar' : 'Pagar';
+  const addTipLabel = tipApplied ? 'Aceptar' : 'Aceptar';
 
   const styles = makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets });
 

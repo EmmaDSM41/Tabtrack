@@ -14,7 +14,7 @@ import {
   Platform,
   useWindowDimensions,
   PixelRatio,
-  Linking,
+  ToastAndroid,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -377,8 +377,100 @@ export default function VisitsScreen(props) {
       console.warn('markNotificationAsRead err', e);
     }
   }, [notifications]);
-  // -->
 
+  // --- NUEVAS FUNCIONES: búsqueda y navegación desde notificación ----
+
+  function findVisitBySaleBranchLocal(visitsArr, saleId, branchId) {
+    if (!saleId || !branchId || !Array.isArray(visitsArr)) return null;
+    const sId = String(saleId);
+    const bId = String(branchId);
+    return visitsArr.find(v => {
+      const vid = String(v.sale_id ?? v.venta_id ?? v.saleId ?? '');
+      const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
+      if (vid === sId && bid === bId) return true;
+      // también chequea id compuesto
+      if (String(v.id ?? '').startsWith(`${sId}_`) && String(v.id ?? '').includes(`_${bId}`)) return true;
+      // si hay branchName info que contenga branchId (poco probable) lo dejamos
+      return false;
+    }) ?? null;
+  }
+
+  // Maneja "abrir notificación" tanto desde la lista como desde push (si lo integras luego)
+  async function handleIncomingNotification(payload) {
+    try {
+      if (!payload) {
+        console.warn('handleIncomingNotification: payload vacío');
+        return;
+      }
+      const data = payload.data ?? payload;
+      // soportar varias claves posibles
+      const saleId = data?.saleId ?? data?.venta_id ?? data?.sale_id ?? data?.sale ?? data?.venta ?? null;
+      const branchId = data?.branchId ?? data?.sucursal_id ?? data?.sucursal ?? data?.branch_id ?? data?.branch ?? null;
+      const notifId = data?.notifId ?? payload?.id ?? payload?.notifId ?? null;
+
+      if (!saleId || !branchId) {
+        console.warn('handleIncomingNotification: faltan saleId o branchId en payload', { saleId, branchId, payload });
+      }
+
+      // marcar como leída en la lista/storage
+      if (notifId) {
+        try { await markNotificationAsRead(notifId); } catch (e) { /* ignore */ }
+      }
+
+      // 1) buscar localmente
+      let visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
+      if (visit) {
+        setShowNotifications(false);
+        navigation.navigate('ExperiencesDetails', { visit });
+        return;
+      }
+
+      // 2) si no está, forzar una recarga rápida y reintentar
+      try {
+        await fetchVisitsForDesde(desdeDate);
+      } catch (e) {
+        console.warn('fetchVisitsForDesde error en handleIncomingNotification', e);
+      }
+
+      // re-check en estado actualizado (espera un micro-tick para que react actualice estado)
+      await new Promise(res => setTimeout(res, 250));
+      visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
+      if (visit) {
+        setShowNotifications(false);
+        navigation.navigate('ExperiencesDetails', { visit });
+        return;
+      }
+
+      // 3) fallback: abrir SaleDetail (si tienes esa pantalla implementada)
+      if (saleId && branchId) {
+        setShowNotifications(false);
+        navigation.navigate('SaleDetail', { saleId: String(saleId), branchId: String(branchId), branchName: data?.branch ?? data?.nombre_sucursal ?? '' });
+        return;
+      }
+
+      Toast.show('No hay datos suficientes en la notificación para abrir el detalle.', { duration: Toast.durations.SHORT });
+
+    } catch (err) {
+      console.warn('handleIncomingNotification err', err);
+    }
+  }
+
+  // -----------------------------------------------------------------------------
+// la función original que manejaba el toque en la lista de notificaciones ahora
+// delega en handleIncomingNotification (para compartir la lógica)
+  const handleNotificationPress = async (n) => {
+    try {
+      if (!n) return;
+      if (!n.read) await markNotificationAsRead(n.id);
+      setShowNotifications(false);
+      // reusa la lógica: n ya tiene saleId y branchId en tu estructura
+      await handleIncomingNotification(n);
+    } catch (err) {
+      console.warn('handleNotificationPress err', err);
+    }
+  };
+
+  // ---------- funciones de perfil / branches / visits que ya tenías ----------
   const loadProfileFromApi = useCallback(async () => {
     try {
       const email = await AsyncStorage.getItem('user_email');
@@ -562,7 +654,7 @@ export default function VisitsScreen(props) {
 
       if (!ventaArray || ventaArray.length === 0) {
         const last10 = new Date();
-        last10.setDate(last10.getDate() - 9); 
+        last10.setDate(last10.getDate() - 9);
         const last10DesdeStr = formatDateYMD(last10);
         const last10Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last10DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
 
@@ -779,7 +871,6 @@ export default function VisitsScreen(props) {
       <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
-{/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
@@ -790,41 +881,6 @@ export default function VisitsScreen(props) {
       </TouchableOpacity>
     );
   }
-
-  const handleNotificationPress = async (n) => {
-    try {
-      if (!n) return;
-      if (!n.read) await markNotificationAsRead(n.id);
-
-      setShowNotifications(false);
-
-      if (n.saleId && n.branchId) {
-        try {
-          navigation.navigate('SaleDetail', {
-            saleId: String(n.saleId),
-            branchId: String(n.branchId),
-            branchName: n.branch ?? '',
-          });
-          return;
-        } catch (e) {
-          console.warn('navigate to SaleDetail failed', e);
-        }
-      }
-
-      if (n.url) {
-        try {
-          await Linking.openURL(n.url);
-          return;
-        } catch (e) {
-          console.warn('open url failed', e);
-        }
-      }
-
-      Toast.show('Faltan datos de venta o sucursal en esta notificación.', { duration: Toast.durations.SHORT });
-    } catch (err) {
-      console.warn('handleNotificationPress err', err);
-    }
-  };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -843,7 +899,19 @@ export default function VisitsScreen(props) {
         <Text style={[styles.title, { fontSize: clamp(rf(4.6), 19, 20) }]}>Experiencias</Text>
 
         <View style={styles.iconsRight}>
-          <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 12 }]} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                await markAllRead();
+              } catch (e) {
+                console.warn('markAllRead on bell press failed', e);
+              } finally {
+                setShowNotifications(true);
+              }
+            }}
+            style={[styles.headerButton, { marginLeft: 12 }]}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="notifications-outline" size={clamp(rf(3.2), 19, 26)} color="#0051c9" />
             {unreadCount > 0 && (
               <View style={styles.badge}>
@@ -867,7 +935,6 @@ export default function VisitsScreen(props) {
             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-{/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
               </TouchableOpacity>
             </View>
 
@@ -881,9 +948,7 @@ export default function VisitsScreen(props) {
               )}
             </ScrollView>
 
-            <TouchableOpacity style={[styles.markReadButton, { margin: Math.round(Math.min(Math.max(wp(4), 10), 28)) }]} onPress={markAllRead}>
-              <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
-            </TouchableOpacity>
+            {/* botón "Marcar todo como leído" eliminado según tu petición */}
           </View>
         </View>
       </Modal>

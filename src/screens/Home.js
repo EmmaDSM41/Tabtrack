@@ -120,6 +120,7 @@ function ProfileStackScreen() {
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Restaurant" component={RestaurantDetailScreen} />
       <Stack.Screen name="SaleDetail" component={SaleDetail} />
+      <Stack.Screen name="ExperiencesDetails" component={ExperiencesDetails} />
     </Stack.Navigator>
   );
 }

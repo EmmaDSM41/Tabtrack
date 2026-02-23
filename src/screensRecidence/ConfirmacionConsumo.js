@@ -58,7 +58,6 @@ export default function ConfirmacionConsumo() {
         const res = await fetch(url, { method: 'GET', headers });
         if (!mounted) return;
         if (!res.ok) {
-          // no hacemos nada drástico; dejamos fallback al id
           console.warn('fetch restaurant name http error', res.status);
           return;
         }
@@ -69,7 +68,6 @@ export default function ConfirmacionConsumo() {
         }
       } catch (err) {
         console.warn('fetchRestaurantName error', err);
-        // fallback silencioso
       }
     }
 
@@ -101,7 +99,6 @@ export default function ConfirmacionConsumo() {
         translucent
       />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -118,7 +115,6 @@ export default function ConfirmacionConsumo() {
         <View style={styles.headerRightPlaceholder} />
       </View>
 
-      {/* TOP GRADIENT */}
       <LinearGradient
         colors={['#7EE2A1', '#2ECC71', '#0F8F52']}
         start={{ x: 0, y: 0 }}

@@ -808,7 +808,7 @@ export default function Dividir() {
               style={styles.shareButtonTouchable}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.shareButtonText}>Pagar</Text>
+              <Text style={styles.shareButtonText}>Continuar</Text>
             </TouchableOpacity>
           </LinearGradient>
 

@@ -252,7 +252,7 @@ export default function ProfileScreen({ navigation }) {
                 branchId: branchId ?? null,
                 date,
                 saleId,
-                url: splitsUrl, 
+                url: splitsUrl,
                 read: false,
               };
               stored.unshift(notif);
@@ -344,41 +344,271 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
+  // --- helpers nuevos ---
+  function getCacheBustedUrl(url) {
+    if (!url) return null;
+    try {
+      const ts = Date.now();
+      return url.includes('?') ? `${url}&_cb=${ts}` : `${url}?_cb=${ts}`;
+    } catch (e) {
+      return url;
+    }
+  }
+
+  // Busca en un arreglo de visits un visit cuyo sale_id y sucursal coincidan con los dados.
+  function findVisitBySaleBranchLocal(visitsArr, saleId, branchId) {
+    if (!saleId || !branchId || !Array.isArray(visitsArr)) return null;
+    const sId = String(saleId);
+    const bId = String(branchId);
+    return visitsArr.find(v => {
+      const vid = String(v.sale_id ?? v.venta_id ?? v.saleId ?? '');
+      const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
+      if (vid === sId && bid === bId) return true;
+      // chequea id compuesto "sale_branch"
+      if (String(v.id ?? '').startsWith(`${sId}_`) && String(v.id ?? '').includes(`_${bId}`)) return true;
+      // fallback: branch name match (poco fiable)
+      return false;
+    }) ?? null;
+  }
+
+  // Carga visitas desde AsyncStorage (intenta claves con user id/email y fallback genérico).
+  async function loadCachedVisits() {
+    try {
+      const uid = await AsyncStorage.getItem('user_usuario_app_id');
+      const email = await AsyncStorage.getItem('user_email');
+      const currentId = uid || email || null;
+      const candidates = [];
+      if (currentId) candidates.push(`user_visits_${currentId}`);
+      candidates.push('user_visits');
+
+      for (const key of candidates) {
+        try {
+          const raw = await AsyncStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed;
+          if (parsed && Array.isArray(parsed.data)) return parsed.data;
+          if (parsed && typeof parsed === 'object') {
+            const maybeArr = Object.values(parsed).filter(v => v && typeof v === 'object');
+            if (maybeArr.length > 0) return maybeArr;
+          }
+        } catch (e) {
+          console.warn('loadCachedVisits parse error for key', key, e);
+          continue;
+        }
+      }
+      return [];
+    } catch (err) {
+      console.warn('loadCachedVisits error', err);
+      return [];
+    }
+  }
+
+  // Actualiza la visita en la cache (si existe)
+  async function updateCachedVisit(updatedVisit) {
+    try {
+      const uid = await AsyncStorage.getItem('user_usuario_app_id');
+      const email = await AsyncStorage.getItem('user_email');
+      const currentId = uid || email || null;
+      const candidates = [];
+      if (currentId) candidates.push(`user_visits_${currentId}`);
+      candidates.push('user_visits');
+
+      for (const key of candidates) {
+        try {
+          const raw = await AsyncStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          let arr = [];
+          if (Array.isArray(parsed)) arr = parsed;
+          else if (parsed && Array.isArray(parsed.data)) arr = parsed.data;
+          else continue;
+
+          const idx = arr.findIndex(v => {
+            const vid = String(v.sale_id ?? v.venta_id ?? v.saleId ?? '');
+            const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
+            const uid1 = String(updatedVisit.sale_id ?? updatedVisit.venta_id ?? updatedVisit.saleId ?? '');
+            const bid1 = String(updatedVisit.sucursal_id ?? updatedVisit.sucursal ?? updatedVisit.branchId ?? updatedVisit.branch_id ?? '');
+            if (vid === uid1 && bid === bid1) return true;
+            if (String(v.id ?? '').startsWith(`${uid1}_`) && String(v.id ?? '').includes(`_${bid1}`)) return true;
+            return false;
+          });
+          if (idx >= 0) {
+            arr[idx] = { ...arr[idx], ...updatedVisit };
+            // guardar formato original si era { data: [...] }
+            try {
+              if (parsed && Array.isArray(parsed.data)) {
+                await AsyncStorage.setItem(key, JSON.stringify({ ...parsed, data: arr }));
+              } else {
+                await AsyncStorage.setItem(key, JSON.stringify(arr));
+              }
+            } catch (e) { /* noop */ }
+            return true;
+          }
+        } catch (e) {
+          console.warn('updateCachedVisit parse error for key', key, e);
+          continue;
+        }
+      }
+    } catch (err) {
+      console.warn('updateCachedVisit error', err);
+    }
+    return false;
+  }
+
+  // Intenta obtener logo/banner para una visit usando restaurante_id y sucursal_id
+  async function enrichVisitWithBranchLogo(visit) {
+    try {
+      if (!visit) return visit;
+      if (visit.restaurantImage) return visit; // ya tiene logo
+
+      const restId = visit.restaurante_id ?? visit.restaurante ?? visit.restaurantId ?? null;
+      const branchId = visit.sucursal_id ?? visit.sucursal ?? visit.branchId ?? visit.branch_id ?? null;
+      if (!restId || !branchId) {
+        // no podemos enriquecer si no hay restId
+        console.warn('enrichVisitWithBranchLogo: faltan restId o branchId', { restId, branchId });
+        return visit;
+      }
+
+      const base = API_URL.replace(/\/$/, '');
+      const url = `${base}/api/restaurantes/${encodeURIComponent(restId)}/sucursales`;
+      const headers = getAuthHeaders();
+      let res;
+      try {
+        res = await fetch(url, { method: 'GET', headers });
+      } catch (err) {
+        console.warn('enrichVisitWithBranchLogo fetch error', err);
+        return visit;
+      }
+      if (!res || !res.ok) {
+        console.warn('enrichVisitWithBranchLogo http not ok', res?.status);
+        return visit;
+      }
+      const json = await res.json().catch(() => null);
+      if (!json) return visit;
+      const list = Array.isArray(json.sucursales) ? json.sucursales : (Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : null));
+      if (!Array.isArray(list)) return visit;
+
+      const found = list.find(b => {
+        const candidates = [b.id, b.sucursal_id, b.codigo, b.sucursalId];
+        for (const cand of candidates) {
+          if (cand === undefined || cand === null) continue;
+          try {
+            if (String(cand) === String(branchId)) return true;
+          } catch {}
+        }
+        // ultima opcion: comparar nombre
+        if (b.nombre && visit.branchName && String(b.nombre).trim() === String(visit.branchName).trim()) return true;
+        return false;
+      });
+
+      if (found) {
+        const logo = found.imagen_logo_url ?? found.imagen_logo ?? found.logo_url ?? found.logo ?? null;
+        const banner = found.imagen_banner_url ?? found.imagen_banner ?? found.banner_url ?? found.banner ?? null;
+        if (logo) visit.restaurantImage = getCacheBustedUrl(logo);
+        if (banner) visit.bannerImage = getCacheBustedUrl(banner);
+        // actualizar cache local (intentar)
+        try { await updateCachedVisit(visit); } catch (e) { /* noop */ }
+      } else {
+        // fallback: si el endpoint de restaurante devuelve logo principal
+        const restLogo = json?.imagen_logo_url ?? json?.logo ?? json?.imagen_logo ?? null;
+        if (restLogo) {
+          visit.restaurantImage = getCacheBustedUrl(restLogo);
+          try { await updateCachedVisit(visit); } catch (e) { /* noop */ }
+        }
+      }
+
+      return visit;
+    } catch (err) {
+      console.warn('enrichVisitWithBranchLogo err', err);
+      return visit;
+    }
+  }
+
+  // Maneja la lógica de open desde payload/notification (intento de abrir ExperiencesDetails)
+  async function handleIncomingNotification(payload) {
+    try {
+      if (!payload) {
+        console.warn('handleIncomingNotification: payload vacío');
+        return;
+      }
+      const data = payload.data ?? payload;
+      const saleId = data?.saleId ?? data?.venta_id ?? data?.sale_id ?? data?.sale ?? data?.venta ?? null;
+      const branchId = data?.branchId ?? data?.sucursal_id ?? data?.sucursal ?? data?.branch_id ?? data?.branch ?? null;
+      const notifId = data?.id ?? data?.notifId ?? payload?.id ?? null;
+
+      if (!saleId || !branchId) {
+        console.warn('handleIncomingNotification: faltan saleId o branchId en payload', { saleId, branchId, payload });
+      }
+
+      if (notifId) {
+        try { await markNotificationAsRead(notifId); } catch (e) { /**/ }
+      }
+
+      // 1) buscar en cache local
+      try {
+        const cached = await loadCachedVisits();
+        const found = findVisitBySaleBranchLocal(cached, saleId, branchId);
+        if (found) {
+          // si no tiene logo intentamos enriquecer (fetch)
+          try {
+            const enriched = await enrichVisitWithBranchLogo(found);
+            setShowNotifications(false);
+            // navegar a detalle con objeto visit enriquecido
+            navigation.navigate('ExperiencesDetails', { visit: enriched });
+            return;
+          } catch (e) {
+            console.warn('error enriching visit before navigate', e);
+            setShowNotifications(false);
+            navigation.navigate('ExperiencesDetails', { visit: found });
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('error buscando visita en cache local', e);
+      }
+
+      // 2) intentar abrir pantalla de Experiencias con params para que recargue / busque (si la pantalla lo soporta)
+      try {
+        if (saleId && branchId) {
+          setShowNotifications(false);
+          navigation.navigate('Experiences', { openSaleId: String(saleId), openBranchId: String(branchId) });
+          return;
+        }
+      } catch (e) {
+        console.warn('navigate to Experiences failed', e);
+      }
+
+      // 3) fallback: abrir SaleDetail si existe saleId y branchId
+      if (saleId && branchId) {
+        setShowNotifications(false);
+        navigation.navigate('SaleDetail', { saleId: String(saleId), branchId: String(branchId), branchName: data?.branch ?? data?.nombre_sucursal ?? '' });
+        return;
+      }
+
+      Toast.show('No hay datos suficientes en la notificación para abrir el detalle.', { duration: Toast.durations.SHORT });
+    } catch (err) {
+      console.warn('handleIncomingNotification err', err);
+    }
+  }
+
+  // Reemplazo suave de handleNotificationPress para integrar búsqueda/navegación
   const handleNotificationPress = async (n) => {
     try {
       if (!n) return;
       if (!n.read) await markNotificationAsRead(n.id);
 
+      // Mantengo el comportamiento de cerrar modal
       setShowNotifications(false);
 
-      if (n.saleId && n.branchId) {
-        try {
-          navigation.navigate('SaleDetail', {
-            saleId: String(n.saleId),
-            branchId: String(n.branchId),
-            branchName: n.branch ?? '', 
-          });
-          return;
-        } catch (e) {
-          console.warn('navigate to SaleDetail failed', e);
-        }
-      }
-
-      if (n.url) {
-        try {
-          await Linking.openURL(n.url);
-          return;
-        } catch (e) {
-          console.warn('open url failed', e);
-        }
-      }
-
-      Toast.show('Faltan datos de venta o sucursal en esta notificación.', { duration: Toast.durations.SHORT });
+      // Llamo la rutina unificada
+      await handleIncomingNotification(n);
     } catch (err) {
       console.warn('handleNotificationPress err', err);
     }
   };
 
+  // ------------------ resto de funciones que ya tenías (sin cambios) ------------------
 
   const getAuthHeaders = (extra = {}) => {
     const base = { 'Content-Type': 'application/json', ...extra };
@@ -760,9 +990,7 @@ export default function ProfileScreen({ navigation }) {
               )}
             </ScrollView>
 
-            <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
-              <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
-            </TouchableOpacity>
+            {/* botón "Marcar todo como leído" eliminado según tu petición */}
           </View>
         </View>
       </Modal>
@@ -811,7 +1039,20 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
           <View style={styles.headerRight}>
-            <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  // Al abrir el modal, marcamos todas como leídas y luego mostramos el modal.
+                  await markAllRead();
+                } catch (e) {
+                  console.warn('markAllRead on bell press failed', e);
+                } finally {
+                  setShowNotifications(true);
+                }
+              }}
+              style={styles.headerButton}
+              hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+            >
               <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
               {unreadCount > 0 && (
                 <View style={[styles.badge, { right: 2, top: 2 }]}>

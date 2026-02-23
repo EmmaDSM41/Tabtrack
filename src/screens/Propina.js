@@ -391,7 +391,7 @@ export default function Propina() {
             </View>
 
             <View style={[styles.rightCol, { alignItems: 'flex-end', maxWidth: Math.round(width * 0.46) }]}>
-              <Text style={[styles.totalLabel, { fontSize: clampLocal(rf(13), 12, 18) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>
+{/*               <Text style={[styles.totalLabel, { fontSize: clampLocal(rf(13), 12, 18) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>*/}
               <View style={styles.totalRow}>
                 <Text style={[styles.totalNumber, { fontSize: totalFontSize }]} numberOfLines={1}>{formatMoney(effectiveTotalWithTip)}</Text>
                 <Text style={[styles.totalCurrency, { fontSize: clampLocal(rf(12), 11, 14) }]}>{moneda ?? 'MXN'}</Text>
@@ -456,7 +456,7 @@ export default function Propina() {
           </View>
 
           <View style={styles.divider} />
-          <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTotal)} MXN</Text></View>
+          <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total' : 'Total'}</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTotal)} MXN</Text></View>
           <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>Propina</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTipAmount)} MXN</Text></View>
           <View style={[styles.totalsRow, { marginTop: 8 }]}><Text style={[styles.totLabel, { fontWeight:'800', fontSize: clampLocal(rf(14), 13, 20) }]}>Total con propina</Text><Text style={[styles.totValue, { fontWeight:'900', fontSize: clampLocal(rf(20), 16, 28) }]}>{formatMoney(effectiveTotalWithTip)} MXN</Text></View>
 
