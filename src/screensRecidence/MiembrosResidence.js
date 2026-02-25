@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react'; 
 import {
   SafeAreaView,
   View,
@@ -18,8 +18,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE = 'https://api.residence.tab-track.com';
 const BASE2 = 'https://api.tab-track.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY'; 
-
-
 
 const AVATAR_GRADIENTS = [
   ['#8E5CFF', '#5B8BFF'],
@@ -281,30 +279,38 @@ export default function MiembrosResidence() {
     return (
       <View style={styles.rowWrap}>
         <View style={[styles.rowInner, { paddingVertical: rowVerticalPadding }]}>
-          {item.photo ? (
-            <Image
-              source={{ uri: item.photo }}
-              style={[
-                styles.avatar,
-                { width: avatarSize, height: avatarSize, borderRadius },
-              ]}
-              resizeMode="cover"
-            />
-          ) : (
-            <LinearGradient
-              colors={grad}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[
-                styles.avatar,
-                { width: avatarSize, height: avatarSize, borderRadius },
-              ]}
-            >
-              <Text style={[styles.avatarInitials, { fontSize: avatarInitialsFont }]}>
-                {initials}
-              </Text>
-            </LinearGradient>
-          )}
+          {/* ========== Avatar wrapper con "sombra circular manual" ========== */}
+          <View style={[styles.avatarWrapper, { width: avatarSize, height: avatarSize, borderRadius }]}>
+            {/* sombra circular (siempre redonda) */}
+            <View style={[styles.avatarShadow, { width: avatarSize, height: avatarSize, borderRadius }]} />
+
+            {/* imagen o placeholder (siempre con borderRadius para círculo) */}
+            {item.photo ? (
+              <Image
+                source={{ uri: item.photo }}
+                style={[
+                  styles.avatarImage,
+                  { width: avatarSize, height: avatarSize, borderRadius },
+                ]}
+                resizeMode="cover"
+              />
+            ) : (
+              <LinearGradient
+                colors={grad}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[
+                  styles.avatarImage,
+                  { width: avatarSize, height: avatarSize, borderRadius },
+                ]}
+              >
+                <Text style={[styles.avatarInitials, { fontSize: avatarInitialsFont }]}>
+                  {initials}
+                </Text>
+              </LinearGradient>
+            )}
+          </View>
+          {/* ================================================================ */}
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
@@ -450,18 +456,29 @@ const styles = StyleSheet.create({
 
   rowWrap: { backgroundColor: '#fff' },
   rowInner: { flexDirection: 'row', alignItems: 'flex-start'  },
-  avatar: {
+
+  /* Contenedor del avatar: contiene una "sombra" circular y el contenido (imagen/gradiente) */
+  avatarWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
+    // no elevation aquí; usamos la sombra circular manual (avatarShadow)
+  },
+  /* sombra circular fija (garantiza forma perfectamente redonda) */
+  avatarShadow: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    // width/height/borderRadius se aplican en runtime con inline styles
+  },
+  /* la imagen o gradiente que muestra el avatar: siempre con borderRadius y overflow:hidden
+     quitamos elevation/shadow que podrían causar outline en algunos Android OEMs */
+  avatarImage: {
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'transparent',
     overflow: 'hidden',
   },
+
   avatarInitials: { color: '#fff', fontWeight: '800' },
 
   info: { flex: 1, paddingRight: 8 },

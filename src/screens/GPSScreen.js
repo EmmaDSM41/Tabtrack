@@ -8,12 +8,14 @@ import {
   Linking,
   Text,
   Dimensions,
+  StatusBar,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Geolocation from 'react-native-geolocation-service';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -95,6 +97,7 @@ function generateMapHtml(userLat, userLng, locations, markerSrc, markerCount) {
         var locations = ${safe};
         console.log('WEBVIEW locations length:', locations.length);
 
+        // Inicializamos el mapa centrado en la ubicación del usuario (zoom por defecto 13)
         var map = L.map('map').setView([${userLat}, ${userLng}], 13);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CartoDB', maxZoom:19 }).addTo(map);
 
@@ -177,12 +180,9 @@ function generateMapHtml(userLat, userLng, locations, markerSrc, markerCount) {
           }
         });
 
-        if (allMarkerLayers.length > 0) {
-          try {
-            var group = L.featureGroup(allMarkerLayers);
-            map.fitBounds(group.getBounds(), { padding: [40,40] });
-          } catch(e) { console.warn('fitBounds failed', e); }
-        }
+        // NOTE: removed initial fitBounds so the map opens centered at the user's location.
+        // Markers are still added and the user can pan/zoom to explore them.
+
       } catch(err) {
         console.error('map error', err);
       }
@@ -197,6 +197,9 @@ export default function GPSScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const webviewRef = useRef(null);
+
+  const insets = useSafeAreaInsets();
+  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
 
   const [mapHtml, setMapHtml] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -502,7 +505,7 @@ export default function GPSScreen() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, paddingTop: topSafe }}>
       <WebView
         ref={webviewRef}
         originWhitelist={['*']}

@@ -182,9 +182,60 @@ export default function ProfileScreen({ navigation }) {
     return `${yyyy}-${mm}-${dd}`;
   }
 
+  // ------------------ NUEVO: parser robusto de fechas ------------------
+  function parseApiDate(value) {
+    try {
+      if (value === undefined || value === null) return null;
+      if (value instanceof Date) {
+        if (!Number.isNaN(value.getTime())) return value;
+        return null;
+      }
+      // number: assume seconds when <=10 digits
+      if (typeof value === 'number') {
+        const s = String(Math.abs(Math.floor(value)));
+        const ms = (s.length <= 10) ? value * 1000 : value;
+        const d = new Date(ms);
+        return !Number.isNaN(d.getTime()) ? d : null;
+      }
+      // string
+      if (typeof value === 'string') {
+        const raw = value.trim();
+        if (!raw) return null;
+        // pure digits (epoch)
+        if (/^\d+$/.test(raw)) {
+          const n = Number(raw);
+          const ms = (raw.length <= 10) ? n * 1000 : n;
+          const d = new Date(ms);
+          if (!Number.isNaN(d.getTime())) return d;
+        }
+        // try ISO / Date constructor first
+        let d = new Date(raw);
+        if (!Number.isNaN(d.getTime())) return d;
+        // try replace space with T and append Z (common when API returns "YYYY-MM-DD HH:MM:SS")
+        const tCandidate = raw.replace(' ', 'T') + 'Z';
+        d = new Date(tCandidate);
+        if (!Number.isNaN(d.getTime())) return d;
+        // last resort: try to parse components YYYY-MM-DD HH:MM:SS manually
+        const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (m) {
+          const year = Number(m[1]), month = Number(m[2]) - 1, day = Number(m[3]);
+          const hour = Number(m[4]), minute = Number(m[5]), second = Number(m[6] ?? 0);
+          d = new Date(Date.UTC(year, month, day, hour, minute, second));
+          if (!Number.isNaN(d.getTime())) return d;
+        }
+      }
+    } catch (e) {
+      console.warn('parseApiDate error', e);
+    }
+    return null;
+  }
+  // --------------------------------------------------------------------
+
   function buildNotificationText({ branch, amount, date, saleId }) {
-    const dt = new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
-    return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
+    // usamos parseApiDate para mostrar en hora local
+    const parsed = parseApiDate(date);
+    const dtLabel = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dtLabel}`;
   }
 
   async function fetchTodayNotificationsOnce() {
@@ -236,7 +287,10 @@ export default function ProfileScreen({ navigation }) {
               if (seenSet.has(unique) || storedById.has(unique)) continue;
 
               const amount = item?.precio_unitario ?? item?.subtotal ?? item?.precio ?? item?.amount ?? 0;
-              const date = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+              const rawDate = item?.fecha_pago ?? item?.fecha_creacion ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+              // normalizamos la fecha antes de guardar: si se pudo parsear, guardamos ISO (UTC) — al mostrar convertimos a local
+              const parsed = parseApiDate(rawDate);
+              const dateIso = parsed ? parsed.toISOString() : new Date().toISOString();
               const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? item?.nombre_sucursal ?? '';
 
               const branchId = venta?.sucursal_id ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
@@ -246,11 +300,11 @@ export default function ProfileScreen({ navigation }) {
 
               const notif = {
                 id: unique,
-                text: buildNotificationText({ branch, amount, date, saleId }),
+                text: buildNotificationText({ branch, amount, date: dateIso, saleId }),
                 amount: Number(amount || 0),
                 branch: branch || '',
                 branchId: branchId ?? null,
-                date,
+                date: dateIso,
                 saleId,
                 url: splitsUrl,
                 read: false,
@@ -275,7 +329,9 @@ export default function ProfileScreen({ navigation }) {
           if (seenSet.has(unique) || storedById.has(unique)) continue;
 
           const amount = pago?.amount ?? pago?.precio_unitario ?? pago?.subtotal ?? pago?.monto_propina ?? 0;
-          const date = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+          const rawDate = pago?.fecha_creacion ?? pago?.fecha_pago ?? venta?.fecha_cierre_venta ?? new Date().toISOString();
+          const parsed = parseApiDate(rawDate);
+          const dateIso = parsed ? parsed.toISOString() : new Date().toISOString();
           const branch = venta?.nombre_sucursal ?? venta?.nombre_restaurante ?? pago?.nombre_sucursal ?? '';
 
           const branchId = venta?.sucursal_id ?? venta?.sucursalId ?? venta?.branch_id ?? venta?.branchId ??
@@ -285,11 +341,11 @@ export default function ProfileScreen({ navigation }) {
 
           const notif = {
             id: unique,
-            text: buildNotificationText({ branch, amount, date, saleId }),
+            text: buildNotificationText({ branch, amount, date: dateIso, saleId }),
             amount: Number(amount || 0),
             branch: branch || '',
             branchId: branchId ?? null,
-            date,
+            date: dateIso,
             saleId,
             url: splitsUrl,
             read: false,
@@ -938,10 +994,13 @@ export default function ProfileScreen({ navigation }) {
   };
 
   function NotificationRow({ n, onPress }) {
-    const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    // usamos parseApiDate para mostrar correctamente en hora local
+    const parsed = parseApiDate(n.date);
+    const dateLabel = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
       <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
+          <Text style={styles.notBranch}>Confirmacion de pago</Text>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
           {/*           <Text style={styles.notSale}>Venta: {n.saleId ?? '-'}</Text>*/}
           <Text style={styles.notDate}>{dateLabel}</Text>
@@ -961,18 +1020,18 @@ export default function ProfileScreen({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { fontSize: clamp(rf(3.8), 16, 20) }]}>Notificaciones</Text>
+              <Text style={[styles.modalListHeaderText, { fontSize: clamp(rf(3.8), 16, 20) }]}>Ultimas notificaciones</Text>
               <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <Ionicons name="close" size={iconSize} color="#333" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalListHeader}>
+{/*             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-                {/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
+              <Text style={styles.markAllText}>Marcar todo leído</Text>
               </TouchableOpacity>
-            </View>
+            </View> */}
 
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (

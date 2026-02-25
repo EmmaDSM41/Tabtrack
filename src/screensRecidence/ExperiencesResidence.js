@@ -384,24 +384,33 @@ export default function ExperiencesScreen() {
       const marginLeft = 40;
       let y = pH - 60;
 
+      // --- Ajuste: ampliar el ancho del recuadro morado para que "TABTRACK" no se corte ---
+      const titleText = 'TABTRACK';
+      const titleSize = 18;
+      const titleTextWidth = helvetica.widthOfTextAtSize(titleText, titleSize);
+      // ancho mínimo mayor y algo de padding para seguridad
+      const rectWidth = Math.max(160, Math.round(titleTextWidth + 40));
+      const rectHeight = 36;
+
       page.drawRectangle({
         x: marginLeft,
         y: y - 18,
-        width: 120,
-        height: 36,
+        width: rectWidth,
+        height: rectHeight,
         color: rgb(0.42, 0.13, 0.66),
         borderRadius: 6,
       });
-      page.drawText('TABTRACK', {
-        x: marginLeft + 36,
+      // texto con padding izquierdo para que quede dentro del rectángulo
+      page.drawText(titleText, {
+        x: marginLeft + 12,
         y: y - 10,
-        size: 18,
+        size: titleSize,
         font: helvetica,
         color: rgb(1,1,1),
       });
 
       page.drawText('Detalle de consumos', {
-        x: marginLeft + 150,
+        x: marginLeft + rectWidth + 30,
         y: y - 6,
         size: 18,
         font: helvetica,
@@ -409,7 +418,7 @@ export default function ExperiencesScreen() {
       });
 
       page.drawText(payment.title || payment.periodo || '', {
-        x: marginLeft + 150,
+        x: marginLeft + rectWidth + 30,
         y: y - 26,
         size: 10,
         font: helvetica,
@@ -833,7 +842,7 @@ export default function ExperiencesScreen() {
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               scrollEnabled={false}
             />
-          )}
+          )} 
         </View>
 
         <View style={{ height: 36 }} />
@@ -860,11 +869,13 @@ export default function ExperiencesScreen() {
             <TouchableOpacity
               onPress={closeSheet}
               style={sheetStyles.closeBtnTouchable}
-              hitSlop={{ top: 18, left: 18, right: 18, bottom: 18 }}
+              /* Zona de toque aumentada y boton visual más grande (icono más grande). */
+              hitSlop={{ top: 44, left: 44, right: 44, bottom: 44 }}
+              pressRetentionOffset={{ top: 40, left: 40, right: 40, bottom: 40 }}
               accessibilityRole="button"
               accessibilityLabel="Cerrar detalle"
             >
-              <Ionicons name="close" size={20} color="#111" />
+              <Ionicons name="close" size={26} color="#111" />
             </TouchableOpacity>
           </View>
 
@@ -1083,7 +1094,8 @@ const sheetStyles = StyleSheet.create({
   },
   handleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 10, paddingHorizontal: 12 },
   handle: { width: 64, height: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
-  closeBtnTouchable: { position: 'absolute', right: 8, top: -6, padding: 12, borderRadius: 22 },
+  // <-- Cambiado: boton visual más grande y centrado (width/height) para que la X sea fácil de tocar.
+  closeBtnTouchable: { position: 'absolute', right: 8, top: -8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
 
   sheetContent: { paddingHorizontal: 18, paddingBottom: 36 },
   sheetTitle: { fontSize: 18, fontWeight: '900', textAlign: 'center', marginTop: 30, color: '#111827' },

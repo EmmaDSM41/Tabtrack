@@ -115,6 +115,9 @@ export default function EqualSplit() {
   const [peopleInput, setPeopleInput] = useState('');
   const [modalConfirmLoading, setModalConfirmLoading] = useState(false);
 
+  // NEW: estado para saber si ya hay un pago por partes iguales
+  const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
+
   const saleId = route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? null;
   const restauranteId = route?.params?.restauranteId ?? route?.params?.restaurante_id ?? null;
   const sucursalId = route?.params?.sucursalId ?? route?.params?.sucursal_id ?? null;
@@ -239,6 +242,60 @@ export default function EqualSplit() {
 
     return () => { mounted = false; };
    }, [token, saleId]);
+
+  // NEW: chequear si hay un paid split de "partes iguales" en el servidor o en AsyncStorage
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!saleId) return;
+      const key = `equal_split_paid_${String(saleId)}`;
+      try {
+        // 1) revisar AsyncStorage primero (reacción inmediata en este dispositivo)
+        const rawLocal = await AsyncStorage.getItem(key);
+        if (rawLocal === '1') {
+          if (mounted) setEqualsSplitPaid(true);
+          return;
+        }
+
+        // 2) si no está en local, consultar endpoint de splits si tenemos sucursalId
+        if (!sucursalId) return;
+
+        const base = API_BASE_URL.replace(/\/$/, '');
+        const url = `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(String(sucursalId))}/ventas/${encodeURIComponent(String(saleId))}/splits`;
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+              ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+            },
+          });
+          if (!res || !res.ok) return;
+          const sj = await res.json();
+          const splitsArr = Array.isArray(sj.splits) ? sj.splits : [];
+          const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
+          if (paidSplits.length > 0) {
+            const hasEqual = paidSplits.some(s => {
+              const code = String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim();
+              const name = String(s.nombre_item ?? s.nombre ?? s.name ?? '').toLowerCase();
+              return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
+            });
+            if (hasEqual) {
+              try { await AsyncStorage.setItem(key, '1'); } catch (e) { /* ignore */ }
+              if (mounted) setEqualsSplitPaid(true);
+            }
+          }
+        } catch (e) {
+          console.warn('EqualSplit: error fetching splits', e);
+        }
+      } catch (err) {
+        console.warn('EqualSplit: error checking equal_split flag', err);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [saleId, sucursalId]);
 
   const itemsSum = useMemo(() => {
     if (!items || !Array.isArray(items)) return 0;
@@ -375,7 +432,8 @@ export default function EqualSplit() {
       }
       const base = API_BASE_URL.replace(/\/$/, '');
       const url = `${base}/api/mesas/comensales`;
-      const body = { id_venta: idVenta, numero_comensales: Number(numero) };
+      // <-- Cambio solicitado: ahora envío sucursal_id además de id_venta y numero_comensales
+      const body = { id_venta: idVenta, sucursal_id: sucursalId, numero_comensales: Number(numero) };
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -501,17 +559,20 @@ export default function EqualSplit() {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={styles.thanksSub}>{people} {people === 1 ? 'persona' : 'personas'}</Text>
 
-                  <TouchableOpacity
-                    onPress={() => {
-                      const curr = totalComensales ?? people;
-                      setPeopleInput(String(curr));
-                      setShowPeopleModal(true);
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    style={{ marginLeft: 8 }}
-                  >
-                    <Text style={{ fontSize: Math.round(clamp(rf(3.4), 14, 18)), color: 'rgba(255,255,255,0.95)' }}>✏️</Text>
-                  </TouchableOpacity>
+                  { /* NEW: si equalsSplitPaid = true, ocultamos el lápiz; si false, mostramos el botón de editar exactamente igual */ }
+                  {!equalsSplitPaid && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const curr = totalComensales ?? people;
+                        setPeopleInput(String(curr));
+                        setShowPeopleModal(true);
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={{ marginLeft: 8 }}
+                    >
+                      <Text style={{ fontSize: Math.round(clamp(rf(3.4), 14, 18)), color: 'rgba(255,255,255,0.95)' }}>✏️</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </View>
@@ -550,16 +611,6 @@ export default function EqualSplit() {
             <Text style={[styles.totLabel, { fontWeight: '800' }]}>Total</Text>
             <Text style={[styles.totValue, { fontWeight: '900', fontSize: Math.round(clamp(rf(5.2), 16, 22)) }]}>{formatMoney(total)} MXN</Text>
           </View>
-
-{/*           <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.6)) }]}>
-            <Text style={styles.totLabel}>Propina</Text>
-            <Text style={styles.totValue}>{formatMoney(tipAmount)} MXN</Text>
-          </View>
-
-          <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.4)) }]}>
-            <Text style={[styles.totLabel, { fontWeight:'800' }]}>Total con propina</Text>
-            <Text style={[styles.totValue, { fontWeight:'900', fontSize: Math.round(clamp(rf(4.6), 14, 20)) }]}>{formatMoney(totalWithTip)} MXN</Text>
-          </View> */}
 
           <View style={[styles.totalsRow, { marginTop: Math.round(hp(0.8)), backgroundColor: '#fff', paddingVertical: Math.round(hp(1)) }]}>
             <Text style={[styles.totLabel, { fontSize: Math.round(clamp(rf(4.4), 14, 18)) }]}>A pagar por persona</Text>
@@ -601,9 +652,6 @@ export default function EqualSplit() {
             />
 
             <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-{/*               <TouchableOpacity onPress={handleCancelPeople} disabled={modalConfirmLoading} style={{ flex:1, marginRight:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor:'#f3f4f6', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={{ color:'#374151', fontWeight:'700' }}>Cancelar</Text>
-              </TouchableOpacity> */}
              
 
               <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

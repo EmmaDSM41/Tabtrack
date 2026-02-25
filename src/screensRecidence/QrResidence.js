@@ -236,29 +236,24 @@ export default function QrResidence({ navigation }) {
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
   const gradientSeparation = -5;
 
+  // base holeTop (antes de reajustar)
   const holeGap = clamp(rf(45), 45, 90);
-  const buttonsGap = clamp(rf(40), 56, 140);
+  const holeTopBase = headerHeight + gradientCardHeight + holeGap;
 
-  const qrSize = Math.min(Math.round(width * 0.68), clamp(360, 220, 500));
-  const holeTop = headerHeight + gradientCardHeight + holeGap;
-  const holeLeft = Math.round((width - qrSize) / 2);
-  const cornerArc = clamp(64, 40, 96);
-  const cornerThickness = Math.max(8, Math.round((width / 375) * 10));
-  const cornerOuterRadius = Math.round(Math.min(qrSize, 320) * 0.06);
+  // QR target size (un poco más pequeño que antes para evitar amontonar)
+  const qrSizeRequested = Math.min(Math.round(width * 0.60), clamp(420, 180, 460));
+
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
 
-
-  const CAMERA_HEIGHT = height;
-
-  const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
-  const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
-  const logoHeight = Math.round(logoWidth * 0.5);
-  const logoTopPos = Math.max(headerHeight + Math.round(gradientCardHeight * 0.1), holeTop - logoHeight - Math.round(logoHeight * 0.25));
+  // LOGO: más presencia
+  const logoMaxWidth = Math.round(Math.min(300, width * 0.62));
+  const desiredLogoWidth = Math.min(logoMaxWidth, Math.round(qrSizeRequested * 0.62));
+  const desiredLogoHeight = Math.round(desiredLogoWidth * 0.55);
+  const minLogoHeight = 74;
 
   const fallbackConsumed = 425.0;
   const fallbackAvailable = 3075.0;
-  const fallbackUtilization = Math.round((fallbackConsumed / (fallbackConsumed + fallbackAvailable)) * 1000) / 10;
 
   const deviceAspect = height / width;
   const preferRatio = deviceAspect > 2.0 ? '16:9' : '4:3';
@@ -564,6 +559,14 @@ export default function QrResidence({ navigation }) {
     );
   }
 
+  // formato con comas
+  const formatNumberWithCommas = (v) => {
+    const num = Number(v) || 0;
+    const parts = num.toFixed(2).split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return parts.join('.');
+  };
+
   const consumed = deptBilling ? Number(deptBilling.monto_mensual_usado || 0) : fallbackConsumed;
 
   let availableNumber;
@@ -591,20 +594,97 @@ export default function QrResidence({ navigation }) {
     ? Math.round((consumed / (consumed + (availableNumber !== null ? availableNumber : fallbackAvailable))) * 1000) / 10
     : 0;
 
-  const consumedDisplay = deptHistoryLoading ? '…' : (deptBilling ? `${Number(consumed).toFixed(2)}` : `${fallbackConsumed.toFixed(2)}`);
-
+  const consumedDisplay = deptHistoryLoading ? '…' : (deptBilling ? formatNumberWithCommas(consumed) : formatNumberWithCommas(fallbackConsumed));
   const availableIsNegative = availableNumber !== null && availableNumber < 0;
   const formattedAvailableDisplay = deptHistoryLoading
     ? '…'
-    : (availableIsNegative ? `-$${Math.abs(availableNumber).toFixed(2)}` : `$${Number(availableNumber).toFixed(2)}`);
+    : (availableIsNegative ? `-$${formatNumberWithCommas(Math.abs(availableNumber))}` : `$${formatNumberWithCommas(availableNumber)}`);
   const availableTextColor = deptHistoryLoading ? '#fff' : (availableIsNegative ? '#FF3B30' : '#fff');
-
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
-  const bottomButtonsOffset = insets.bottom + 44;
+  // ------------------ New layout logic (overlay + logo + hole + buttons) ------------------
+  const gradientBottom = insets.top + headerHeight + gradientSeparation + gradientCardHeight;
+  const preferredGap = Math.round(Math.max(18, width * 0.06)); // separación mayor entre degradado y logo
+  const innerGap = Math.round(Math.max(10, width * 0.03)); // separación mínima entre logo y hole
+  const logoTopDefault = gradientBottom + preferredGap;
+
+  // calcular tamaño del logo (intentar desired, si no reducir)
+  let computedLogoHeight = desiredLogoHeight;
+  let computedLogoWidth = desiredLogoWidth;
+
+  const availableForLogo = holeTopBase - gradientBottom;
+  if (availableForLogo <= (preferredGap + innerGap + minLogoHeight)) {
+    computedLogoHeight = Math.max(minLogoHeight, Math.round(desiredLogoHeight * 0.5));
+    computedLogoWidth = Math.max(40, Math.round(computedLogoHeight / 0.55));
+  } else if (desiredLogoHeight + preferredGap + innerGap > availableForLogo) {
+    const allowedLogoHeight = Math.max(minLogoHeight, availableForLogo - preferredGap - innerGap);
+    const scale = Math.min(1, allowedLogoHeight / desiredLogoHeight);
+    computedLogoHeight = Math.max(minLogoHeight, Math.round(desiredLogoHeight * scale));
+    computedLogoWidth = Math.max(40, Math.round(computedLogoHeight / 0.55));
+  } else {
+    computedLogoHeight = desiredLogoHeight;
+    computedLogoWidth = desiredLogoWidth;
+  }
+
+  let computedLogoTop = logoTopDefault;
+
+  // Sitio que queremos entre logo y el hueco
+  const gapLogoToHoleDesired = Math.round(Math.max(14, width * 0.04));
+  const logoBottom = computedLogoTop + computedLogoHeight;
+
+  // Inicial dynamicHoleTop (si el logo requiere empujar)
+  let dynamicHoleTop = holeTopBase;
+  if (logoBottom + gapLogoToHoleDesired >= holeTopBase) {
+    dynamicHoleTop = logoBottom + gapLogoToHoleDesired;
+  }
+
+  // Ahora calculamos si hay espacio para el QR y los botones; si no, reducimos QR y/o logo.
+  const gapButtonsBelowHole = Math.round(Math.max(14, width * 0.06)); // espacio entre hole y botones
+  // altura reservada aproximada para botones + padding
+  const reservedForButtons = insets.bottom + 140;
+
+  // máximo tamaño vertical disponible para el QR: desde dynamicHoleTop hasta height - reservedForButtons
+  const maxQrVerticalSpace = Math.max(140, height - dynamicHoleTop - reservedForButtons);
+  // final QR size ajustado para caber
+  let finalQrSize = Math.min(qrSizeRequested, maxQrVerticalSpace);
+  finalQrSize = Math.max(140, finalQrSize); // no demasiado pequeño
+
+  // si tuvimos que reducir mucho el QR, intentar reducir también levemente el logo (evitar solape)
+  if (finalQrSize < qrSizeRequested && computedLogoHeight > minLogoHeight) {
+    const reduceLogoBy = Math.min(Math.round((qrSizeRequested - finalQrSize) * 0.28), Math.round(computedLogoHeight * 0.35));
+    if (reduceLogoBy > 0) {
+      computedLogoHeight = Math.max(minLogoHeight, computedLogoHeight - reduceLogoBy);
+      computedLogoWidth = Math.max(40, Math.round(computedLogoHeight / 0.55));
+      // recompute logoBottom and dynamicHoleTop
+      const newLogoBottom = computedLogoTop + computedLogoHeight;
+      dynamicHoleTop = Math.max(holeTopBase, newLogoBottom + gapLogoToHoleDesired);
+    }
+  }
+
+  // recompute holeLeft para centrar con finalQrSize
+  const holeLeft = Math.round((width - finalQrSize) / 2);
+
+  // corner and thickness based on finalQrSize
+  const cornerArc = clamp(Math.round(finalQrSize * 0.18), 30, 96);
+  const cornerThickness = Math.max(6, Math.round((width / 375) * 8));
+  const cornerOuterRadius = Math.round(Math.min(finalQrSize, 320) * 0.06);
+
+  // position buttons container under the hole
+  const buttonsTop = dynamicHoleTop + finalQrSize + gapButtonsBelowHole;
+
+  // small safety: if buttons would go off screen, push them up a little or reduce qr (very rare now)
+  const buttonsBottomOverflow = (buttonsTop + 140) - (height - insets.bottom);
+  if (buttonsBottomOverflow > 0) {
+    // reduce finalQrSize to create espacio
+    finalQrSize = Math.max(140, finalQrSize - Math.min(80, buttonsBottomOverflow + 10));
+  }
+
+  // ------------------ END layout logic ------------------
+
+  const bottomButtonsOffset = insets.bottom + 44; // fallback if needed
 
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: 'transparent',paddingTop: insets.top  }} edges={['left','right','top']}>
+    <SafeAreaView style={{ flex:1, backgroundColor: 'transparent', paddingTop: insets.top }} edges={['left','right','top']}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
       <View style={[styles.cameraWrapper, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
@@ -635,61 +715,67 @@ export default function QrResidence({ navigation }) {
           />
         )}
 
-        <View style={[styles.overlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
-          <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
+        {/* DRAW MASK: top, left, right, bottom overlays — de forma absoluta y consistente */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
+          {/* top overlay (desde top hasta dynamicHoleTop) */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: dynamicHoleTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
 
-{/*           <View style={{
-            position: 'absolute',
-            top: logoTopPos,
-            left: 0,
-            right: 0,
-            alignItems: 'center',
-            zIndex: 30,
-            pointerEvents: 'none',
-          }}>
-            <Image
-              source={require('../../assets/images/logo2.png')}
-              style={{
-                width: logoWidth,
-                height: logoHeight,
-                resizeMode: 'contain',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.12,
-                shadowRadius: 4,
-                elevation: 4,
-              }}
-            />
-          </View> */}
+          {/* left overlay (lado izquierdo del hole) */}
+          <View style={{ position: 'absolute', top: dynamicHoleTop, left: 0, width: holeLeft, height: finalQrSize, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
 
-          <View style={{ flexDirection: 'row' }}>
-            <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
+          {/* right overlay (lado derecho del hole) */}
+          <View style={{ position: 'absolute', top: dynamicHoleTop, left: holeLeft + finalQrSize, right: 0, height: finalQrSize, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
 
-            <View style={[styles.hole, { width: qrSize, height: qrSize }]}>
-              <View
-                style={{
-                  position: 'absolute',
-                  width: qrSize - 8,
-                  height: qrSize - 8,
-                  borderRadius: cornerOuterRadius,
-                  backgroundColor: `rgba(255,255,255,${innerPanelOpacity})`,
-                  zIndex: 3,
-                }}
-              />
-
-              <View style={{ position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderTopLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
-              <View style={{ position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderTopRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
-              <View style={{ position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderBottomLeftRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
-              <View style={{ position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderBottomRightRadius: cornerOuterRadius, zIndex: 10, backgroundColor: 'transparent' }} />
-            </View>
-
-            <View style={[styles.overlayCol, { width: holeLeft, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
-          </View>
-
-          <View style={[styles.overlayRow, { flex: 1, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
+          {/* bottom overlay */}
+          <View style={{ position: 'absolute', top: dynamicHoleTop + finalQrSize, left: 0, right: 0, bottom: 0, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
         </View>
 
-        <View pointerEvents="box-none" style={{ position: 'absolute', bottom: bottomButtonsOffset, left: 0, width, alignItems: 'center', zIndex: 40 }}>
+        {/* Logo: absolutamente posicionado (entre degradado y hole) */}
+        <View style={{
+          position: 'absolute',
+          top: computedLogoTop,
+          left: 0,
+          right: 0,
+          alignItems: 'center',
+          zIndex: 60,
+          pointerEvents: 'none',
+        }}>
+          <Image
+            source={require('../../assets/images/LogoResB.png')}
+            style={{
+              width: computedLogoWidth,
+              height: computedLogoHeight,
+              resizeMode: 'contain',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.12,
+              shadowRadius: 4,
+              elevation: 6,
+            }}
+          />
+        </View>
+
+        {/* HOLE: absolutamente posicionado (top/dynamicHoleTop, left/holeLeft) */}
+        <View style={{ position: 'absolute', top: dynamicHoleTop, left: holeLeft, width: finalQrSize, height: finalQrSize, alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          {/* inner pale panel */}
+          <View style={{
+            position: 'absolute',
+            width: finalQrSize - 8,
+            height: finalQrSize - 8,
+            borderRadius: Math.round(cornerOuterRadius),
+            backgroundColor: `rgba(255,255,255,${innerPanelOpacity})`,
+            zIndex: 71,
+          }} />
+
+          {/* corner accents */}
+          <View style={{ position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderTopLeftRadius: cornerOuterRadius, zIndex: 72 }} />
+          <View style={{ position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderTopRightRadius: cornerOuterRadius, zIndex: 72 }} />
+          <View style={{ position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderBottomLeftRadius: cornerOuterRadius, zIndex: 72 }} />
+          <View style={{ position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderBottomRightRadius: cornerOuterRadius, zIndex: 72 }} />
+        </View>
+
+        {/* Botones: posicionados debajo del HOLE (TOP controlado para que no queden pegados) */}
+        <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, right: 0, alignItems: 'center', zIndex: 80 }}>
           <TouchableOpacity activeOpacity={1} onPress={() => startManualScan('Cuenta')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
               <Ionicons name="qr-code-outline" size={rf(18)} color="#fff" style={{ marginRight: 12 }} />
@@ -712,6 +798,7 @@ export default function QrResidence({ navigation }) {
         </View>
       </View>
 
+      {/* Header (sin cambios funcionales) */}
       <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
         <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
           <MaterialCommunityIcons name="face-agent" size={rf(22)} color="#ffffff" />
@@ -724,6 +811,7 @@ export default function QrResidence({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* Degradado (card) */}
       <View
         pointerEvents="box-none"
         style={{

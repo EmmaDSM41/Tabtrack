@@ -148,8 +148,9 @@ export default function VisitsScreen(props) {
   const emailRef = useRef(null);
   const MAX_STORE = 100;
 
+  // Cambiado: por defecto buscar último mes (30 días)
   const defaultDesde = new Date();
-  defaultDesde.setDate(defaultDesde.getDate() - 9);
+  defaultDesde.setDate(defaultDesde.getDate() - 29);
   const [desdeDate, setDesdeDate] = useState(defaultDesde);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -388,9 +389,7 @@ export default function VisitsScreen(props) {
       const vid = String(v.sale_id ?? v.venta_id ?? v.saleId ?? '');
       const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
       if (vid === sId && bid === bId) return true;
-      // también chequea id compuesto
       if (String(v.id ?? '').startsWith(`${sId}_`) && String(v.id ?? '').includes(`_${bId}`)) return true;
-      // si hay branchName info que contenga branchId (poco probable) lo dejamos
       return false;
     }) ?? null;
   }
@@ -403,7 +402,6 @@ export default function VisitsScreen(props) {
         return;
       }
       const data = payload.data ?? payload;
-      // soportar varias claves posibles
       const saleId = data?.saleId ?? data?.venta_id ?? data?.sale_id ?? data?.sale ?? data?.venta ?? null;
       const branchId = data?.branchId ?? data?.sucursal_id ?? data?.sucursal ?? data?.branch_id ?? data?.branch ?? null;
       const notifId = data?.notifId ?? payload?.id ?? payload?.notifId ?? null;
@@ -412,12 +410,10 @@ export default function VisitsScreen(props) {
         console.warn('handleIncomingNotification: faltan saleId o branchId en payload', { saleId, branchId, payload });
       }
 
-      // marcar como leída en la lista/storage
       if (notifId) {
         try { await markNotificationAsRead(notifId); } catch (e) { /* ignore */ }
       }
 
-      // 1) buscar localmente
       let visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
       if (visit) {
         setShowNotifications(false);
@@ -425,14 +421,12 @@ export default function VisitsScreen(props) {
         return;
       }
 
-      // 2) si no está, forzar una recarga rápida y reintentar
       try {
         await fetchVisitsForDesde(desdeDate);
       } catch (e) {
         console.warn('fetchVisitsForDesde error en handleIncomingNotification', e);
       }
 
-      // re-check en estado actualizado (espera un micro-tick para que react actualice estado)
       await new Promise(res => setTimeout(res, 250));
       visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
       if (visit) {
@@ -441,7 +435,6 @@ export default function VisitsScreen(props) {
         return;
       }
 
-      // 3) fallback: abrir SaleDetail (si tienes esa pantalla implementada)
       if (saleId && branchId) {
         setShowNotifications(false);
         navigation.navigate('SaleDetail', { saleId: String(saleId), branchId: String(branchId), branchName: data?.branch ?? data?.nombre_sucursal ?? '' });
@@ -463,7 +456,6 @@ export default function VisitsScreen(props) {
       if (!n) return;
       if (!n.read) await markNotificationAsRead(n.id);
       setShowNotifications(false);
-      // reusa la lógica: n ya tiene saleId y branchId en tu estructura
       await handleIncomingNotification(n);
     } catch (err) {
       console.warn('handleNotificationPress err', err);
@@ -653,15 +645,15 @@ export default function VisitsScreen(props) {
       let ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
 
       if (!ventaArray || ventaArray.length === 0) {
-        const last10 = new Date();
-        last10.setDate(last10.getDate() - 9);
-        const last10DesdeStr = formatDateYMD(last10);
-        const last10Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last10DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
+        const last30 = new Date();
+        last30.setDate(last30.getDate() - 29);
+        const last30DesdeStr = formatDateYMD(last30);
+        const last30Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last30DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
 
         try {
-          const resLast10 = await fetch(last10Url, { method: 'GET', headers: getAuthHeaders() });
-          if (resLast10 && resLast10.ok) {
-            const jsonLast = await resLast10.json().catch(() => ({}));
+          const resLast30 = await fetch(last30Url, { method: 'GET', headers: getAuthHeaders() });
+          if (resLast30 && resLast30.ok) {
+            const jsonLast = await resLast30.json().catch(() => ({}));
             const ventaArrayLast = Array.isArray(jsonLast?.venta_id) ? jsonLast.venta_id : [];
             if (ventaArrayLast && ventaArrayLast.length > 0) {
               ventaArray = ventaArrayLast;
@@ -669,7 +661,7 @@ export default function VisitsScreen(props) {
           } else {
           }
         } catch (e) {
-          console.warn('fallback last10 fetch error', e);
+          console.warn('fallback last30 fetch error', e);
         }
       }
 
@@ -870,6 +862,7 @@ export default function VisitsScreen(props) {
     return (
       <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
+          <Text style={styles.notBranch}>Confirmacion de pago</Text>
           <Text style={styles.notBranch} numberOfLines={1}>{n.branch || `Venta ${n.saleId || ''}`}</Text>
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
@@ -926,17 +919,17 @@ export default function VisitsScreen(props) {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalW }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalHeaderText, { fontSize: clamp(rf(3.6), 16, 20) }]}>Notificaciones</Text>
+              <Text style={[styles.modalListHeaderText, { fontSize: clamp(rf(3.6), 16, 20) }]}>Ultimas notificaciones</Text>
               <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="close" size={clamp(rf(3), 16, 22)} color="#333" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalListHeader}>
+{/*             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
               </TouchableOpacity>
-            </View>
+            </View> */}
 
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (

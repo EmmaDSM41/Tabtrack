@@ -555,7 +555,7 @@ export default function ProfileResidence({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { width: modalWidth }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { fontSize: clamp(rf(3.8), 16, 20) }]}>Notificaciones</Text>
+              <Text style={[styles.modalTitle, { fontSize: clamp(rf(3.8), 16, 20) }]}>Utimas notificaciones</Text>
               <TouchableOpacity onPress={() => setShowNotifications(false)} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <Ionicons name="close" size={iconSize} color="#333" />
               </TouchableOpacity>
@@ -569,9 +569,9 @@ export default function ProfileResidence({ navigation }) {
                 </View>
               )}
             </ScrollView>
-            <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
+{/*             <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
               <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         </View>
       </Modal>

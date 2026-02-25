@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const logo = require('../../assets/images/logo.png');
 const defaultImage = require('../../assets/images/restaurante.jpeg');
 
+
 const API_URL = 'https://api.tab-track.com/api/restaurantes';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 const FAVORITES_OBJS_KEY = 'favorites_objs';
@@ -459,7 +460,8 @@ export default function RestaurantsScreen() {
   const bottomSafe = Math.round(insets.bottom || 0);
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: topSafe + 8 }]}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       <View style={[styles.header, { paddingHorizontal: horizPad, height: headerHeight }]}>
         {/* logo left removed as requested */}
         <Text style={{ width: 6 }} />

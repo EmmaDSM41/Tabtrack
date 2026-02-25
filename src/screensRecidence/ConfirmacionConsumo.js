@@ -9,13 +9,14 @@ import {
   useWindowDimensions,
   PixelRatio,
   Platform,
+  Image,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
-const API_BASE_URL = 'https://api.residence.tab-track.com'; 
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY'; 
+const API_BASE_URL = 'https://api.residence.tab-track.com';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY';
 
 export default function ConfirmacionConsumo() {
   const navigation = useNavigation();
@@ -31,7 +32,6 @@ export default function ConfirmacionConsumo() {
     sucursalId = null,
   } = (route && route.params) || {};
 
-  // nuevo: recogemos edificioId si viene en params (no se muestra)
   const edificioIdFromParams = (route && route.params && (route.params.edificioId ?? route.params.edificio_id)) || null;
 
   const [restaurantName, setRestaurantName] = useState(restauranteId ?? null);
@@ -122,15 +122,20 @@ export default function ConfirmacionConsumo() {
         style={styles.topGradient}
       >
         <View style={styles.topContent}>
+          {/* ========= CAMBIO: sombra manual para que el círculo SIEMPRE salga redondo ========= */}
           <View style={styles.checkWrap}>
-            <View style={styles.checkCircle}>
-              <Ionicons
-                name="checkmark"
-                size={styles.checkIconSize}
-                color="#fff"
-              />
+            <View style={styles.checkShadow}>
+              {/* Círculo principal (encima de la "sombra" circular) */}
+              <View style={styles.checkCircle}>
+                <Ionicons
+                  name="checkmark"
+                  size={styles.checkIconSize}
+                  color="#fff"
+                />
+              </View>
             </View>
           </View>
+          {/* ================================================================================ */}
 
           <Text style={styles.title}>¡Consumo validado!</Text>
           <Text style={styles.subtitle}>
@@ -148,10 +153,6 @@ export default function ConfirmacionConsumo() {
             </View>
 
             <View style={styles.miniInfoCol}>
-{/*               <Text style={styles.miniLabel}>Venta</Text>
-              <Text style={styles.miniValue} numberOfLines={1}>
-                {txLabel}
-              </Text> */}
             </View>
           </View>
         </View>
@@ -173,7 +174,6 @@ export default function ConfirmacionConsumo() {
 
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Restaurante</Text>
-            {/* muestra el nombre si ya lo obtuvimos; si no, fallback al id */}
             <Text style={styles.detailValue}>{restaurantName ?? (restauranteId ?? '—')}</Text>
           </View>
 
@@ -194,7 +194,7 @@ export default function ConfirmacionConsumo() {
               <LinearGradient
                 colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }} 
+                end={{ x: 1, y: 0 }}
                 style={StyleSheet.absoluteFillObject}
               />
 
@@ -235,6 +235,10 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
 
   const checkCircleSize = Math.round(clamp(rf(12), 68, 110));
   const checkIconSize = Math.round(checkCircleSize * 0.52);
+
+  // shadow size: un poco más grande que el círculo para simular sombra suave
+  const checkShadowSize = Math.round(checkCircleSize * 1.12);
+  const checkShadowOffsetY = Math.round(Math.max(2, checkCircleSize * 0.06));
 
   const titleSize = Math.round(clamp(rf(5.2), 18, 28));
   const subtitleSize = Math.round(clamp(rf(3.0), 13, 18));
@@ -298,7 +302,26 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       paddingBottom: Math.round(hp(1.2)),
     },
 
-    checkWrap: { marginTop: 6 },
+    checkWrap: { marginTop: 6, alignItems: 'center', justifyContent: 'center' },
+
+    // sombra "manual" circular (garantiza forma redonda en todos los dispositivos)
+    checkShadow: {
+      width: checkShadowSize,
+      height: checkShadowSize,
+      borderRadius: Math.round(checkShadowSize / 2),
+      backgroundColor: 'rgba(0,0,0,0.12)', // sombra uniforme y suave
+      alignItems: 'center',
+      justifyContent: 'center',
+      // desplazamiento ligero para simular sombra
+      transform: [{ translateY: checkShadowOffsetY }],
+      // para iOS, además pueden aplicarse estas propiedades (no dañan en Android)
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+    },
+
+    // círculo blanco/translúcido principal (sin elevation)
     checkCircle: {
       width: checkCircleSize,
       height: checkCircleSize,
@@ -308,7 +331,19 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: 'rgba(255,255,255,0.18)',
-      elevation: 6,
+      // quitamos elevation (provoca outline distinto en algunos Android OEM)
+      ...Platform.select({
+        ios: {
+          // en iOS puedes mantener sombra "real" si quieres
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.06,
+          shadowRadius: 6,
+        },
+        android: {
+          elevation: 0,
+        },
+      }),
     },
     checkIconSize,
 

@@ -1076,10 +1076,10 @@ export default function DetailScreen({ navigation, route }) {
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(4.0), 18, 24) }]}>Experiencias</Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 16 }]}>
+{/*           <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 16 }]}>
             <Ionicons name="notifications-outline" size={clamp(rf(3.6), 20, 28)} color="#0051c9" />
             {unreadCount > 0 && (<View style={styles.badge}><Text style={styles.badgeText}>{unreadCount}</Text></View>)}
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </View>
 

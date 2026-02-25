@@ -74,6 +74,7 @@ export default function ConfirmacionPago() {
         style={styles.topGradient}
       >
         <View style={styles.topContent}>
+          {/* ---------- CÍRCULO SIN SOMBRA ---------- */}
           <View style={styles.checkWrap}>
             <View style={styles.checkCircle}>
               <Ionicons
@@ -83,6 +84,7 @@ export default function ConfirmacionPago() {
               />
             </View>
           </View>
+          {/* ----------------------------------------- */}
 
           <Text style={styles.title}>¡Pago realizado!</Text>
           <Text style={styles.subtitle}>
@@ -118,7 +120,6 @@ export default function ConfirmacionPago() {
             <Text style={styles.detailValue}>{paymentMethod}</Text>
           </View>
 
-
           <View style={styles.sep} />
 
           <Text style={styles.helpText}>
@@ -136,7 +137,7 @@ export default function ConfirmacionPago() {
               <LinearGradient
                 colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }} 
+                end={{ x: 1, y: 0 }}
                 style={StyleSheet.absoluteFillObject}
               />
 
@@ -187,7 +188,6 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
   const detailLabelSize = Math.round(clamp(rf(2.8), 12, 14));
   const detailValueSize = Math.round(clamp(rf(3.4), 13, 16));
 
-
   const topGradientHeightAdjusted = topGradientHeight + headerH;
 
   const overlapCandidate = Math.min(28, topGradientHeightAdjusted * 0.12, headerH * 0.6);
@@ -225,7 +225,7 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
     },
     headerRightPlaceholder: { width: 44 },
 
-    iconSize, 
+    iconSize,
 
     topGradient: {
       marginTop: -headerH,
@@ -243,9 +243,13 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       paddingBottom: Math.round(hp(1.2)),
     },
 
+    /* checkWrap: simple contenedor para centrar el círculo */
     checkWrap: {
       marginTop: 6,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
+    /* círculo PRINCIPAL: sin sombra, sin elevation — garantiza forma circular idéntica en todos los dispositivos */
     checkCircle: {
       width: checkCircleSize,
       height: checkCircleSize,
@@ -255,7 +259,19 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: 'rgba(255,255,255,0.18)',
-      elevation: 6,
+      zIndex: 2,
+      // quitar cualquier sombra / elevation para evitar outlines faceteados
+      ...Platform.select({
+        ios: {
+          shadowColor: 'transparent',
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0,
+          shadowRadius: 0,
+        },
+        android: {
+          elevation: 0,
+        },
+      }),
     },
     checkIconSize,
 
