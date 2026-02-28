@@ -1,3 +1,5 @@
+android/app/my-release-key.jks
+android/key.properties
 # OSX
 #
 .DS_Store

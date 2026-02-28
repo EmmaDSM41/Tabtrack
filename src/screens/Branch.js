@@ -504,10 +504,10 @@ export default function Branch() {
         <View style={styles.titleRow}>
           <Text style={[styles.title, { fontSize: clamp(s(24), 16, 28) }]}>{data.nombre || data.name || "—"}</Text>
           <View style={styles.rating}>
-            <Text style={[styles.ratingStar, { fontSize: clamp(s(18), 12, 22) }]}>★</Text>
+{/*             <Text style={[styles.ratingStar, { fontSize: clamp(s(18), 12, 22) }]}>★</Text>
             <Text style={[styles.ratingText, { fontSize: clamp(s(16), 12, 18) }]}>
               {data.avg_rating != null && !Number.isNaN(Number(data.avg_rating)) ? Number(data.avg_rating).toFixed(1) : "4.2"}
-            </Text>
+            </Text> */}
           </View>
         </View>
 

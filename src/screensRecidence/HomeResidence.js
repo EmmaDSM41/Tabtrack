@@ -62,7 +62,7 @@ function ProfileResidenceStack() {
        <Stack.Screen name="Terms" component={TermsAndConditions} />
        <Stack.Screen name="ChangePassword" component={ChangePassword} />
        <Stack.Screen name="SecurityResidence" component={SecurityResidence} />
-    </Stack.Navigator>
+     </Stack.Navigator>
   );
 }
 

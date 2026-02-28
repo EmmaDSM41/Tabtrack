@@ -103,7 +103,7 @@ export default function ProfileResidence({ navigation }) {
           if (!normalized.id) {
             normalized = {
               ...normalized,
-              id: `notif_${Date.now()}_${Math.floor(Math.random()*10000)}`,
+              id: `notif_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
             };
           }
 
@@ -114,11 +114,11 @@ export default function ProfileResidence({ navigation }) {
 
           setNotifications(prev => {
             const next = [normalized, ...(Array.isArray(prev) ? prev : [])].slice(0, 200);
-            try { AsyncStorage.setItem(notificationsKeyRef.current, JSON.stringify(next)).catch(()=>{}); } catch(e){}
+            try { AsyncStorage.setItem(notificationsKeyRef.current, JSON.stringify(next)).catch(() => { }); } catch (e) { }
             return next;
           });
 
-          try { Toast.show(normalized.text || 'Consumo aprobado', { duration: Toast.durations.SHORT }); } catch(e){}
+          try { Toast.show(normalized.text || 'Consumo aprobado', { duration: Toast.durations.SHORT }); } catch (e) { }
         } catch (e) {
           console.warn('handler notificationReceived error', e);
         }
@@ -126,7 +126,7 @@ export default function ProfileResidence({ navigation }) {
     })();
 
     return () => {
-      try { listenerRef && listenerRef.remove(); } catch (e) {}
+      try { listenerRef && listenerRef.remove(); } catch (e) { }
     };
   }, []);
 
@@ -193,7 +193,7 @@ export default function ProfileResidence({ navigation }) {
           arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
           if (!Array.isArray(arr)) arr = [];
           if (arr.length > 6) arr = arr.slice(0, 6);
-          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch(e) { console.warn('save recent_accounts failed', e); }
+          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch (e) { console.warn('save recent_accounts failed', e); }
         }
       } catch (e) {
         console.warn('Guardar recent account failed (pre-clean)', e);
@@ -248,8 +248,8 @@ export default function ProfileResidence({ navigation }) {
 
       try {
         if (email) {
-          await AsyncStorage.removeItem(`notifications_store_${email}`).catch(()=>null);
-          await AsyncStorage.removeItem(`notifications_seen_${email}`).catch(()=>null);
+          await AsyncStorage.removeItem(`notifications_store_${email}`).catch(() => null);
+          await AsyncStorage.removeItem(`notifications_seen_${email}`).catch(() => null);
         }
       } catch (e) {
         console.warn('Error removing notification store on logout', e);
@@ -265,9 +265,9 @@ export default function ProfileResidence({ navigation }) {
         try {
           navigation.reset({
             index: 0,
-            routes: [{ name: 'Login' } ]
+            routes: [{ name: 'Login' }]
           });
-        } catch (_) {  }
+        } catch (_) { }
       }
 
       Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
@@ -279,10 +279,20 @@ export default function ProfileResidence({ navigation }) {
           index: 0,
           routes: [{ name: 'Login' }]
         });
-      } catch (_) {  }
+      } catch (_) { }
     }
   };
-
+  // abrir modal de notificaciones y marcarlas como leídas
+  const openNotifications = async () => {
+    try {
+      // mostramos el modal primero (UX inmediato)
+      setShowNotifications(true);
+      // marcamos todas como leídas y persistimos
+      await markAllRead();
+    } catch (e) {
+      console.warn('openNotifications error', e);
+    }
+  };
   const getAuthHeaders = (extra = {}) => {
     const base = { 'Content-Type': 'application/json', ...extra };
     if (TOKEN && TOKEN.trim().length > 0) base['Authorization'] = `Bearer ${TOKEN}`;
@@ -311,7 +321,7 @@ export default function ProfileResidence({ navigation }) {
         setProfileUrl(url);
         try {
           await AsyncStorage.setItem('user_profile_url', url);
-        } catch (e) {  }
+        } catch (e) { }
 
         try {
           DeviceEventEmitter.emit('profileUpdated', url);
@@ -320,8 +330,8 @@ export default function ProfileResidence({ navigation }) {
         }
       } else {
         setProfileUrl(null);
-        try { await AsyncStorage.removeItem('user_profile_url').catch(()=>null); } catch(_) {}
-        try { DeviceEventEmitter.emit('profileUpdated', null); } catch(e) { /**/ }
+        try { await AsyncStorage.removeItem('user_profile_url').catch(() => null); } catch (_) { }
+        try { DeviceEventEmitter.emit('profileUpdated', null); } catch (e) { /**/ }
       }
     } catch (err) {
       console.warn('Error cargando foto de perfil:', err);
@@ -379,7 +389,7 @@ export default function ProfileResidence({ navigation }) {
       });
 
       if (!presignRes.ok) {
-        const txt = await presignRes.text().catch(()=>null);
+        const txt = await presignRes.text().catch(() => null);
         console.warn('presign failed', presignRes.status, txt);
         Toast.show('No se pudo iniciar la subida', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -409,7 +419,7 @@ export default function ProfileResidence({ navigation }) {
       });
 
       if (!putRes.ok) {
-        const txt = await putRes.text().catch(()=>null);
+        const txt = await putRes.text().catch(() => null);
         console.warn('Upload PUT failed', putRes.status, txt);
         Toast.show('Error al subir la imagen', { duration: Toast.durations.SHORT });
         setUploading(false);
@@ -477,7 +487,7 @@ export default function ProfileResidence({ navigation }) {
       }
 
       try {
-        await AsyncStorage.removeItem('user_profile_url').catch(()=>{});
+        await AsyncStorage.removeItem('user_profile_url').catch(() => { });
       } catch (e) { }
 
       setProfileUrl(null);
@@ -490,7 +500,7 @@ export default function ProfileResidence({ navigation }) {
 
       try {
         await loadProfileFromApi();
-      } catch (_) {  }
+      } catch (_) { }
     } catch (err) {
       console.warn('removeProfilePhoto error', err);
       Toast.show('Error al eliminar foto', { duration: Toast.durations.SHORT });
@@ -508,38 +518,71 @@ export default function ProfileResidence({ navigation }) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
-
+  // ------------------ Cambié: la navegación al presionar una notificación ------------------
+  // ahora navegamos a Experiences y mandamos { notification: {...} }
   function NotificationRow({ n }) {
     const dateLabel = n.date || n.createdAt ? new Date(n.date || n.createdAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     const title = 'Consumo aprobado';
     const amount = Number(n.amount ?? n.total ?? n.payload?.total ?? n.payload?.amount ?? 0) || 0;
+
+    const buildNotificationPayload = () => {
+      // normalizar payload para ExperiencesScreen
+      const raw = n.payload ?? n;
+      // posibles fields donde esté el sale id
+      const saleId = n.saleId ?? raw?.sale_id ?? raw?.saleId ?? raw?.transactionId ?? raw?.transaction_id ?? raw?.id ?? null;
+
+      // periodo preferido (yyyyMM)
+      let periodo = null;
+      const dateStr = n.date ?? raw?.date ?? raw?.closed_at ?? raw?.createdAt ?? raw?.created_at ?? null;
+      if (dateStr) {
+        try {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            periodo = `${y}${m}`;
+          }
+        } catch (e) { periodo = null; }
+      }
+
+      return {
+        // claves que espera ExperiencesScreen: periodo, sale_id / transactionId, amount, date, rawResponse
+        periodo,
+        sale_id: saleId ?? null,
+        transactionId: saleId ?? null,
+        amount: amount || (raw?.amount ?? raw?.total) || null,
+        date: dateStr || null,
+        rawResponse: raw,
+      };
+    };
 
     return (
       <TouchableOpacity
         activeOpacity={0.9}
         style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]}
         onPress={() => {
-          if (n.saleId || n.payload?.sale_id) {
-            try {
-              navigation.navigate('ConfirmacionConsumo', {
-                transactionId: n.saleId ?? n.payload?.sale_id,
-                amount: amount,
-                date: n.date || n.payload?.closed_at || n.createdAt,
-                rawResponse: n.payload || n
-              });
-            } catch (e) {  }
+          try {
+            const payload = buildNotificationPayload();
+            // navegamos a Experiences con la notificación normalizada
+            // payload es el objeto que ya creas (buildNotificationPayload)
+            navigation.navigate('Experiences', {
+              screen: 'ExperiencesResidence',
+              params: { notification: payload }
+            });
+            setShowNotifications(false);
+            } catch (e) {
+            console.warn('navigation to Experiences failed', e);
           }
         }}
       >
         <View style={styles.notLeft}>
           <Text style={styles.notBranch} numberOfLines={1}>{title}</Text>
-{/*           { (n.saleId || n.payload?.sale_id) ? <Text style={styles.notSale}>Venta: {n.saleId ?? n.payload?.sale_id}</Text> : null }*/}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
         <View style={[styles.notRight, { minWidth: 90 }]}>
-          <Text style={styles.notAmount}>{ amount > 0 ? formatMoney(amount) : '—' }</Text>
-          <Text style={styles.notCurrency}>{ amount > 0 ? 'MXN' : '' }</Text>
+          <Text style={styles.notAmount}>{amount > 0 ? formatMoney(amount) : '—'}</Text>
+          <Text style={styles.notCurrency}>{amount > 0 ? 'MXN' : ''}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -569,9 +612,6 @@ export default function ProfileResidence({ navigation }) {
                 </View>
               )}
             </ScrollView>
-{/*             <TouchableOpacity style={[styles.markReadButton, { margin: basePadding }]} onPress={markAllRead}>
-              <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
-            </TouchableOpacity> */}
           </View>
         </View>
       </Modal>
@@ -620,8 +660,8 @@ export default function ProfileResidence({ navigation }) {
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
           <View style={styles.headerRight}>
-            <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
-              <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
+            <TouchableOpacity onPress={openNotifications} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
+                <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
               {unreadCount > 0 && (
                 <View style={[styles.badge, { right: 2, top: 2 }]}>
                   <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 10, 12) }]}>{unreadCount}</Text>
@@ -700,7 +740,6 @@ export default function ProfileResidence({ navigation }) {
             onPress={() => navigation.navigate('InfoPersonal')}
             optionFont={optionFont}
           />
-{/*           <Option icon="card-outline" label="Métodos de Pago" onPress={() => navigation.navigate('Payments')} optionFont={optionFont} />*/}
           <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('SecurityResidence')} optionFont={optionFont} />
           <Option icon="help-circle-outline" label="Ayuda / FAQ" onPress={() => navigation.navigate('Help')} optionFont={optionFont} />
           <Option icon="refresh-circle-outline" label="Actualizar contraseña" onPress={() => navigation.navigate('ChangePassword')} optionFont={optionFont} />
@@ -780,7 +819,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '700', color: '#0046ff', textAlign: 'center', flex: 1, fontFamily: 'Montserrat-Bold' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   logoFull: { width: 32, height: 32, marginRight: 8, resizeMode: 'contain' },
-  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center'},
+  badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 8 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },

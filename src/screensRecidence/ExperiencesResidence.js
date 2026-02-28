@@ -15,13 +15,14 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  findNodeHandle,
+  UIManager,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import RNFS from 'react-native-fs';
@@ -34,6 +35,7 @@ const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','A
 
 export default function ExperiencesScreen() {
   const navigation = useNavigation();
+  const route = useRoute(); // <--- nuevo: detectamos params entrantes
   const { width, height } = useWindowDimensions();
 
   const wp = (p) => (p * width) / 100;
@@ -65,6 +67,15 @@ export default function ExperiencesScreen() {
 
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
+
+  // --- refs para scroll y posicionamiento (nuevos) ---
+  const mainScrollRef = useRef(null);
+  const monthPositionsRef = useRef({}); // { periodo: y }
+  const pendingNotificationRef = useRef(null); // guarda notificacion si llega antes de cargar monthsData
+
+  // refs dentro del sheet para cada transacción (nuevos)
+  const sheetScrollRef = useRef(null);
+  const txPositionsRef = useRef({}); // { txId: y }
 
   useEffect(() => { animY.setValue(0); }, [animY]);
 
@@ -341,7 +352,90 @@ export default function ExperiencesScreen() {
     fetchYearHistory();
   }, [fetchYearHistory]);
 
-  const openSheetFor = async (monthObj) => {
+  // --- NEW: procesar params de ruta entrantes (si la app navegó aquí con notificación) ---
+  useEffect(() => {
+    if (route?.params) {
+      const incoming = route.params.notification ?? route.params; // aceptamos {notification:{...}} o directamente params
+      if (incoming && (incoming.sale_id || incoming.transactionId || incoming.periodo)) {
+        // guardamos la notificacion para procesarla cuando haya monthsData cargado
+        pendingNotificationRef.current = incoming;
+        // si monthsData ya está listo, procesar ahora
+        if (Array.isArray(monthsData) && monthsData.length > 0) {
+          setTimeout(() => {
+            processPendingNotification();
+          }, 250);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params]);
+
+  // cuando monthsData cambia y existe pendingNotification, procesarla
+  useEffect(() => {
+    if (pendingNotificationRef.current && Array.isArray(monthsData) && monthsData.length > 0) {
+      setTimeout(() => {
+        processPendingNotification();
+      }, 250);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthsData]);
+
+  // función que busca el mes y abre modal/tx
+  const processPendingNotification = useCallback(async () => {
+    const notif = pendingNotificationRef.current;
+    if (!notif) return;
+    // limpiamos después de procesar
+    pendingNotificationRef.current = null;
+
+    // determinar periodo objetivo
+    let targetPeriodo = notif.periodo ?? null;
+    if (!targetPeriodo && notif.date) {
+      // si recibimos una fecha, transformarla a yyyyMM
+      try {
+        const d = new Date(notif.date);
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          targetPeriodo = `${y}${m}`;
+        }
+      } catch (e) {
+        targetPeriodo = null;
+      }
+    }
+
+    // buscar mes en monthsData (busca exacto por periodo o por month+year)
+    let monthObj = null;
+    if (targetPeriodo) {
+      monthObj = monthsData.find(m => String(m.periodo) === String(targetPeriodo));
+    }
+    if (!monthObj && notif.month && notif.year) {
+      const mm = String(notif.month).padStart(2,'0');
+      const peri = `${notif.year}${mm}`;
+      monthObj = monthsData.find(m => String(m.periodo) === peri);
+    }
+
+    // fallback: si no encontró, usar mes actual (si existe)
+    if (!monthObj && monthsData.length > 0) {
+      monthObj = monthsData[0];
+    }
+    if (!monthObj) return;
+
+    // intentar hacer scroll a la tarjeta del mes en la ScrollView principal
+    try {
+      const y = monthPositionsRef.current[monthObj.periodo];
+      if (mainScrollRef.current && typeof y === 'number') {
+        mainScrollRef.current.scrollTo({ y: Math.max(0, y - 20), animated: true });
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // abrir sheet y luego expandir transacción indicada
+    await openSheetFor(monthObj, { highlightSaleId: notif.sale_id ?? notif.transactionId ?? null });
+  }, [monthsData, openSheetFor]);
+
+  // openSheetFor ahora acepta opciones: highlightSaleId
+  const openSheetFor = async (monthObj, opts = {}) => {
     setExpandedTxIds([]);
     setSelectedMonth({ ...monthObj, consumptions: [], loading: true });
     setSheetVisible(true);
@@ -350,6 +444,36 @@ export default function ExperiencesScreen() {
     const periodo = monthObj.periodo;
     const consumptions = await fetchMonthDetail(periodo);
     setSelectedMonth((prev) => ({ ...(prev || {}), consumptions: consumptions || [], loading: false, title: monthObj.title, amount: monthObj.amount, transactions: monthObj.transactions }));
+
+    // small delay to ensure transactions rendered
+    setTimeout(() => {
+      if (opts.highlightSaleId && Array.isArray(consumptions)) {
+        // buscar transacción por sale_id o id
+        const found = consumptions.find((t) => String(t.sale_id) === String(opts.highlightSaleId) || String(t.id) === String(opts.highlightSaleId));
+        if (found) {
+          // expandirla
+          setExpandedTxIds([found.id]);
+          // intentar scrollear dentro del sheet al elemento
+          const yTx = txPositionsRef.current[found.id];
+          if (sheetScrollRef.current && typeof yTx === 'number') {
+            sheetScrollRef.current.scrollTo({ y: Math.max(0, yTx - 60), animated: true });
+          } else {
+            // si no tenemos posición ya medida, intentar medir vía UIManager
+            try {
+              const node = txRefsMap.current[found.id];
+              if (node) {
+                const handle = findNodeHandle(node);
+                if (handle) {
+                  UIManager.measureLayout(handle, findNodeHandle(sheetScrollRef.current) || handle, () => {}, (left, top) => {
+                    if (sheetScrollRef.current) sheetScrollRef.current.scrollTo({ y: Math.max(0, top - 60), animated: true });
+                  });
+                }
+              }
+            } catch (e) { /* ignore */ }
+          }
+        }
+      }
+    }, 250);
   };
 
   const closeSheet = () => {
@@ -357,6 +481,8 @@ export default function ExperiencesScreen() {
       setSheetVisible(false);
       setSelectedMonth(null);
       setExpandedTxIds([]);
+      txPositionsRef.current = {};
+      txRefsMap.current = {};
     });
   };
 
@@ -384,11 +510,9 @@ export default function ExperiencesScreen() {
       const marginLeft = 40;
       let y = pH - 60;
 
-      // --- Ajuste: ampliar el ancho del recuadro morado para que "TABTRACK" no se corte ---
       const titleText = 'TABTRACK';
       const titleSize = 18;
       const titleTextWidth = helvetica.widthOfTextAtSize(titleText, titleSize);
-      // ancho mínimo mayor y algo de padding para seguridad
       const rectWidth = Math.max(160, Math.round(titleTextWidth + 40));
       const rectHeight = 36;
 
@@ -400,7 +524,6 @@ export default function ExperiencesScreen() {
         color: rgb(0.42, 0.13, 0.66),
         borderRadius: 6,
       });
-      // texto con padding izquierdo para que quede dentro del rectángulo
       page.drawText(titleText, {
         x: marginLeft + 12,
         y: y - 10,
@@ -523,7 +646,6 @@ export default function ExperiencesScreen() {
     const isNeg = num < 0;
     const absNum = Math.abs(num);
 
-
     let formatted;
     try {
       if (typeof Intl !== 'undefined' && Intl.NumberFormat) {
@@ -543,13 +665,29 @@ export default function ExperiencesScreen() {
     return `${isNeg ? negativeSign : ''}${currencySign}${formatted}`;
   };
 
+  // refs para cada tx renderizado (para medir posiciones)
+  const txRefsMap = useRef({}); // { txId: ref }
+
   const renderTransaction = (tx) => {
     const expanded = expandedTxIds.includes(tx.id);
     const computedSubtotalNum = Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty)||1)), 0) : 0;
     const computedSubtotal = +computedSubtotalNum.toFixed(2);
 
     return (
-      <View key={tx.id} style={sheetStyles.personCard}>
+      <View
+        key={tx.id}
+        style={sheetStyles.personCard}
+        // guardamos la posición Y de cada transacción dentro del sheet para scrollear luego
+        onLayout={(ev) => {
+          try {
+            const y = ev.nativeEvent.layout.y;
+            txPositionsRef.current[tx.id] = y;
+          } catch (e) {}
+        }}
+        ref={(ref) => {
+          if (ref) txRefsMap.current[tx.id] = ref;
+        }}
+      >
         <TouchableOpacity onPress={() => toggleTxExpand(tx.id)} activeOpacity={0.85} style={sheetStyles.personHeader}>
           <View style={sheetStyles.personLeft}>
             <View style={[sheetStyles.avatar, { backgroundColor: '#6B21A8' }]}>
@@ -612,11 +750,20 @@ export default function ExperiencesScreen() {
     }
   ];
 
+  // Al renderizar cada tarjeta de mes guardamos su posición para poder scrollear desde la notificación
   const renderPayment = ({ item }) => {
     const isPending = (item.transactions || 0) > 0 && (item.amount || 0) === 0;
     const isHasMov = (item.transactions || 0) > 0;
     return (
-      <View style={{ marginBottom: 12 }}>
+      <View
+        style={{ marginBottom: 12 }}
+        onLayout={(ev) => {
+          try {
+            const y = ev.nativeEvent.layout.y;
+            monthPositionsRef.current[item.periodo] = y;
+          } catch (e) {}
+        }}
+      >
         <View style={[ styles.paymentCard, isPending ? styles.paymentCardPending : styles.paymentCardDefault ]}>
           <View style={styles.paymentTopRow}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
@@ -736,7 +883,7 @@ export default function ExperiencesScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 36 }}>
+      <ScrollView ref={mainScrollRef} style={styles.page} contentContainerStyle={{ paddingBottom: 36 }}>
         <View style={{ height: Math.round(hp(5)) }} />
 
         <View style={{ paddingHorizontal: horizontalPad }}>
@@ -840,9 +987,9 @@ export default function ExperiencesScreen() {
               keyExtractor={(i) => i.periodo}
               renderItem={renderPayment}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-              scrollEnabled={false}
+              scrollEnabled={false} // lo dejamos sin scroll interno para que el main ScrollView lo maneje
             />
-          )} 
+          )}
         </View>
 
         <View style={{ height: 36 }} />
@@ -869,17 +1016,16 @@ export default function ExperiencesScreen() {
             <TouchableOpacity
               onPress={closeSheet}
               style={sheetStyles.closeBtnTouchable}
-              /* Zona de toque aumentada y boton visual más grande (icono más grande). */
-              hitSlop={{ top: 44, left: 44, right: 44, bottom: 44 }}
-              pressRetentionOffset={{ top: 40, left: 40, right: 40, bottom: 40 }}
+              hitSlop={{ top: 60, left: 60, right: 60, bottom: 60 }}
+              pressRetentionOffset={{ top: 54, left: 54, right: 54, bottom: 54 }}
               accessibilityRole="button"
               accessibilityLabel="Cerrar detalle"
             >
-              <Ionicons name="close" size={26} color="#111" />
+              <Ionicons name="close" size={28} color="#111" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={sheetStyles.sheetContent}>
+          <ScrollView ref={sheetScrollRef} contentContainerStyle={sheetStyles.sheetContent}>
             <Text style={sheetStyles.sheetTitle} numberOfLines={2}>
               {selectedMonth?.title ?? 'Detalle de consumos'}
             </Text>
@@ -910,14 +1056,6 @@ export default function ExperiencesScreen() {
             </View>
 
             <View style={sheetStyles.footerSummary}>
-{/*               <View style={sheetStyles.footerLeft}>
-                <Text style={sheetStyles.footerLabel}>Personas</Text>
-                <Text style={sheetStyles.footerValue}>{(selectedMonth?.consumptions || []).length}</Text>
-              </View>
-              <View style={sheetStyles.footerRight}>
-                <Text style={sheetStyles.footerLabel}>Total</Text>
-                <Text style={sheetStyles.footerValue}>{formatMoney(selectedMonth?.amount ?? 0, { currencySign: '$' })}</Text>
-              </View> */}
             </View>
 
             <View style={{ height: 40 }} />
@@ -936,6 +1074,7 @@ export default function ExperiencesScreen() {
   );
 }
 
+/* ------------ estilos (los tuyos, sin cambios significativos) ------------ */
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#FBFBFD' },
   pageTitle: { textAlign: 'center', color: '#0B61FF', fontWeight: '800' },
@@ -1094,7 +1233,6 @@ const sheetStyles = StyleSheet.create({
   },
   handleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 10, paddingHorizontal: 12 },
   handle: { width: 64, height: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
-  // <-- Cambiado: boton visual más grande y centrado (width/height) para que la X sea fácil de tocar.
   closeBtnTouchable: { position: 'absolute', right: 8, top: -8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
 
   sheetContent: { paddingHorizontal: 18, paddingBottom: 36 },

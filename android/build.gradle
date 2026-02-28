@@ -29,5 +29,22 @@ allprojects {
         mavenCentral()   // sólo Maven Central
     }
 }
+// Forzar compileSdk para todos los subproyectos/librerías
+subprojects { subproject ->
+    afterEvaluate {
+        if (subproject.plugins.hasPlugin('com.android.library') || subproject.plugins.hasPlugin('com.android.application')) {
+            try {
+                // Si el DSL usa compileSdkVersion (antiguo) o compileSdk (nuevo), lo cubrimos
+                if (subproject.android.hasProperty('compileSdkVersion')) {
+                    subproject.android.compileSdkVersion = rootProject.ext.compileSdkVersion
+                } else {
+                    subproject.android.compileSdk = rootProject.ext.compileSdkVersion
+                }
+            } catch (ignored) {
+                // no hacer nada si no tiene 'android' o da error
+            }
+        }
+    }
+}
 
 apply plugin: "com.facebook.react.rootproject"

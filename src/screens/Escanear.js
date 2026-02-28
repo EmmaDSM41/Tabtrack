@@ -1,3 +1,4 @@
+/* archivo completo con tus cambios solicitados (solo modificaciones puntuales) */
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
@@ -204,8 +205,9 @@ export default function Escanear() {
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
-  
+  // estado de descuento (monto) y etiqueta de porcentaje para UI
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountPercentLabel, setDiscountPercentLabel] = useState(null); // e.g. "7%" or "7% + 3%"
 
   const checkPendingPromotions = useCallback(async (log = false) => {
     try {
@@ -382,13 +384,47 @@ export default function Escanear() {
       const neutralItems = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
       if (isMountedRef.current) { setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
 
-
+      // --- DESCUENTO ---
+      // Lógica mejorada: si llega monto_total lo usamos; si no, buscamos en detalle[] porcentajes y los calculamos sobre computedTotal.
       try {
-        const montoDesc = safeNum(json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0);
-        if (isMountedRef.current) setDiscountAmount(+montoDesc.toFixed(2));
+        let montoDesc = safeNum(json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0);
+        let percentLabel = null;
+
+        const detalle = Array.isArray(json?.descuentos_venta?.detalle) ? json.descuentos_venta.detalle : (Array.isArray(json?.totales_venta?.descuentos) ? json.totales_venta.descuentos : []);
+        if ((!montoDesc || montoDesc <= 0) && Array.isArray(detalle) && detalle.length > 0) {
+          // sumar montos directos y calcular montos desde porcentajes
+          let acum = 0;
+          const pctParts = [];
+          for (const d of detalle) {
+            const m = safeNum(d.monto ?? d.amount ?? 0);
+            const p = safeNum(d.porcentaje ?? d.percent ?? d.p ?? 0);
+            if (m > 0) {
+              acum += m;
+            } else if (p > 0) {
+              const calc = +(computedTotal * (p / 100));
+              acum += calc;
+              pctParts.push(Number(p));
+            }
+          }
+          montoDesc = acum;
+          if (pctParts.length === 1) percentLabel = `${pctParts[0]}%`;
+          else if (pctParts.length > 1) percentLabel = pctParts.map(x => `${x}%`).join(' + ');
+        } else {
+          // si montoDesc viene y detalle tiene un porcentaje único, podemos mostrarlo también
+          if (Array.isArray(detalle) && detalle.length === 1) {
+            const p = safeNum(detalle[0].porcentaje ?? detalle[0].percent ?? 0);
+            if (p > 0) percentLabel = `${p}%`;
+          }
+        }
+
+        if (isMountedRef.current) {
+          setDiscountAmount(+Number(montoDesc || 0).toFixed(2));
+          setDiscountPercentLabel(percentLabel);
+        }
       } catch (e) {
-        if (isMountedRef.current) setDiscountAmount(0);
+        if (isMountedRef.current) { setDiscountAmount(0); setDiscountPercentLabel(null); }
       }
+      // --- FIN DESCUENTO ---
 
       const sale = json.sale_id ?? json.venta_id ?? json.id ?? null;
       const suc = json.sucursal_id ?? json.sucursal ?? null;
@@ -417,7 +453,7 @@ export default function Escanear() {
 
       if (!eqPreviously) {
         try {
-          const allocatedFromLocal = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
+          const allocatedFromLocal = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 })); 
           if (localPaidSet && localPaidSet.size > 0) {
             for (let ui=0; ui<allocatedFromLocal.length; ui++) {
               const e = allocatedFromLocal[ui];
@@ -684,7 +720,9 @@ export default function Escanear() {
 
   // botones deshabilitados (para feedback visual)
   const primaryDisabled = consumoPaid || equalsSplitPaid; // Pago en una sola: bloquear si consumoPaid o equal paid
-  const pagarConsumoDisabled = equalsSplitPaid; // Pagar por consumo: bloquear si equal paid
+  // ---- CAMBIO: bloquear "Pagar por consumo" si hay descuento detectado ----
+  const pagarConsumoDisabled = equalsSplitPaid || (Number(discountAmount || 0) > 0);
+  // -----------------------------------------------------------------------
   const equalSplitDisabled = consumoPaid; // Pago por partes iguales: bloquear si consumoPaid
 
   return (
@@ -734,7 +772,7 @@ export default function Escanear() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
-          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
+          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}> 
 
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
@@ -803,12 +841,11 @@ export default function Escanear() {
                 <Text style={[styles.itemPrice, styles.ivaText, { fontSize: clamp(rf(3), 12, 16), width: itemPriceWidth }]}>{formatMoney(iva)} {moneda ?? 'MXN'}</Text>
               </View>
 
-
               {discountAmount > 0 && (
                 <View style={[styles.itemRow, { paddingTop: 6 }]}>
                   <Text style={[styles.subtotalLabel, { fontSize: subtotalValueFont }]}>Descuento</Text>
                   <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont }]}>
-                    -{formatMoney(discountAmount)} {moneda ?? 'MXN'}
+                    -{formatMoney(discountAmount)} {moneda ?? 'MXN'}{discountPercentLabel ? ` (${discountPercentLabel})` : ''}
                   </Text>
                 </View>
               )}

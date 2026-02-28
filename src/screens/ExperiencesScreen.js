@@ -148,6 +148,12 @@ export default function VisitsScreen(props) {
   const emailRef = useRef(null);
   const MAX_STORE = 100;
 
+  // ---------- NUEVO: cache local para resultados de encuestas por sucursal ----------
+  const surveysMemRef = useRef({});
+  const SURVEY_FIXED_ID = '8916180a-95fd-46af-bde4-60635cc7e1ab';
+  const SURVEY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+  // -------------------------------------------------------------------------------
+
   // Cambiado: por defecto buscar último mes (30 días)
   const defaultDesde = new Date();
   defaultDesde.setDate(defaultDesde.getDate() - 29);
@@ -231,7 +237,9 @@ export default function VisitsScreen(props) {
 
   function buildNotificationText({ branch, amount, date, saleId }) {
     try {
-      const dt = new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      // Use parseToLocalDate to ensure strings like "2026-02-27T09:43:18" are interpreted as local time
+      const parsed = parseToLocalDate(date);
+      const dt = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
       return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
     } catch (e) {
       return `Pago confirmado — ${formatMoney(Number(amount || 0))}`;
@@ -379,8 +387,6 @@ export default function VisitsScreen(props) {
     }
   }, [notifications]);
 
-  // --- NUEVAS FUNCIONES: búsqueda y navegación desde notificación ----
-
   function findVisitBySaleBranchLocal(visitsArr, saleId, branchId) {
     if (!saleId || !branchId || !Array.isArray(visitsArr)) return null;
     const sId = String(saleId);
@@ -394,7 +400,6 @@ export default function VisitsScreen(props) {
     }) ?? null;
   }
 
-  // Maneja "abrir notificación" tanto desde la lista como desde push (si lo integras luego)
   async function handleIncomingNotification(payload) {
     try {
       if (!payload) {
@@ -448,9 +453,6 @@ export default function VisitsScreen(props) {
     }
   }
 
-  // -----------------------------------------------------------------------------
-// la función original que manejaba el toque en la lista de notificaciones ahora
-// delega en handleIncomingNotification (para compartir la lógica)
   const handleNotificationPress = async (n) => {
     try {
       if (!n) return;
@@ -462,7 +464,6 @@ export default function VisitsScreen(props) {
     }
   };
 
-  // ---------- funciones de perfil / branches / visits que ya tenías ----------
   const loadProfileFromApi = useCallback(async () => {
     try {
       const email = await AsyncStorage.getItem('user_email');
@@ -597,6 +598,7 @@ export default function VisitsScreen(props) {
     return 0;
   }
 
+  // ---------- NUEVO: fetch visitas y luego ratings por sucursal ----------
   const fetchVisitsForDesde = useCallback(async (desdeDateParam) => {
     setFetchingSales(true);
     setVisits([]);
@@ -792,6 +794,10 @@ export default function VisitsScreen(props) {
       });
 
       setVisits(detailedVisits);
+
+      // NUEVO: después de tener las visitas, pedimos ratings por sucursal (no altera imágenes ni otras lógicas)
+      fetchRatingsForVisits(detailedVisits).catch(e => console.warn('fetchRatingsForVisits after fetchVisits err', e));
+
       if (!detailedVisits.length) Toast.show('No se encontraron detalles para las ventas', { duration: Toast.durations.SHORT });
     } catch (err) {
       console.warn('fetchVisitsForDesde error', err);
@@ -839,6 +845,9 @@ export default function VisitsScreen(props) {
     (async () => {
       if (!emailRef.current) emailRef.current = await AsyncStorage.getItem('user_email');
       await fetchTodayNotificationsOnce();
+      if (visits && visits.length > 0) {
+        fetchRatingsForVisits(visits).catch(e => console.warn('useFocus fetchRatingsForVisits err', e));
+      }
     })();
   }, [desdeDate]));
 
@@ -858,7 +867,9 @@ export default function VisitsScreen(props) {
   }
 
   function NotificationRow({ n, onPress }) {
-    const dateLabel = n.date ? new Date(n.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    // Use parseToLocalDate to correctly interpret dates without timezone as local
+    const parsed = parseToLocalDate(n.date);
+    const dateLabel = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
       <TouchableOpacity onPress={onPress} style={[styles.notificationItemLarge, n.read ? styles.readCard : styles.unreadCard]} activeOpacity={0.8}>
         <View style={styles.notLeft}>
@@ -876,6 +887,105 @@ export default function VisitsScreen(props) {
   }
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // ----------------------------- FUNCIONES DE ENCUESTAS -----------------------------
+  async function fetchSurveyForBranch(sucursalId) {
+    if (!sucursalId) return null;
+    const key = String(sucursalId);
+    const now = Date.now();
+    try {
+      const cached = surveysMemRef.current[key];
+      if (cached && (now - cached.ts) < SURVEY_CACHE_TTL_MS) {
+        return cached.value;
+      }
+    } catch (e) { /* ignore */ }
+
+    try {
+      const base = API_BASE_URL.replace(/\/$/, '');
+      const url = `${base}/api/encuestas/${SURVEY_FIXED_ID}/reportes?sucursal_id=${encodeURIComponent(String(sucursalId))}`;
+      const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
+      if (!res || !res.ok) {
+        surveysMemRef.current[key] = { ts: Date.now(), value: null };
+        return null;
+      }
+      const json = await res.json().catch(() => null);
+      if (!json) {
+        surveysMemRef.current[key] = { ts: Date.now(), value: null };
+        return null;
+      }
+
+      let node = null;
+      if (Array.isArray(json.resumen_por_sucursal)) {
+        node = json.resumen_por_sucursal.find(r => {
+          if (r == null) return false;
+          return String(r.sucursal_id ?? r.sucursal ?? '').trim() === String(sucursalId).trim();
+        }) ?? json.resumen_por_sucursal[0] ?? null;
+      } else if (json.resumen_por_sucursal && typeof json.resumen_por_sucursal === 'object') {
+        node = json.resumen_por_sucursal;
+      } else {
+        node = null;
+      }
+
+      if (!node || !Array.isArray(node.preguntas)) {
+        surveysMemRef.current[key] = { ts: Date.now(), value: null };
+        return null;
+      }
+
+      const starQuestions = node.preguntas.filter(p => String(p.tipo ?? '').toUpperCase() === 'ESTRELLAS' || String(p.tipo ?? '').toUpperCase() === 'STARS');
+      if (!starQuestions || starQuestions.length === 0) {
+        surveysMemRef.current[key] = { ts: Date.now(), value: null };
+        return null;
+      }
+
+      let sum = 0;
+      let cnt = 0;
+      for (const q of starQuestions) {
+        const v = q.promedio;
+        const n = (v === undefined || v === null) ? NaN : Number(v);
+        if (!Number.isNaN(n)) {
+          sum += n;
+          cnt += 1;
+        }
+      }
+      if (cnt === 0) {
+        surveysMemRef.current[key] = { ts: Date.now(), value: null };
+        return null;
+      }
+      const avg = sum / cnt;
+      const norm = Math.max(0, Math.min(5, avg));
+      surveysMemRef.current[key] = { ts: Date.now(), value: norm };
+      return norm;
+    } catch (err) {
+      console.warn('fetchSurveyForBranch err', err);
+      try { surveysMemRef.current[String(sucursalId)] = { ts: Date.now(), value: null }; } catch(e){}
+      return null;
+    }
+  }
+
+  async function fetchRatingsForVisits(visitsArr) {
+    if (!Array.isArray(visitsArr) || visitsArr.length === 0) return;
+    const uniqueBranchIds = Array.from(new Set(visitsArr.map(v => v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id).filter(Boolean)));
+    if (uniqueBranchIds.length === 0) return;
+
+    try {
+      const promises = uniqueBranchIds.map(id => fetchSurveyForBranch(id));
+      const results = await Promise.all(promises);
+      const map = new Map();
+      for (let i = 0; i < uniqueBranchIds.length; i++) {
+        map.set(String(uniqueBranchIds[i]), results[i]);
+      }
+
+      const updated = (visitsArr || []).map(v => {
+        const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
+        const rating = (map.has(bid) ? map.get(bid) : null);
+        return { ...v, rating: (rating === null || rating === undefined) ? null : Number(rating) };
+      });
+      if (isMountedRef.current) setVisits(updated);
+    } catch (err) {
+      console.warn('fetchRatingsForVisits err', err);
+    }
+  }
+  // ---------------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -925,12 +1035,6 @@ export default function VisitsScreen(props) {
               </TouchableOpacity>
             </View>
 
-{/*             <View style={styles.modalListHeader}>
-              <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
-              <TouchableOpacity onPress={markAllRead}>
-              </TouchableOpacity>
-            </View> */}
-
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (
                 notifications.map(n => <NotificationRow key={n.id} n={n} onPress={() => handleNotificationPress(n)} />)
@@ -940,8 +1044,6 @@ export default function VisitsScreen(props) {
                 </View>
               )}
             </ScrollView>
-
-            {/* botón "Marcar todo como leído" eliminado según tu petición */}
           </View>
         </View>
       </Modal>
@@ -1049,6 +1151,84 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const logoUri = item.restaurantImage ? String(item.restaurantImage).trim() : null;
   const bannerUri = item.bannerImage ? String(item.bannerImage).trim() : null;
 
+  // ===== Aquí renderizamos las estrellas usando item.rating (si existe) =====
+  const rating = (item.rating === undefined || item.rating === null) ? null : Number(item.rating);
+  const safeRating = (rating === null || Number.isNaN(rating)) ? null : Math.max(0, Math.min(5, rating));
+
+  // starSize controla tamaño de la fuente; usamos lineHeight igual para que el overlay quede alineado.
+  const starSize = 16;
+  // containerWidth: un poco más ancho para evitar recorte visual; mantén proporción con font
+  const containerWidth = Math.round(starSize * 1.25);
+
+  // renderPartialStar: estrella vacía detrás y una capa con overflow hidden delante para simular relleno parcial.
+  // Nos aseguramos que si fillRatio>0 pintemos al menos 1px para fracciones muy pequeñas (ej .05).
+  const renderPartialStar = (index, fillRatio) => {
+    const ratio = Math.max(0, Math.min(1, fillRatio));
+    const fillWidth = Math.round(containerWidth * ratio);
+    const minFill = (ratio > 0 && fillWidth < 1) ? 1 : fillWidth; // pinta mínimo 1px si hay fracción
+    return (
+      <View
+        key={`star_${index}`}
+        style={{
+          width: containerWidth,
+          height: starSize,
+          marginHorizontal: 1,
+          position: 'relative',
+          alignItems: 'flex-start', // clave: anclar contenido a la izquierda
+          justifyContent: 'center',
+        }}
+        accessible={false}
+        pointerEvents="none"
+      >
+        {/* estrella vacía (fondo) - anclada a la izquierda */}
+        <Text
+          style={{
+            fontSize: starSize,
+            lineHeight: starSize,
+            color: '#CCC',
+            includeFontPadding: false,
+            textAlign: 'left',
+            width: containerWidth,
+            // evitar escalado que pueda desalinear
+            allowFontScaling: false,
+          }}
+        >
+          ★
+        </Text>
+
+        {/* capa rellena con overflow hidden - recortamos desde la derecha correctamente */}
+        {ratio > 0 && (
+          <View style={{ position: 'absolute', left: 0, top: 0, width: minFill, height: starSize, overflow: 'hidden' }}>
+            <Text
+              style={{
+                fontSize: starSize,
+                lineHeight: starSize,
+                color: '#FFD700',
+                includeFontPadding: false,
+                textAlign: 'left',
+                width: containerWidth,
+                allowFontScaling: false,
+              }}
+            >
+              ★
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const stars = Array.from({ length: 5 }, (_, i) => {
+    let fill = 0;
+    if (safeRating === null) fill = 0;
+    else {
+      const diff = safeRating - i;
+      fill = Math.max(0, Math.min(1, diff));
+    }
+    return renderPartialStar(i, fill);
+  });
+  // =======================================================================
+
   return (
     <View style={[styles.card, { borderRadius: cardRadius }]}>
       <View style={[styles.cardLeft, { width: cardLeftWidth, paddingVertical: Math.max(10, Math.round(cardLeftWidth * 0.12)) }]}>
@@ -1056,7 +1236,7 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
           {logoUri ? <Image source={{ uri: logoUri }} style={[styles.logoImage, { width: logoSize, height: logoSize }]} /> : <Image source={require('../../assets/images/restaurante.jpeg')} style={[styles.logoImage, { width: logoSize, height: logoSize }]} />}
         </View>
         <View style={styles.ratingRow}>
-          {Array.from({ length: 5 }, (_, i) => (<Text key={i} style={[styles.star, i < 4 ? styles.starFilled : styles.starEmpty]}>★</Text>))}
+          {stars}
         </View>
       </View>
 
@@ -1155,7 +1335,7 @@ const styles = StyleSheet.create({
   cardLeft: { alignItems: 'center', paddingHorizontal: 8, backgroundColor: '#fff', justifyContent: 'center' },
   logoWrapper: { overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   logoImage: { resizeMode: 'cover', borderRadius: 999 },
-  ratingRow: { flexDirection: 'row', marginTop: 4 },
+  ratingRow: { flexDirection: 'row', marginTop: 4, alignItems: 'center' },
   star: { fontSize: 14, marginHorizontal: 1 },
   starFilled: { color: '#FFD700' },
   starEmpty: { color: '#CCC' },

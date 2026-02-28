@@ -11,11 +11,16 @@ react {
 
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
 
     namespace "com.tabtrack"
     defaultConfig {
@@ -27,29 +32,46 @@ android {
         missingDimensionStrategy 'react-native-camera', 'general'
         multiDexEnabled true
     }
-    signingConfigs {
-        debug {
+signingConfigs {
+    debug {
+        storeFile file('debug.keystore')
+        storePassword 'android'
+        keyAlias 'androiddebugkey'
+        keyPassword 'android'
+    }
+
+    release {
+        // Solo configura release si existe key.properties
+        if (keystorePropertiesFile.exists()) {
+            storeFile file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+        } else {
+            // Fallback (no recomendado) — usa debug (temporal)
             storeFile file('debug.keystore')
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
     }
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-        }
-        release {
-            signingConfig signingConfigs.debug
-            minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-        }
+}
+
+buildTypes {
+    debug {
+        signingConfig signingConfigs.debug
     }
+    release {
+        signingConfig signingConfigs.release
+        minifyEnabled enableProguardInReleaseBuilds
+        proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+    }
+}
 
     // <-- Agregado: forzar Java 1.8 en el compilador Java (sourceCompatibility / targetCompatibility)
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     // <-- Modificado: cambiar JVM target de Kotlin a 17 para que coincida con Java 17 en el AGP 8.8.2
     kotlinOptions {
@@ -83,4 +105,4 @@ project.ext.react = [
 ]
 
 // vectores de iconos RN
-apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+//apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

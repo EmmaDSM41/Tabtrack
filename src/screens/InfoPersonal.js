@@ -88,6 +88,60 @@ export default function InfoPersonal({ navigation }) {
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
   const bottomSafe = Math.round(insets.bottom || 0);
 
+  // Helper: formatea fecha para mostrar en pantalla como DD/MM/YYYY
+  const formatDateDisplay = (d) => {
+    if (!d) return '';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return String(d);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(dt.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+  };
+
+  // Convierte distintos inputs a YYYY-MM-DD para enviar al API
+  const formatDateForApi = (val) => {
+    if (!val) return '';
+    // si ya es Date
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      const y = val.getFullYear();
+      const m = String(val.getMonth() + 1).padStart(2, '0');
+      const d = String(val.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    if (typeof val !== 'string') {
+      const parsed = new Date(val);
+      if (!isNaN(parsed.getTime())) {
+        return formatDateForApi(parsed);
+      }
+      return '';
+    }
+    const s = val.trim();
+    // si ya está en YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // si está en DD/MM/YYYY
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split('/');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    // intento parse general
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+      return formatDateForApi(dt);
+    }
+    return '';
+  };
+
+  // Convierte valores que vienen del API/AsyncStorage a la forma de mostrar DD/MM/YYYY
+  const toDisplayDate = (val) => {
+    if (!val) return '';
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      const [yyyy, mm, dd] = val.split('-');
+      return `${dd}/${mm}/${yyyy}`;
+    }
+    return formatDateDisplay(val);
+  };
+
   useEffect(() => {
     (async () => {
       const id = await AsyncStorage.getItem('user_usuario_app_id');
@@ -96,11 +150,14 @@ export default function InfoPersonal({ navigation }) {
       try {
         const nombre = await AsyncStorage.getItem('user_nombre') || '';
         const apellido = await AsyncStorage.getItem('user_apellido') || '';
-        const cumpleanos = await AsyncStorage.getItem('user_cumpleanos') || '';
+        const cumpleanos_raw = await AsyncStorage.getItem('user_cumpleanos') || '';
         const direccion = await AsyncStorage.getItem('user_direccion') || '';
         const mail = await AsyncStorage.getItem('user_mail') || '';
         const telefono = await AsyncStorage.getItem('user_telefono') || '';
         const tipo_comida = await AsyncStorage.getItem('user_tipo_comida') || '';
+
+        // convertimos la fecha guardada (posible YYYY-MM-DD) a formato de pantalla DD/MM/YYYY
+        const cumpleanos = toDisplayDate(cumpleanos_raw);
 
         setUser({ nombre, apellido, cumpleanos, direccion, mail, telefono, tipo_comida });
 
@@ -143,10 +200,15 @@ export default function InfoPersonal({ navigation }) {
                     tipo_comida: apiUser.tipo_comida ?? ''
                   };
 
-                  setUser(normalized);
+                  // guardamos en pantalla la versión *para mostrar* de cumpleanos (DD/MM/YYYY)
+                  const displayCumple = toDisplayDate(normalized.cumpleanos);
+                  setUser({ ...normalized, cumpleanos: displayCumple });
+
                   try {
                     for (const k of Object.keys(normalized)) {
-                      await AsyncStorage.setItem(`user_${k}`, normalized[k] ?? '');
+                      // guardamos en AsyncStorage la versión para mostrar (si es cumpleaños)
+                      const toStore = (k === 'cumpleanos') ? displayCumple : (normalized[k] ?? '');
+                      await AsyncStorage.setItem(`user_${k}`, toStore);
                     }
                     if (apiUser.foto_perfil_url) {
                       await AsyncStorage.setItem('user_profile_url', apiUser.foto_perfil_url);
@@ -234,6 +296,7 @@ export default function InfoPersonal({ navigation }) {
     try {
       try { currentInputRef.current && currentInputRef.current.blur(); } catch (_) { Keyboard.dismiss(); }
       const val = user[key] ?? '';
+      // si es cumpleaños, guardamos la versión de pantalla (DD/MM/YYYY)
       await AsyncStorage.setItem(`user_${key}`, val);
       setEditingKey(null);
     } catch (e) {
@@ -295,13 +358,16 @@ export default function InfoPersonal({ navigation }) {
     try {
       const apiUrl = `${API_BASE_URL}/${id}`;
 
+      // Antes de enviar al API, convertimos cumpleanos a YYYY-MM-DD
+      const payload = { ...user, cumpleanos: formatDateForApi(user.cumpleanos) };
+
       const response = await fetch(apiUrl, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${API_AUTH_TOKEN}`,
         },
-        body: JSON.stringify(user),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -313,8 +379,14 @@ export default function InfoPersonal({ navigation }) {
 
       if (json) {
         showToast('Cambios guardados');
+        // Guardamos en AsyncStorage la versión de pantalla (DD/MM/YYYY) para 'cumpleanos'
         for (const key in user) {
-          await AsyncStorage.setItem(`user_${key}`, user[key] ?? '');
+          try {
+            const toStore = (key === 'cumpleanos') ? user[key] : (user[key] ?? '');
+            await AsyncStorage.setItem(`user_${key}`, toStore);
+          } catch (e) {
+            console.warn('Error guardando campo en AsyncStorage después de save:', key, e);
+          }
         }
       } else {
         showToast(`Error: Respuesta inesperada del servidor`, null, styles.toast, 3000);
@@ -353,33 +425,6 @@ export default function InfoPersonal({ navigation }) {
     }
   };
 
-  // formatea fecha para mostrar en pantalla como DD/MM/YYYY
-  const formatDateDisplay = (d) => {
-    if (!d) return '';
-    const dt = (d instanceof Date) ? d : new Date(d);
-    if (isNaN(dt.getTime())) return String(d);
-    const dd = String(dt.getDate()).padStart(2, '0');
-    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-    const yyyy = String(dt.getFullYear());
-    return `${dd}/${mm}/${yyyy}`;
-  };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
-        <ActivityIndicator size="large" color={BLUE} style={{ marginTop: 50 }} />
-      </SafeAreaView>
-    );
-  }
-
-  const getInitials = (name) => {
-    if (!name) return null;
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return null;
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  };
-
   const fields = [
     ['nombre', 'Nombre'],
     ['apellido', 'Apellido'],
@@ -416,12 +461,29 @@ export default function InfoPersonal({ navigation }) {
       const display = formatDateDisplay(selectedDate); // DD/MM/YYYY
       setUser(prev => ({ ...prev, cumpleanos: display }));
       try { await AsyncStorage.setItem('user_cumpleanos', display); } catch (e) {}
+      setDatePickerValue(selectedDate);
     }
     // Para iOS si el usuario interactúa (podrías mantener abierto hasta confirmar),
     // aquí cerramos después del cambio para mantener consistencia.
     if (Platform.OS === 'ios') {
       setShowDatePicker(false);
     }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
+        <ActivityIndicator size="large" color={BLUE} style={{ marginTop: 50 }} />
+      </SafeAreaView>
+    );
+  }
+
+  const getInitials = (name) => {
+    if (!name) return null;
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
   return (
@@ -498,11 +560,9 @@ export default function InfoPersonal({ navigation }) {
                     ]}
                     returnKeyType="done"
                     blurOnSubmit
-                    // teclado numérico si es teléfono
                     keyboardType={key === 'telefono' ? 'phone-pad' : 'default'}
                   />
                 ) : (
-                  // mostramos el valor normalmente; para la fecha usamos el valor formateado
                   <Text style={[styles.fieldValue, { fontSize: fieldFont }]}>
                     { key === 'cumpleanos' ? (user.cumpleanos ? user.cumpleanos : 'No especificado') : (user[key] || 'No especificado') }
                   </Text>
