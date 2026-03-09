@@ -58,7 +58,7 @@ export default function OpenPay() {
 
   const {
     api_host = 'https://api.tab-track.com',
-    api_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3MDEzNjkxMCwianRpIjoiMzM3YjlkY2YtYjlkMi00NjFjLTkxMDItYzlkZjFkNDFlYmFjIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzAxMzY5MTAsImV4cCI6MTc3MjcyODkxMCwicm9sIjoiRWRpdG9yIn0.GVPx2mKxkE7qZQ9AozQnldLlkogOOLksbetncQ8BgmY',
+    api_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3Mjc0NzAzOSwianRpIjoiODIyOWZkNTQtNGVmYS00NGZmLTk1MWQtNjg5YjA1ZGVhYjE2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzI3NDcwMzksImV4cCI6MTc3NTMzOTAzOSwicm9sIjoiRWRpdG9yIn0.tfon8oCTx1Ue7pAdrJvwx5RfW51HA6yhsRRXaa6v3OY',
     sucursal_id = null,
     sale_id = null,
     restaurante_id = null,
@@ -263,6 +263,7 @@ export default function OpenPay() {
 
       if (data.type === 'error') {
         setProcessing(false);
+        // navigate to ErrorPago instead of alert
         showPaymentError('Error', String(data.message || 'Ocurrió un error en la ventana de pago.'), data ? JSON.stringify(data) : null);
         return;
       }
@@ -364,6 +365,7 @@ export default function OpenPay() {
         setLoading(false);
       } catch (err) {
         console.warn('fetchCredsAndSendInit error', err);
+        // navigate to ErrorPago instead of alert
         showPaymentError('Error', 'No se pudieron obtener las credenciales de OpenPay. Revisa servidor/configuración.', err ? String(err) : null);
         setLoading(false);
       }
@@ -382,6 +384,7 @@ export default function OpenPay() {
       webviewRef.current && webviewRef.current.postMessage(JSON.stringify({ type: 'create_token', cardData }));
     } catch (e) {
       console.warn('postMessage create_token failed', e);
+      // navigate to ErrorPago instead of alert
       showPaymentError('Error', 'No se pudo iniciar la creación del token.', e ? String(e) : null);
       setProcessing(false);
     }

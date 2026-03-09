@@ -21,7 +21,6 @@ import HomeResidence from './src/screensRecidence/HomeResidence';
 import SplashResidence from './src/screensRecidence/SplashResidence';
 import SendEmail from './src/screens/SendEmail';
 import ResetPassword from './src/screens/ResetPassword';
-import OpenPay from './src/screens/OpenPay';
 import RecentAccounts from './src/screens/RecentAccount';
 import QuickLogin from './src/screens/QuickLogin';
 

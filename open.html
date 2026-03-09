@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>OpenPay Token Test</title>
+
+  <!-- Sandbox SDKs -->
+  <script type="text/javascript" src="https://js.openpay.mx/openpay.v1.min.js"></script>
+  <script type='text/javascript' src="https://js.openpay.mx/openpay-data.v1.min.js"></script>
+</head>
+<body>
+  <h3>OpenPay Token (Sandbox)</h3>
+
+  <button id="btn" disabled>Generar token</button>
+
+  <pre id="out">Cargando SDK...</pre>
+
+  <form id="card-form" style="display:none;">
+    <input id="holder" value="Juan Pérez">
+    <input id="card" value="4111111111111111">
+    <input id="mm" value="12">
+    <input id="yy" value="26">
+    <input id="cvv" value="123">
+  </form>
+
+<script>
+  const out = (obj) => {
+    document.getElementById("out").textContent =
+      (typeof obj === "string") ? obj : JSON.stringify(obj, null, 2);
+    console.log(obj);
+  };
+
+  window.addEventListener("load", () => {
+    if (typeof OpenPay === "undefined") {
+      out("ERROR: OpenPay SDK no cargó.");
+      return;
+    }
+
+    // credenciales SANDBOX
+    OpenPay.setId("memyocafbhxawvxmsmex");
+    OpenPay.setApiKey("pk_feec2b21e4484bf7ba5d268359f5cdfb");
+    OpenPay.setSandboxMode(true);
+
+    const deviceSessionId = OpenPay.deviceData.setup("card-form", "dev");
+    out({ ok: true, device_session_id: deviceSessionId });
+
+    const btn = document.getElementById("btn");
+    btn.disabled = false;
+
+    btn.addEventListener("click", () => {
+      const cardData = {
+        holder_name: document.getElementById("holder").value,
+        card_number: document.getElementById("card").value,
+        expiration_month: document.getElementById("mm").value,
+        expiration_year: document.getElementById("yy").value,
+        cvv2: document.getElementById("cvv").value
+      };
+
+      OpenPay.token.create(
+        cardData,
+        (resp) => out({ ok: true, source_id: resp.data.id, device_session_id: deviceSessionId }),
+        (err)  => out({ ok: false, err })
+      );
+    });
+  });
+</script>
+</body>
+</html>

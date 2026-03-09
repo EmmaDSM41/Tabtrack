@@ -16,7 +16,7 @@
     "@react-native-community/geolocation": "^3.4.0",
     "@react-native-community/slider": "^4.5.7",
     "@react-native-documents/picker": "^11.0.0",
-    "@react-native-ml-kit/barcode-scanning": "^1.4.1",
+    "@react-native-ml-kit/barcode-scanning": "^2.0.0",
     "@react-native-picker/picker": "^2.11.1",
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/native": "^7.1.6",
@@ -47,7 +47,8 @@
     "react-native-sqlite-storage": "^6.0.1",
     "react-native-vector-icons": "^10.2.0",
     "react-native-vision-camera": "^4.7.0",
-    "react-native-webview": "^13.16.0"
+    "react-native-webview": "^13.16.1",
+    "rn-pdf-reader-js": "^4.1.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
