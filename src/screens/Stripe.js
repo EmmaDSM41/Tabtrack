@@ -629,6 +629,27 @@ export default function StripePay() {
     };
   }, []);
 
+  // <-- NUEVO: cargar tarjetas guardadas al montar la pantalla y cuando la pantalla gana foco
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        await fetchSavedPaymentMethods();
+      } catch (e) {
+        console.warn('load saved cards on mount error', e);
+      }
+    })();
+    const unsub = navigation.addListener('focus', () => {
+      // refrescar tarjetas cuando el usuario vuelve a la pantalla
+      fetchSavedPaymentMethods().catch((e) => console.warn('refresh saved cards on focus error', e));
+    });
+    return () => {
+      try { if (unsub && typeof unsub === 'function') unsub(); } catch (e) {}
+      mounted = false;
+    };
+  }, [navigation]);
+  // <-- FIN del cambio mínimo y seguro
+
   const nativeLogoSource = logoUrl ? { uri: logoUrl } : DEFAULT_LOGO;
   const restaurantSrc = restaurantImage ? { uri: restaurantImage } : DEFAULT_RESTAURANT;
   const currentDateText = new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
@@ -731,7 +752,8 @@ export default function StripePay() {
                       onBlur={() => setCardFieldFocused(false)}
                     />
 
-                    {!cardFieldFocused && !usingSavedCard && (
+                    {/* Mostrar "Usar tarjeta guardada" SOLO si hay tarjetas cargadas en savedCards */}
+                    {!cardFieldFocused && !usingSavedCard && Array.isArray(savedCards) && savedCards.length > 0 && (
                       <TouchableOpacity onPress={openSavedCardsModal} style={{ position: 'absolute', right: 8, top: 8, padding: 6 }}>
                         <Text style={{ color: '#0b58ff', fontWeight: '700' }}>Usar tarjeta guardada</Text>
                       </TouchableOpacity>

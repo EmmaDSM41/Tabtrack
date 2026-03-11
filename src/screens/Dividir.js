@@ -812,9 +812,9 @@ export default function Dividir() {
             </TouchableOpacity>
           </LinearGradient>
 
-          <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+{/*           <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.shareButtonText}>Compartir cuenta</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <View style={styles.socialRow}>
           </View>
