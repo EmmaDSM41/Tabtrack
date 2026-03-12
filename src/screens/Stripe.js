@@ -16,6 +16,8 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
   FlatList,
+  Animated,
+  Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -101,6 +103,8 @@ export default function StripePay() {
   // modal guardar tarjeta
   const [saveModalVisible, setSaveModalVisible] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
+  // NUEVO: preferida switch para modal guardar tarjeta (Stripe)
+  const [savePreferred, setSavePreferred] = useState(true);
 
   // focus del CardField -> para ocultar overlay "Usar tarjeta guardada"
   const [cardFieldFocused, setCardFieldFocused] = useState(false);
@@ -109,6 +113,16 @@ export default function StripePay() {
   const [lastSavedCardsResponse, setLastSavedCardsResponse] = useState(null);
 
   const pollingRef = useRef({ running: false, stopRequested: false, lastResult: null });
+
+  // NUEVO: estado para confirmar eliminación
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [cardToDelete, setCardToDelete] = useState(null);
+  const [deletingCard, setDeletingCard] = useState(false);
+
+  // NUEVO: toast state + animated opacity
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVisible, setToastVisible] = useState(false);
 
   const subtotalNum = Number(monto_subtotal ?? params.monto_subtotal ?? 0) || 0;
   const propinaNum = Number(monto_propina ?? params.monto_propina ?? 0) || 0;
@@ -298,7 +312,8 @@ export default function StripePay() {
       console.warn('Error leyendo user_usuario_app_id desde AsyncStorage', e);
     }
     const usuarioAppIdToSend = storedUserAppIdLocal || usuario_app_id || '';
-    const body = { environment: environment || 'sandbox', usuario_app_id: usuarioAppIdToSend };
+    // AÑADIDO: enviamos set_preferred según el switch del modal
+    const body = { environment: environment || 'sandbox', usuario_app_id: usuarioAppIdToSend, set_preferred: Boolean(savePreferred) };
     const idKey = genIdempotencyKey();
     console.warn('[DEBUG] createSetupIntentOnServer - url:', url, 'idKey:', idKey, 'body:', body);
 
@@ -674,6 +689,87 @@ export default function StripePay() {
     );
   };
 
+  // NUEVO: confirma que se quiere eliminar (abre modal)
+  const confirmDeleteSavedCard = (card) => {
+    setCardToDelete(card);
+    setDeleteConfirmVisible(true);
+  };
+
+  // NUEVO: muestra toast estilizado
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setToastVisible(true);
+    Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
+      setTimeout(() => {
+        Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+          setToastVisible(false);
+          setToastMessage('');
+        });
+      }, 2000);
+    });
+  };
+
+  // NUEVO: realiza la petición para eliminar la tarjeta
+  const performDeleteSavedCard = async () => {
+    if (!cardToDelete) return;
+    setDeletingCard(true);
+
+    // construir URL según tu ejemplo
+    const host = (String(api_host || 'https://127.0.0.1')).replace(/\/$/, '');
+    const cardId = cardToDelete.id ?? cardToDelete.mobile_payment_method_id ?? cardToDelete.external_payment_method_id;
+    const url = `${host}/api/mobileapp/sucursales/${encodeURIComponent(sucursal_id)}/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe&environment=${encodeURIComponent(environment)}`;
+
+    // obtener usuario_app_id desde AsyncStorage o param
+    let usuarioAppUuid = null;
+    try {
+      usuarioAppUuid = await AsyncStorage.getItem('user_usuario_app_id');
+    } catch (e) {
+      console.warn('performDeleteSavedCard - read user_usuario_app_id failed', e);
+    }
+    usuarioAppUuid = usuarioAppUuid || usuario_app_id || '';
+
+    const idKey = genIdempotencyKey();
+
+    try {
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idKey,
+          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+        },
+        body: JSON.stringify({ usuario_app_id: usuarioAppUuid }),
+      });
+
+      let json = null;
+      try { json = await res.json().catch(() => null); } catch (e) {}
+
+      if (!res.ok) {
+        console.warn('performDeleteSavedCard - server error', res.status, json);
+        Alert.alert('Error', `No se pudo eliminar la tarjeta (${res.status}).`);
+        setDeletingCard(false);
+        setDeleteConfirmVisible(false);
+        setCardToDelete(null);
+        return;
+      }
+
+      // éxito: actualizar lista en UI
+      setSavedCards((prev) => (Array.isArray(prev) ? prev.filter((c) => String(c.id) !== String(cardToDelete.id)) : []));
+      // cerrar modal de confirmación
+      setDeleteConfirmVisible(false);
+      setCardToDelete(null);
+      // MOSTRAR TOAST (en lugar de alerta gris)
+      showToast('Tarjeta eliminada correctamente');
+    } catch (err) {
+      console.warn('performDeleteSavedCard exception', err);
+      Alert.alert('Error', 'Ocurrió un error al eliminar la tarjeta.');
+      setDeleteConfirmVisible(false);
+      setCardToDelete(null);
+    } finally {
+      setDeletingCard(false);
+    }
+  };
+
   // modal sizing (AHORA DINÁMICO)
   const modalWidth = Math.min(700, winW - 24);
 
@@ -793,6 +889,17 @@ export default function StripePay() {
               <Text style={{ fontSize: 16, fontWeight: '800', color: '#0b1220', marginBottom: 8 }}>¿Deseas guardar esta tarjeta?</Text>
               <Text style={{ fontSize: 13, color: '#334155', marginBottom: 14 }}>Puedes guardar la tarjeta en Stripe para futuros pagos. Elige una opción:</Text>
 
+              {/* NUEVO: switch preferida (igual estilo al OpenPay) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: '700' }}>Marcar como preferida</Text>
+                <Switch
+                  value={savePreferred}
+                  onValueChange={(v) => setSavePreferred(v)}
+                  trackColor={{ false: '#d1d5db', true: '#bfe0ff' }}
+                  thumbColor={savePreferred ? '#0b58ff' : '#ffffff'}
+                />
+              </View>
+
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                 <TouchableOpacity onPress={handleContinueWithoutSaving} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#e6eefb', alignItems: 'center', backgroundColor: '#fff' }} disabled={savingCard}>
                   <Text style={{ fontWeight: '700', color: '#0b58ff' }}>Continuar sin guardar</Text>
@@ -831,15 +938,23 @@ export default function StripePay() {
                     style={{ flex: 1 }}
                     contentContainerStyle={{ paddingBottom: 12 }}
                     renderItem={({ item }) => (
-                      <TouchableOpacity onPress={() => handleSelectSavedCard(item)} style={styles.savedCardTouchable}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.savedCardTitle}>{(item.brand || '').toUpperCase()} • **** **** **** {item.last4 ?? ''}</Text>
-                          <Text style={styles.savedCardSub}>Exp: {item.exp_month}/{item.exp_year} {item.is_preferred ? ' • Preferida' : ''}</Text>
-                        </View>
-                        <View style={{ alignItems: 'flex-end' }}>
+                      <View style={styles.savedCardTouchable}>
+                        <TouchableOpacity onPress={() => handleSelectSavedCard(item)} style={{ flex: 1 }}>
+                          <View>
+                            <Text style={styles.savedCardTitle}>{(item.brand || '').toUpperCase()} • **** **** **** {item.last4 ?? ''}</Text>
+                            <Text style={styles.savedCardSub}>Exp: {item.exp_month}/{item.exp_year} {item.is_preferred ? ' • Preferida' : ''}</Text>
+                          </View>
+                        </TouchableOpacity>
+
+                        <View style={{ alignItems: 'flex-end', marginLeft: 12 }}>
+                          {/* Botón eliminar (esquina superior derecha del item) */}
+                          <TouchableOpacity onPress={() => confirmDeleteSavedCard(item)} style={{ padding: 6 }}>
+                            <Ionicons name="remove-circle-outline" size={22} color="#ef4444" />
+                          </TouchableOpacity>
+
                           <Text style={styles.savedCardStatus}>{item.status ?? ''}</Text>
                         </View>
-                      </TouchableOpacity>
+                      </View>
                     )}
                     ListEmptyComponent={() => (
                       <View style={{ padding: 12 }}>
@@ -872,6 +987,28 @@ export default function StripePay() {
           </View>
         </Modal>
 
+        {/* Modal confirmación eliminar tarjeta (NUEVO) */}
+        <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => { if (!deletingCard) setDeleteConfirmVisible(false); }}>
+          <View style={styles.autoModalBackdrop}>
+            <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#0b1220', marginBottom: 8 }}>Eliminar tarjeta</Text>
+              <Text style={{ fontSize: 13, color: '#334155', marginBottom: 14 }}>
+                ¿Estás seguro que deseas eliminar esta tarjeta? Esta acción no se puede deshacer.
+              </Text>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                <TouchableOpacity onPress={() => { if (!deletingCard) setDeleteConfirmVisible(false); setCardToDelete(null); }} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#e6eefb', alignItems: 'center', backgroundColor: '#fff' }} disabled={deletingCard}>
+                  <Text style={{ fontWeight: '700', color: '#0b58ff' }}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={performDeleteSavedCard} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: '#ef4444' }} disabled={deletingCard}>
+                  {deletingCard ? <ActivityIndicator color="#fff" /> : <Text style={{ fontWeight: '800', color: '#fff' }}>Sí, eliminar</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         <Modal visible={successModalVisible} transparent animationType="fade">
           <View style={styles.autoModalBackdrop}>
             <View style={styles.autoModalBox}>
@@ -883,6 +1020,13 @@ export default function StripePay() {
             </View>
           </View>
         </Modal>
+
+        {/* NUEVO: Toast estilizado */}
+        {toastVisible && (
+          <Animated.View pointerEvents="none" style={[styles.toastBox, { opacity: toastOpacity }]}>
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </Animated.View>
+        )}
       </SafeAreaView>
     </StripeProvider>
   );
@@ -936,4 +1080,29 @@ const styles = StyleSheet.create({
   savedCardStatus: { fontSize: 12, color: '#64748b' },
 
   savedCardRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, backgroundColor: '#fff', padding: 10, borderWidth: 1, borderColor: '#eef4ff' },
+
+  // NUEVO: estilos para el toast
+  toastBox: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(10, 26, 205, 0.95)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 160,
+    maxWidth: '85%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  toastText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
+  },
 });

@@ -1,4 +1,4 @@
-// OpenPay.js (modales: tamaño dinámico + logos oficiales en el formulario) 
+// OpenPay.js (modales: tamaño dinámico + logos oficiales en el formulario)
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
@@ -19,6 +19,7 @@ import {
   Switch,
   FlatList,
   ScrollView,
+  Animated,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -87,6 +88,14 @@ export default function OpenPay() {
   const [loadingSavedCards, setLoadingSavedCards] = useState(false);
   const [selectedSavedCard, setSelectedSavedCard] = useState(null);
   const [showCardFields, setShowCardFields] = useState(true);
+
+  // NEW: delete confirm + toast states
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [cardToDelete, setCardToDelete] = useState(null);
+  const [deletingCard, setDeletingCard] = useState(false);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVisible, setToastVisible] = useState(false);
 
   // params defaults
   const {
@@ -804,6 +813,86 @@ export default function OpenPay() {
   const computedModalHeight = Math.min(maxModalHeight, MODAL_HEADER_HEIGHT + contentNeeded + MODAL_FOOTER_HEIGHT);
 
   // -----------------------
+  // NEW: confirm delete saved card (open modal)
+  const confirmDeleteSavedCard = (card) => {
+    setCardToDelete(card);
+    setDeleteConfirmVisible(true);
+  };
+
+  // NEW: show toast
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setToastVisible(true);
+    Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
+      setTimeout(() => {
+        Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+          setToastVisible(false);
+          setToastMessage('');
+        });
+      }, 2000);
+    });
+  };
+
+  // NEW: perform delete saved card (DELETE request)
+  const performDeleteSavedCard = async () => {
+    if (!cardToDelete) return;
+    setDeletingCard(true);
+
+    const host = (String(api_host || 'https://127.0.0.1')).replace(/\/$/, '');
+    const cardId = cardToDelete.id ?? cardToDelete.external_id ?? cardToDelete.external_payment_method_id ?? cardToDelete.mobile_payment_method_id;
+    const url = `${host}/api/mobileapp/sucursales/${encodeURIComponent(sucursal_id)}/payment-methods/${encodeURIComponent(cardId)}?gateway=openpay&environment=${encodeURIComponent(environment)}`;
+
+    let usuarioAppUuid = null;
+    try {
+      usuarioAppUuid = await AsyncStorage.getItem('user_usuario_app_id');
+    } catch (e) {
+      console.warn('performDeleteSavedCard - read user_usuario_app_id failed', e);
+    }
+    usuarioAppUuid = usuarioAppUuid || usuario_app_id || '';
+
+    const idKey = genIdempotencyKey();
+
+    try {
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idKey,
+          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+        },
+        body: JSON.stringify({ usuario_app_id: usuarioAppUuid }),
+      });
+
+      let json = null;
+      try { json = await res.json().catch(() => null); } catch (e) {}
+
+      if (!res.ok) {
+        console.warn('performDeleteSavedCard - server error', res.status, json);
+        Alert.alert('Error', `No se pudo eliminar la tarjeta (${res.status}).`);
+        setDeletingCard(false);
+        setDeleteConfirmVisible(false);
+        setCardToDelete(null);
+        return;
+      }
+
+      // éxito: actualizar lista en UI
+      setSavedCards((prev) => (Array.isArray(prev) ? prev.filter((c) => String(c.id) !== String(cardToDelete.id)) : []));
+      // cerrar modal de confirmación
+      setDeleteConfirmVisible(false);
+      setCardToDelete(null);
+      // mostrar toast
+      showToast('Tarjeta eliminada correctamente');
+    } catch (err) {
+      console.warn('performDeleteSavedCard exception', err);
+      Alert.alert('Error', 'Ocurrió un error al eliminar la tarjeta.');
+      setDeleteConfirmVisible(false);
+      setCardToDelete(null);
+    } finally {
+      setDeletingCard(false);
+    }
+  };
+
+  // -----------------------
   // Load saved cards on mount and refresh on focus (silent: don't auto-open modal)
   // -----------------------
   useEffect(() => {
@@ -1008,15 +1097,23 @@ export default function OpenPay() {
                   style={{ flex: 1 }}
                   contentContainerStyle={{ paddingBottom: 12 }}
                   renderItem={({ item }) => (
-                    <TouchableOpacity onPress={() => onSelectSavedCard(item)} style={styles.savedCardRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '800', color: '#0b1220' }}>{(item.brand || '').toUpperCase()} • **** {item.last4 ?? ''}</Text>
-                        <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Vence: {String(item.exp_month || '--')}/{String(item.exp_year || '--')} {item.is_preferred ? ' • Preferida' : ''}</Text>
-                      </View>
+                    <View style={styles.savedCardRow}>
+                      <TouchableOpacity onPress={() => onSelectSavedCard(item)} style={{ flex: 1 }}>
+                        <View>
+                          <Text style={{ fontWeight: '800', color: '#0b1220' }}>{(item.brand || '').toUpperCase()} • **** {item.last4 ?? ''}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Vence: {String(item.exp_month || '--')}/{String(item.exp_year || '--')} {item.is_preferred ? ' • Preferida' : ''}</Text>
+                        </View>
+                      </TouchableOpacity>
+
                       <View style={{ alignItems: 'flex-end' }}>
+                        {/* delete button */}
+                        <TouchableOpacity onPress={() => confirmDeleteSavedCard(item)} style={{ padding: 6 }}>
+                          <Ionicons name="remove-circle-outline" size={22} color="#ef4444" />
+                        </TouchableOpacity>
+
                         <Text style={{ fontSize: 12, color: '#64748b' }}>{item.status ?? ''}</Text>
                       </View>
-                    </TouchableOpacity>
+                    </View>
                   )}
                   ListEmptyComponent={() => (
                     <View style={{ padding: 12 }}>
@@ -1039,6 +1136,28 @@ export default function OpenPay() {
         </View>
       </Modal>
 
+      {/* Modal confirmación eliminar tarjeta */}
+      <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => { if (!deletingCard) setDeleteConfirmVisible(false); }}>
+        <View style={styles.autoModalBackdrop}>
+          <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#0b1220', marginBottom: 8 }}>Eliminar tarjeta</Text>
+            <Text style={{ fontSize: 13, color: '#334155', marginBottom: 14 }}>
+              ¿Estás seguro que deseas eliminar esta tarjeta? Esta acción no se puede deshacer.
+            </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              <TouchableOpacity onPress={() => { if (!deletingCard) setDeleteConfirmVisible(false); setCardToDelete(null); }} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#e6eefb', alignItems: 'center', backgroundColor: '#fff' }} disabled={deletingCard}>
+                <Text style={{ fontWeight: '700', color: '#0b58ff' }}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={performDeleteSavedCard} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: '#ef4444' }} disabled={deletingCard}>
+                {deletingCard ? <ActivityIndicator color="#fff" /> : <Text style={{ fontWeight: '800', color: '#fff' }}>Sí, eliminar</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {processing && (
         <View style={styles.processingOverlay}>
           <View style={styles.processingBox}>
@@ -1046,6 +1165,13 @@ export default function OpenPay() {
             <Text style={styles.processingText}>Procesando pago…</Text>
           </View>
         </View>
+      )}
+
+      {/* Toast estilizado (nuevo) */}
+      {toastVisible && (
+        <Animated.View pointerEvents="none" style={[styles.toastBox, { opacity: toastOpacity }]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
       )}
     </SafeAreaView>
   );
@@ -1147,4 +1273,29 @@ const styles = StyleSheet.create({
   modalSecondaryBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e6eefb' },
 
   savedCardRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eef2ff', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+
+  // NEW: toast styles
+  toastBox: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(10, 26, 205, 0.95)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 160,
+    maxWidth: '85%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  toastText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
+  },
 });
