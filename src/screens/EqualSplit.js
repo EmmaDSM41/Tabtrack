@@ -78,7 +78,6 @@ export default function EqualSplit() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  // responsive helpers
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -90,7 +89,6 @@ export default function EqualSplit() {
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-  // safe paddings
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const bottomSafe = Math.round(insets?.bottom ?? 0);
   const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
@@ -107,17 +105,6 @@ export default function EqualSplit() {
   const incomingIva = parseNumberSafe(incomingIvaRaw);
   const incomingTotal = parseNumberSafe(incomingTotalRaw);
 
-  const [items, setItems] = useState(passedItems ?? null);
-  const [totalComensales, setTotalComensales] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const [showPeopleModal, setShowPeopleModal] = useState(false);
-  const [peopleInput, setPeopleInput] = useState('');
-  const [modalConfirmLoading, setModalConfirmLoading] = useState(false);
-
-  // NEW: estado para saber si ya hay un pago por partes iguales
-  const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
-
   const saleId = route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? null;
   const restauranteId = route?.params?.restauranteId ?? route?.params?.restaurante_id ?? null;
   const sucursalId = route?.params?.sucursalId ?? route?.params?.sucursal_id ?? null;
@@ -125,6 +112,10 @@ export default function EqualSplit() {
   const mesero = route?.params?.mesero ?? route?.params?.waiter ?? null;
   const moneda = route?.params?.moneda ?? 'MXN';
   const total_consumo_param = route?.params?.total ?? route?.params?.total_consumo ?? null;
+
+  const savedKey = saleId
+    ? `equal_split_people_${String(sucursalId ?? 'nosucursal')}_${String(saleId)}`
+    : (token ? `equal_split_people_token_${token}` : null);
 
   const normalizeItem = (raw, fallbackId) => {
     const name = raw?.nombre_item ?? raw?.nombre ?? raw?.name ?? '';
@@ -134,43 +125,85 @@ export default function EqualSplit() {
     return { id: String(id), name, price, qty, raw };
   };
 
+  const [items, setItems] = useState(passedItems ?? null);
+  const [totalComensales, setTotalComensales] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const [showPeopleModal, setShowPeopleModal] = useState(false);
+  const [peopleInput, setPeopleInput] = useState('');
+  const [modalConfirmLoading, setModalConfirmLoading] = useState(false);
+
+  const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
+
   useEffect(() => {
     let mounted = true;
 
-    const savedKey = saleId ? `equal_split_people_sale_${saleId}` : (token ? `equal_split_people_token_${token}` : null);
+    const readComensalesFromServer = async (idVenta) => {
+      const base = API_BASE_URL.replace(/\/$/, '');
+      const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+      };
+
+      const urlsToTry = [];
+
+      urlsToTry.push(`${base}/api/mesas/comensales/${encodeURIComponent(String(idVenta))}`);
+
+      const params = new URLSearchParams();
+      params.append('id_venta', String(idVenta));
+      if (sucursalId !== null && sucursalId !== undefined && String(sucursalId).trim() !== '') {
+        params.append('sucursal_id', String(sucursalId));
+      }
+      urlsToTry.push(`${base}/api/mesas/comensales?${params.toString()}`);
+
+      for (const url of urlsToTry) {
+        try {
+          const res = await fetch(url, { method: 'GET', headers });
+          if (!res.ok) continue;
+
+          const json = await res.json();
+
+          const candidates = [
+            json?.numero_comensales,
+            json?.data?.numero_comensales,
+            json?.result?.numero_comensales,
+            json?.comensales?.numero_comensales,
+            Array.isArray(json) ? json?.[0]?.numero_comensales : null,
+          ];
+
+          for (const candidate of candidates) {
+            const n = Number(candidate);
+            if (Number.isFinite(n) && n > 0) {
+              return n;
+            }
+          }
+        } catch (err) {
+          console.warn('EqualSplit: error consultando comensales en servidor con', url, err);
+        }
+      }
+
+      return null;
+    };
 
     const fetchSavedPeopleThenItems = async () => {
       let savedN = null;
 
       if (saleId) {
-        try {
-          const base = API_BASE_URL.replace(/\/$/, '');
-          const url = `${base}/api/mesas/comensales/${encodeURIComponent(saleId)}`;
-          const res = await fetch(url, {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-              ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
-            },
-          });
-          if (res.ok) {
-            const json = await res.json();
-            const num = json?.numero_comensales ?? json?.numero_comensales ?? null;
-            const parsedNum = Number(num);
-            if (!Number.isNaN(parsedNum) && parsedNum > 0) {
-              savedN = parsedNum;
-              if (mounted) {
-                setTotalComensales(parsedNum);
-                setPeopleInput(String(parsedNum));
-                if (savedKey) {
-                  try { await AsyncStorage.setItem(savedKey, String(parsedNum)); } catch (e) { /* ignore */ }
-                }
-              }
+        savedN = await readComensalesFromServer(saleId);
+
+        if (savedN != null) {
+          if (mounted) {
+            setTotalComensales(savedN);
+            setPeopleInput(String(savedN));
+          }
+          if (savedKey) {
+            try {
+              await AsyncStorage.setItem(savedKey, String(savedN));
+            } catch (e) {
+              console.warn('EqualSplit: error guardando respaldo local de comensales', e);
             }
           }
-        } catch (err) {
-          console.warn('EqualSplit: error fetching saved comensales from server (fallback to local)', err);
         }
       }
 
@@ -190,18 +223,19 @@ export default function EqualSplit() {
             }
           }
         } catch (e) {
-          console.warn('EqualSplit: error reading saved people from AsyncStorage', e);
+          console.warn('EqualSplit: error leyendo comensales desde AsyncStorage', e);
         }
       }
 
-      // Now load items if needed (same logic as before)
       if (items && Array.isArray(items) && items.length > 0) {
         // nothing
       } else {
         if (!token) {
           if (mounted) setItems([]);
+          if (savedN == null && mounted) setShowPeopleModal(true);
           return;
         }
+
         setLoading(true);
         try {
           const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
@@ -213,15 +247,20 @@ export default function EqualSplit() {
               ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
             },
           });
+
           if (!mounted) return;
+
           if (!res.ok) {
             console.warn('Error fetch EqualSplit HTTP', res.status);
             setLoading(false);
+            if (savedN == null) setShowPeopleModal(true);
             return;
           }
+
           const json = await res.json();
           const rawItems = Array.isArray(json.items) ? json.items : (json.data?.items ?? json.result?.items ?? []);
           const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+
           if (mounted && (!items || items.length === 0)) setItems(mapped);
         } catch (err) {
           console.warn('EqualSplit fetch error:', err);
@@ -230,34 +269,30 @@ export default function EqualSplit() {
         }
       }
 
-      setTimeout(() => {
-        if (!mounted) return;
-        if (savedN == null && (totalComensales === null || totalComensales === undefined)) {
-          setShowPeopleModal(true);
-        }
-      }, 120);
+      if (savedN == null && mounted) {
+        setShowPeopleModal(true);
+      }
     };
 
     fetchSavedPeopleThenItems();
 
-    return () => { mounted = false; };
-   }, [token, saleId]);
+    return () => {
+      mounted = false;
+    };
+  }, [token, saleId]);
 
-  // NEW: chequear si hay un paid split de "partes iguales" en el servidor o en AsyncStorage
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!saleId) return;
       const key = `equal_split_paid_${String(saleId)}`;
       try {
-        // 1) revisar AsyncStorage primero (reacción inmediata en este dispositivo)
         const rawLocal = await AsyncStorage.getItem(key);
         if (rawLocal === '1') {
           if (mounted) setEqualsSplitPaid(true);
           return;
         }
 
-        // 2) si no está en local, consultar endpoint de splits si tenemos sucursalId
         if (!sucursalId) return;
 
         const base = API_BASE_URL.replace(/\/$/, '');
@@ -395,14 +430,13 @@ export default function EqualSplit() {
       };
     }).filter(Boolean);
 
-     const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
+    const totalToCharge = itemsToPay.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
     const ivaToCharge = +(totalToCharge / 1.16 * 0.16).toFixed(2);
     const subtotalToCharge = +(totalToCharge - ivaToCharge).toFixed(2);
 
-
     const payPayload = {
       ...payloadCommon,
-       subtotal: perPersonSubtotal,
+      subtotal: perPersonSubtotal,
       iva: perPersonIva,
       tipAmount: perPersonTip,
       tipPercent: tipPercent,
@@ -413,17 +447,15 @@ export default function EqualSplit() {
       total_persona: perPersonTotalWithTip,
       people,
       groupPeople: totalComensales,
-       items: itemsToPay,
+      items: itemsToPay,
       originalItems: items,
     };
 
-     console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
+    console.log('EqualSplit -> navegando a Payment con payPayload:', JSON.stringify(payPayload, null, 2));
     navigation.navigate('Payment', payPayload);
   };
 
   const hasTipApplied = tipPercent > 0;
-
-  const savedKey = saleId ? `equal_split_people_sale_${saleId}` : (token ? `equal_split_people_token_${token}` : null);
 
   const postComensalesToServer = async (idVenta, numero) => {
     try {
@@ -432,8 +464,15 @@ export default function EqualSplit() {
       }
       const base = API_BASE_URL.replace(/\/$/, '');
       const url = `${base}/api/mesas/comensales`;
-      // <-- Cambio solicitado: ahora envío sucursal_id además de id_venta y numero_comensales
-      const body = { id_venta: idVenta, sucursal_id: sucursalId, numero_comensales: Number(numero) };
+
+      const body = {
+        id_venta: String(idVenta),
+        sucursal_id: sucursalId !== null && sucursalId !== undefined && String(sucursalId).trim() !== ''
+          ? Number(sucursalId)
+          : null,
+        numero_comensales: Number(numero),
+      };
+
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -442,12 +481,15 @@ export default function EqualSplit() {
         },
         body: JSON.stringify(body),
       });
+
       let json = null;
       try { json = await res.json(); } catch (e) { json = null; }
+
       if (!res.ok) {
         const msg = json && (json.error || json.message) ? (json.error || json.message) : `HTTP ${res.status}`;
         return { ok: false, message: msg, raw: json };
       }
+
       return { ok: true, raw: json };
     } catch (err) {
       console.warn('postComensalesToServer error', err);
@@ -491,7 +533,7 @@ export default function EqualSplit() {
       setShowPeopleModal(false);
 
       if (serverOk) {
-        // success
+        // ok
       } else {
         if (saleId) {
           Alert.alert(
@@ -533,15 +575,14 @@ export default function EqualSplit() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
-         <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
-           <View style={[styles.gradientRow, { flexDirection: 'row' }]}>
+        <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
+          <View style={[styles.gradientRow, { flexDirection: 'row' }]}>
             <View style={[styles.leftCol, { flex: 0, maxWidth: Math.round(Math.min(logoSize + wp(6), wp(40))) }]}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
               <View style={styles.logoWrap}>
                 <Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantImage} />
               </View>
             </View>
-
 
             <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: Math.round(wp(42)) } : { marginLeft: Math.round(wp(30)) }]}>
               <Text style={styles.totalLabel}>Total</Text>
@@ -559,7 +600,6 @@ export default function EqualSplit() {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={styles.thanksSub}>{people} {people === 1 ? 'persona' : 'personas'}</Text>
 
-                  { /* NEW: si equalsSplitPaid = true, ocultamos el lápiz; si false, mostramos el botón de editar exactamente igual */ }
                   {!equalsSplitPaid && (
                     <TouchableOpacity
                       onPress={() => {
@@ -627,8 +667,6 @@ export default function EqualSplit() {
           </TouchableOpacity>
 
           <View style={styles.buttonsWrap}>
- 
-
             <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Escanear', { token })} activeOpacity={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.ghostButtonText}>Volver</Text>
             </TouchableOpacity>
@@ -652,8 +690,6 @@ export default function EqualSplit() {
             />
 
             <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-             
-
               <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 {modalConfirmLoading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'800' }}>Confirmar</Text>}
               </TouchableOpacity>
@@ -678,7 +714,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth
       backgroundColor: '#ffffff',
       borderBottomWidth: 1,
       borderBottomColor: '#eee',
-      paddingTop: 0, // topSafe aplicado en SafeAreaView
+      paddingTop: 0,
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
     backArrow: { fontSize: Math.round(clamp(rf(6.6), 22, 36)), color: '#0b58ff', marginLeft: 2 },

@@ -35,7 +35,7 @@ const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','A
 
 export default function ExperiencesScreen() {
   const navigation = useNavigation();
-  const route = useRoute(); // <--- nuevo: detectamos params entrantes
+  const route = useRoute();
   const { width, height } = useWindowDimensions();
 
   const wp = (p) => (p * width) / 100;
@@ -68,14 +68,12 @@ export default function ExperiencesScreen() {
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
 
-  // --- refs para scroll y posicionamiento (nuevos) ---
   const mainScrollRef = useRef(null);
-  const monthPositionsRef = useRef({}); // { periodo: y }
-  const pendingNotificationRef = useRef(null); // guarda notificacion si llega antes de cargar monthsData
+  const monthPositionsRef = useRef({});
+  const pendingNotificationRef = useRef(null);
 
-  // refs dentro del sheet para cada transacción (nuevos)
   const sheetScrollRef = useRef(null);
-  const txPositionsRef = useRef({}); // { txId: y }
+  const txPositionsRef = useRef({});
 
   useEffect(() => { animY.setValue(0); }, [animY]);
 
@@ -258,7 +256,6 @@ export default function ExperiencesScreen() {
         return null;
       }
 
-
       let rawConsumptions = null;
 
       if (json && Array.isArray(json.consumptions)) {
@@ -352,14 +349,11 @@ export default function ExperiencesScreen() {
     fetchYearHistory();
   }, [fetchYearHistory]);
 
-  // --- NEW: procesar params de ruta entrantes (si la app navegó aquí con notificación) ---
   useEffect(() => {
     if (route?.params) {
-      const incoming = route.params.notification ?? route.params; // aceptamos {notification:{...}} o directamente params
+      const incoming = route.params.notification ?? route.params;
       if (incoming && (incoming.sale_id || incoming.transactionId || incoming.periodo)) {
-        // guardamos la notificacion para procesarla cuando haya monthsData cargado
         pendingNotificationRef.current = incoming;
-        // si monthsData ya está listo, procesar ahora
         if (Array.isArray(monthsData) && monthsData.length > 0) {
           setTimeout(() => {
             processPendingNotification();
@@ -370,7 +364,6 @@ export default function ExperiencesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params]);
 
-  // cuando monthsData cambia y existe pendingNotification, procesarla
   useEffect(() => {
     if (pendingNotificationRef.current && Array.isArray(monthsData) && monthsData.length > 0) {
       setTimeout(() => {
@@ -380,17 +373,13 @@ export default function ExperiencesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthsData]);
 
-  // función que busca el mes y abre modal/tx
   const processPendingNotification = useCallback(async () => {
     const notif = pendingNotificationRef.current;
     if (!notif) return;
-    // limpiamos después de procesar
     pendingNotificationRef.current = null;
 
-    // determinar periodo objetivo
     let targetPeriodo = notif.periodo ?? null;
     if (!targetPeriodo && notif.date) {
-      // si recibimos una fecha, transformarla a yyyyMM
       try {
         const d = new Date(notif.date);
         if (!isNaN(d.getTime())) {
@@ -403,7 +392,6 @@ export default function ExperiencesScreen() {
       }
     }
 
-    // buscar mes en monthsData (busca exacto por periodo o por month+year)
     let monthObj = null;
     if (targetPeriodo) {
       monthObj = monthsData.find(m => String(m.periodo) === String(targetPeriodo));
@@ -414,13 +402,11 @@ export default function ExperiencesScreen() {
       monthObj = monthsData.find(m => String(m.periodo) === peri);
     }
 
-    // fallback: si no encontró, usar mes actual (si existe)
     if (!monthObj && monthsData.length > 0) {
       monthObj = monthsData[0];
     }
     if (!monthObj) return;
 
-    // intentar hacer scroll a la tarjeta del mes en la ScrollView principal
     try {
       const y = monthPositionsRef.current[monthObj.periodo];
       if (mainScrollRef.current && typeof y === 'number') {
@@ -430,11 +416,9 @@ export default function ExperiencesScreen() {
       // ignore
     }
 
-    // abrir sheet y luego expandir transacción indicada
     await openSheetFor(monthObj, { highlightSaleId: notif.sale_id ?? notif.transactionId ?? null });
   }, [monthsData, openSheetFor]);
 
-  // openSheetFor ahora acepta opciones: highlightSaleId
   const openSheetFor = async (monthObj, opts = {}) => {
     setExpandedTxIds([]);
     setSelectedMonth({ ...monthObj, consumptions: [], loading: true });
@@ -443,22 +427,29 @@ export default function ExperiencesScreen() {
 
     const periodo = monthObj.periodo;
     const consumptions = await fetchMonthDetail(periodo);
-    setSelectedMonth((prev) => ({ ...(prev || {}), consumptions: consumptions || [], loading: false, title: monthObj.title, amount: monthObj.amount, transactions: monthObj.transactions }));
+    setSelectedMonth((prev) => ({
+      ...(prev || {}),
+      periodo: monthObj.periodo,
+      month: monthObj.month,
+      year: monthObj.year,
+      title: monthObj.title,
+      billing: monthObj.billing ?? prev?.billing ?? null,
+      counts: monthObj.counts ?? prev?.counts ?? null,
+      amount: monthObj.amount,
+      transactions: monthObj.transactions,
+      consumptions: consumptions || [],
+      loading: false
+    }));
 
-    // small delay to ensure transactions rendered
     setTimeout(() => {
       if (opts.highlightSaleId && Array.isArray(consumptions)) {
-        // buscar transacción por sale_id o id
         const found = consumptions.find((t) => String(t.sale_id) === String(opts.highlightSaleId) || String(t.id) === String(opts.highlightSaleId));
         if (found) {
-          // expandirla
           setExpandedTxIds([found.id]);
-          // intentar scrollear dentro del sheet al elemento
           const yTx = txPositionsRef.current[found.id];
           if (sheetScrollRef.current && typeof yTx === 'number') {
             sheetScrollRef.current.scrollTo({ y: Math.max(0, yTx - 60), animated: true });
           } else {
-            // si no tenemos posición ya medida, intentar medir vía UIManager
             try {
               const node = txRefsMap.current[found.id];
               if (node) {
@@ -665,8 +656,7 @@ export default function ExperiencesScreen() {
     return `${isNeg ? negativeSign : ''}${currencySign}${formatted}`;
   };
 
-  // refs para cada tx renderizado (para medir posiciones)
-  const txRefsMap = useRef({}); // { txId: ref }
+  const txRefsMap = useRef({});
 
   const renderTransaction = (tx) => {
     const expanded = expandedTxIds.includes(tx.id);
@@ -677,7 +667,6 @@ export default function ExperiencesScreen() {
       <View
         key={tx.id}
         style={sheetStyles.personCard}
-        // guardamos la posición Y de cada transacción dentro del sheet para scrollear luego
         onLayout={(ev) => {
           try {
             const y = ev.nativeEvent.layout.y;
@@ -750,7 +739,6 @@ export default function ExperiencesScreen() {
     }
   ];
 
-  // Al renderizar cada tarjeta de mes guardamos su posición para poder scrollear desde la notificación
   const renderPayment = ({ item }) => {
     const isPending = (item.transactions || 0) > 0 && (item.amount || 0) === 0;
     const isHasMov = (item.transactions || 0) > 0;
@@ -814,6 +802,8 @@ export default function ExperiencesScreen() {
 
   const now = new Date();
   const currentMonthIdx = now.getMonth();
+  const currentPeriodo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+
   let assignedBalance = 0;
   let consumed = 0;
   let available = assignedBalance - consumed;
@@ -870,7 +860,7 @@ export default function ExperiencesScreen() {
 
   const computeVisibleMonths = () => {
     if (!Array.isArray(monthsData) || monthsData.length === 0) return listDataFallback;
-    const currentMonthNumber = now.getMonth() + 1; // 1..12
+    const currentMonthNumber = now.getMonth() + 1;
     const upto = monthsData.filter(m => Number(m.month) <= currentMonthNumber);
     const currentObj = upto.find(m => Number(m.month) === currentMonthNumber) || null;
     const prev = upto.filter(m => Number(m.month) !== currentMonthNumber).sort((a,b) => Number(b.month) - Number(a.month));
@@ -880,6 +870,18 @@ export default function ExperiencesScreen() {
     return upto.length ? upto : listDataFallback;
   };
   const listData = (monthsData && monthsData.length) ? computeVisibleMonths() : listDataFallback;
+
+  const selectedPeriodo = selectedMonth?.periodo ? String(selectedMonth.periodo) : '';
+  const selectedAssignedBalance = Number(selectedMonth?.billing?.saldo_mensual ?? selectedMonth?.billing?.saldo_asignado ?? 0) || 0;
+  const selectedConsumedBalance = Number(selectedMonth?.billing?.monto_mensual_usado ?? selectedMonth?.amount ?? 0) || 0;
+  const selectedAvailableBalanceRaw =
+    selectedMonth?.billing?.saldo_disponible !== undefined && selectedMonth?.billing?.saldo_disponible !== null
+      ? Number(selectedMonth.billing.saldo_disponible)
+      : (selectedAssignedBalance - selectedConsumedBalance);
+
+  const selectedAvailableBalance = Number.isFinite(selectedAvailableBalanceRaw) ? selectedAvailableBalanceRaw : 0;
+  const selectedOverBalance = Math.max(0, selectedConsumedBalance - selectedAssignedBalance);
+  const showMonthlyBalanceSummary = Boolean(selectedPeriodo) && selectedPeriodo < currentPeriodo;
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -925,11 +927,9 @@ export default function ExperiencesScreen() {
 
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.whiteSmallLabel}>Disponible</Text>
-
                     <Text style={[styles.whiteSmallValue, { fontWeight: '800', color: availableIsNegative ? '#FF3B30' : '#fff' }]}>
                       {formattedAvailableForDisplay}
                     </Text>
-
                   </View>
                 </View>
 
@@ -957,7 +957,7 @@ export default function ExperiencesScreen() {
               </View>
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text style={styles.infoTitle}>Tu saldo se renueva el primer día de cada mes</Text>
-                <TouchableOpacity  >
+                <TouchableOpacity>
                   <Text style={styles.infoLink}>Saldo no utilizado no se acumula</Text>
                 </TouchableOpacity>
               </View>
@@ -987,7 +987,7 @@ export default function ExperiencesScreen() {
               keyExtractor={(i) => i.periodo}
               renderItem={renderPayment}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-              scrollEnabled={false} // lo dejamos sin scroll interno para que el main ScrollView lo maneje
+              scrollEnabled={false}
             />
           )}
         </View>
@@ -1038,6 +1038,40 @@ export default function ExperiencesScreen() {
               <Text style={sheetStyles.totalAmount}>{formatMoney(selectedMonth?.amount ?? 0, { currencySign: '$' })}</Text>
             </View>
 
+            {showMonthlyBalanceSummary && (
+              <View
+                style={{
+                  marginTop: 12,
+                  backgroundColor: '#FBF6FF',
+                  borderRadius: 14,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: '#F0E6FF',
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ color: '#6B7280', fontWeight: '700' }}>Saldo asignado</Text>
+                  <Text style={{ color: '#111827', fontWeight: '800' }}>
+                    {formatMoney(selectedAssignedBalance, { currencySign: '$' })}
+                  </Text>
+                </View>
+
+{/*                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ color: '#6B7280', fontWeight: '700' }}>Disponible mensual</Text>
+                  <Text style={{ color: selectedAvailableBalance < 0 ? '#DC2626' : '#111827', fontWeight: '800' }}>
+                    {formatMoney(Math.max(0, selectedAvailableBalance), { currencySign: '$' })}
+                  </Text>
+                </View> */}
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#6B7280', fontWeight: '700' }}>Exceso del saldo mensual</Text>
+                  <Text style={{ color: selectedOverBalance > 0 ? '#DC2626' : '#10B981', fontWeight: '800' }}>
+                    {formatMoney(selectedOverBalance, { currencySign: '$' })}
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <Text style={sheetStyles.sectionHeading}>Detalle de consumos</Text>
 
             <View style={{ marginTop: 10 }}>
@@ -1055,8 +1089,7 @@ export default function ExperiencesScreen() {
               )}
             </View>
 
-            <View style={sheetStyles.footerSummary}>
-            </View>
+            <View style={sheetStyles.footerSummary} />
 
             <View style={{ height: 40 }} />
           </ScrollView>
@@ -1074,7 +1107,6 @@ export default function ExperiencesScreen() {
   );
 }
 
-/* ------------ estilos (los tuyos, sin cambios significativos) ------------ */
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#FBFBFD' },
   pageTitle: { textAlign: 'center', color: '#0B61FF', fontWeight: '800' },

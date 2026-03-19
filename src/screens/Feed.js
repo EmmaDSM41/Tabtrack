@@ -118,8 +118,8 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -248,14 +248,14 @@ export default function RestaurantsScreen() {
   const { width, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
 
-  const [restaurants, setRestaurants]         = useState([]); // contendrá únicamente sucursales
-  const [filteredData, setFilteredData]       = useState([]);
-  const [cities, setCities]                   = useState(['Todos']);
-  const [favorites, setFavorites]             = useState([]);
+  const [restaurants, setRestaurants] = useState([]); // contendrá únicamente sucursales
+  const [filteredData, setFilteredData] = useState([]);
+  const [cities, setCities] = useState(['Todos']);
+  const [favorites, setFavorites] = useState([]);
 
-  const [searchQuery, setSearchQuery]         = useState('');
-  const [minRating, setMinRating]             = useState(0);
-  const [city, setCity]                       = useState('Todos'); // kept for compatibility but not shown in UI now
+  const [searchQuery, setSearchQuery] = useState('');
+  const [minRating, setMinRating] = useState(0);
+  const [city, setCity] = useState('Todos'); // kept for compatibility but not shown in UI now
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   const sampleTypes = [
@@ -457,7 +457,7 @@ export default function RestaurantsScreen() {
               const combinedName = restName ? (branchNamePart ? `${restName} - ${branchNamePart}` : restName) : (branchNamePart || '');
 
               const mapped = {
-                id: b.id ?? `${rest.id}-${Math.random().toString(36).slice(2,8)}`,
+                id: b.id ?? `${rest.id}-${Math.random().toString(36).slice(2, 8)}`,
                 name: combinedName,
                 city: b.city ?? b.ciudad ?? null,
                 avg_rating: (b.avg_rating ?? b.rating ?? null) !== null ? Number(b.avg_rating ?? b.rating) : null,
@@ -490,10 +490,10 @@ export default function RestaurantsScreen() {
               try {
                 const mostrarFlag =
                   !!(b.mostrar_rating === true ||
-                     (b.mostrar_rating && String(b.mostrar_rating).toLowerCase() === 'true') ||
-                     (mapped.raw && (mapped.raw.mostrar_rating === true || (String(mapped.raw.mostrar_rating || '').toLowerCase() === 'true'))) ||
-                     mapped.mostrar_rating === true ||
-                     (mapped.mostrar_rating && String(mapped.mostrar_rating).toLowerCase() === 'true'));
+                    (b.mostrar_rating && String(b.mostrar_rating).toLowerCase() === 'true') ||
+                    (mapped.raw && (mapped.raw.mostrar_rating === true || (String(mapped.raw.mostrar_rating || '').toLowerCase() === 'true'))) ||
+                    mapped.mostrar_rating === true ||
+                    (mapped.mostrar_rating && String(mapped.mostrar_rating).toLowerCase() === 'true'));
                 if (mostrarFlag) {
                   const surveyAvg = await fetchSurveyAvgForSucursal(mapped.id);
                   mapped.avg_rating = surveyAvg;
@@ -744,7 +744,7 @@ export default function RestaurantsScreen() {
         renderItem={({ item }) => (
           <RestaurantCard
             restaurant={item}
-            imageSource={ item.image ? { uri: item.image } : defaultImage }
+            imageSource={item.image ? { uri: item.image } : defaultImage}
             onPress={() => navigation.navigate('Restaurant', { restaurant: item, id: item.id })}
             isFavorite={favorites.some(f => String(f.id) === String(item.id))}
             onToggleFavorite={() => toggleFavorite(item)}
@@ -774,7 +774,9 @@ export default function RestaurantsScreen() {
                 {/* REEMPLAZO: Ciudad -> Usar tu ubicación + radio */}
                 <Text style={styles.modalLabel}>Usar tu ubicación</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                  <Text style={{ color: '#333', fontWeight: '600' }}>{useLocation ? `Activa — ${userLocation ? `${userLocation.latitude.toFixed(5)}, ${userLocation.longitude.toFixed(5)}` : 'obteniendo...'}` : 'Desactivada'}</Text>
+                  <Text style={{ color: '#333', fontWeight: '600' }}>
+                    {useLocation ? 'Activa' : 'Desactivada'}
+                  </Text>
                   <Switch
                     value={useLocation}
                     onValueChange={async (val) => {
