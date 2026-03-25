@@ -84,7 +84,6 @@ const splitAmountByIndex = (amount, parts, index) => {
   const base = Math.floor(totalCents / safeParts);
   const remainder = totalCents % safeParts;
 
-  // el centavo sobrante queda para el/los últimos pagos
   const extra = safeIndex >= (safeParts - remainder) ? 1 : 0;
   return fromCents(base + extra);
 };
@@ -120,7 +119,7 @@ export default function EqualSplit() {
   const incomingIva = parseNumberSafe(incomingIvaRaw);
   const incomingTotal = parseNumberSafe(incomingTotalRaw);
 
-  const saleId = route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? null;
+  const saleId = route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.ventaId ?? route?.params?.venta_id ?? null;
   const restauranteId = route?.params?.restauranteId ?? route?.params?.restaurante_id ?? null;
   const sucursalId = route?.params?.sucursalId ?? route?.params?.sucursal_id ?? null;
   const mesaId = route?.params?.mesaId ?? route?.params?.mesa_id ?? null;
@@ -128,11 +127,8 @@ export default function EqualSplit() {
   const moneda = route?.params?.moneda ?? 'MXN';
   const total_consumo_param = route?.params?.total ?? route?.params?.total_consumo ?? null;
 
-  const ventaLookupId = saleId ?? token ?? route?.params?.ventaId ?? route?.params?.venta_id ?? null;
-
-  const savedKey = ventaLookupId
-    ? `equal_split_people_${String(sucursalId ?? 'nosucursal')}_${String(ventaLookupId)}`
-    : (token ? `equal_split_people_token_${token}` : null);
+  const ventaLookupId = saleId ?? route?.params?.ventaId ?? route?.params?.venta_id ?? null;
+  const comensalesLookupId = ventaLookupId;
 
   const normalizeItem = (raw, fallbackId) => {
     const name = raw?.nombre_item ?? raw?.nombre ?? raw?.name ?? '';
@@ -199,41 +195,14 @@ export default function EqualSplit() {
     const fetchSavedPeopleThenItems = async () => {
       let savedN = null;
 
-      if (ventaLookupId) {
-        savedN = await readComensalesFromServer(ventaLookupId);
+      if (comensalesLookupId) {
+        savedN = await readComensalesFromServer(comensalesLookupId);
 
         if (savedN != null) {
           if (mounted) {
             setTotalComensales(savedN);
             setPeopleInput(String(savedN));
           }
-          if (savedKey) {
-            try {
-              await AsyncStorage.setItem(savedKey, String(savedN));
-            } catch (e) {
-              console.warn('EqualSplit: error guardando respaldo local de comensales', e);
-            }
-          }
-        }
-      }
-
-      if (savedN == null) {
-        try {
-          if (savedKey) {
-            const raw = await AsyncStorage.getItem(savedKey);
-            if (raw) {
-              const n = Number(raw);
-              if (!Number.isNaN(n) && n > 0) {
-                savedN = n;
-                if (mounted) {
-                  setTotalComensales(n);
-                  setPeopleInput(String(n));
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('EqualSplit: error leyendo comensales desde AsyncStorage', e);
         }
       }
 
@@ -365,12 +334,10 @@ export default function EqualSplit() {
 
   const people = (typeof totalComensales === 'number' && totalComensales > 0) ? totalComensales : 1;
 
-  // base exacta por persona en centavos; el sobrante se queda para el último pago
   const perPersonBaseTotal = splitAmountByIndex(total, Math.max(1, people), Math.max(0, paidSplitCount));
   const perPersonSubtotal = splitAmountByIndex(subtotal, Math.max(1, people), Math.max(0, paidSplitCount));
   const perPersonIva = splitAmountByIndex(iva, Math.max(1, people), Math.max(0, paidSplitCount));
 
-  // propina calculada sobre el monto exacto de esa persona
   const perPersonTip = round2(perPersonBaseTotal * (tipPercent / 100));
   const perPersonTotalWithTip = round2(perPersonBaseTotal + perPersonTip);
 
@@ -420,7 +387,6 @@ export default function EqualSplit() {
       people,
       returnScreen: 'EqualSplit',
 
-      // valores exactos para que Propina no vuelva a repartir con flotantes
       perPersonSubtotal,
       perPersonIva,
       perPersonTotal: perPersonBaseTotal,
@@ -533,8 +499,8 @@ export default function EqualSplit() {
       let serverOk = false;
       let serverResult = null;
 
-      if (ventaLookupId) {
-        const result = await postComensalesToServer(ventaLookupId, n);
+      if (comensalesLookupId) {
+        const result = await postComensalesToServer(comensalesLookupId, n);
         serverResult = result;
         if (result.ok) serverOk = true;
         else {
@@ -544,21 +510,13 @@ export default function EqualSplit() {
         console.warn('EqualSplit: ventaLookupId no disponible; no se intentará POST a /api/mesas/comensales');
       }
 
-      try {
-        if (savedKey) {
-          await AsyncStorage.setItem(savedKey, String(n));
-        }
-      } catch (e) {
-        console.warn('Error saving equal split people to AsyncStorage', e);
-      }
-
       setTotalComensales(n);
       setShowPeopleModal(false);
 
       if (serverOk) {
         // success
       } else {
-        if (ventaLookupId) {
+        if (comensalesLookupId) {
           Alert.alert(
             'Guardado localmente',
             'El número de comensales se guardó localmente pero no se pudo guardar en el servidor. Intenta de nuevo más tarde.'
