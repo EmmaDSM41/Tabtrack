@@ -1,4 +1,3 @@
-// PaymentScreen.js
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   SafeAreaView,
@@ -44,6 +43,22 @@ const AS_KEYS = {
 const safeNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+};
+
+const round2 = (v) => Number(Number(v || 0).toFixed(2));
+const toCents = (v) => Math.round(Number(v || 0) * 100);
+const fromCents = (cents) => Number((Number(cents || 0) / 100).toFixed(2));
+
+const splitAmountByIndex = (amount, parts, index) => {
+  const safeParts = Math.max(1, Math.floor(Number(parts) || 1));
+  const safeIndex = Math.max(0, Math.min(safeParts - 1, Math.floor(Number(index) || 0)));
+  const totalCents = toCents(amount);
+  const base = Math.floor(totalCents / safeParts);
+  const remainder = totalCents % safeParts;
+
+  // el centavo sobrante se queda para los últimos pagos
+  const extra = safeIndex >= (safeParts - remainder) ? 1 : 0;
+  return fromCents(base + extra);
 };
 
 const pendingKeyForSale = (saleId) => `pending_payment_${saleId}`;
@@ -236,10 +251,15 @@ export default function PaymentScreen() {
   );
 
   const totalFromItems = items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+
   const totalSinPropina = Number(
-    params.total ?? params.monto_total ?? params.totalWithoutTip ?? params.total_sin_propina ?? params.monto_subtotal ?? totalFromItems
+    params.total ??
+    params.monto_total ??
+    params.totalWithoutTip ??
+    params.total_sin_propina ??
+    params.monto_subtotal ??
+    totalFromItems
   );
-  const totalSinPropinaFinal = Number(totalSinPropina) || Number(totalFromItems) || 0;
 
   const restaurantImage = params.restaurantImage ?? params.restaurantImageUri ?? null;
 
@@ -257,6 +277,14 @@ export default function PaymentScreen() {
   const providedReturnUrl = params.return_url ?? params.returnUrl ?? null;
   const providedCancelUrl = params.cancel_url ?? params.cancelUrl ?? null;
 
+  const comingFromEqualSplit = params.groupPeople !== undefined && params.groupPeople !== null;
+  const groupPeopleCount = Math.max(1, Number(params.groupPeople ?? params.people ?? 1) || 1);
+
+  // Para partes iguales, la base real debe salir del total del grupo, no del total por persona que llega en params.total.
+  const splitBaseForCharge = comingFromEqualSplit
+    ? Number(totalFromItems || params.groupTotal || params.group_total || totalSinPropina || 0)
+    : Number(totalSinPropina || 0);
+
   const [userEmail, setUserEmail] = useState(params.user_email ?? params.userEmail ?? null);
   const [userFullname, setUserFullname] = useState(params.user_fullname ?? params.userFullname ?? null);
   const [userUsuarioAppId, setUserUsuarioAppId] = useState(params.user_usuario_app_id ?? params.userUsuarioAppId ?? null);
@@ -271,6 +299,8 @@ export default function PaymentScreen() {
   const [cardSelectForGateway, setCardSelectForGateway] = useState(null);
   const [cardMethodsMap, setCardMethodsMap] = useState({ creditId: null, debitId: null, singleCardId: null, raw: [] });
   const [selectedCardType, setSelectedCardType] = useState(null);
+
+  const [equalSplitCharge, setEqualSplitCharge] = useState(null);
 
   const pollingRef = useRef({ running: false, stopRequested: false, lastResult: null });
 
@@ -410,6 +440,135 @@ export default function PaymentScreen() {
     setGatewayModalVisible(true);
   };
 
+  const buildItemsForGateway = (baseAmount) => {
+    if (comingFromEqualSplit) {
+      return [
+        {
+          codigo_item: String(1),
+          nombre_item: 'pago por partes iguales',
+          cantidad: 1,
+          precio_unitario: Number(baseAmount || 0),
+        },
+      ];
+    }
+
+    return (Array.isArray(items ? items : []) ? items : []).map(it => ({
+      codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
+      nombre_item: it.name ?? it.nombre ?? '',
+      cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
+      precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
+    }));
+  };
+
+  const resolveEqualSplitCharge = async () => {
+    const fallbackBase = Number(splitBaseForCharge || 0);
+    const fallbackTip = tipPercent > 0 ? round2(fallbackBase * (tipPercent / 100)) : Number(tipAmount || 0);
+
+    if (!comingFromEqualSplit || !sale_id || !sucursal_id) {
+      return {
+        paidCount: 0,
+        baseAmount: fallbackBase,
+        tipAmount: fallbackTip,
+        totalAmount: round2(fallbackBase + fallbackTip),
+      };
+    }
+
+    try {
+      const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
+      const url = `${hostBase}/api/transacciones-pago/sucursal/${encodeURIComponent(String(sucursal_id))}/ventas/${encodeURIComponent(String(sale_id))}/splits`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+        },
+      });
+
+      let json = null;
+      try { json = await res.json(); } catch (e) { json = null; }
+
+      if (!res.ok) {
+        return {
+          paidCount: 0,
+          baseAmount: fallbackBase,
+          tipAmount: fallbackTip,
+          totalAmount: round2(fallbackBase + fallbackTip),
+        };
+      }
+
+      const splitsArr = Array.isArray(json?.splits)
+        ? json.splits
+        : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
+
+      const paidEqualSplits = splitsArr.filter((s) => {
+        const estado = String(s.estado ?? '').toLowerCase();
+        if (estado !== 'paid') return false;
+        const code = String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim();
+        const name = String(s.nombre_item ?? s.nombre ?? s.name ?? '').toLowerCase();
+        return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
+      });
+
+      const paidCount = paidEqualSplits.length;
+      const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, paidCount);
+      const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
+
+      return {
+        paidCount,
+        baseAmount,
+        tipAmount: computedTip,
+        totalAmount: round2(baseAmount + computedTip),
+      };
+    } catch (err) {
+      console.warn('resolveEqualSplitCharge error', err);
+      return {
+        paidCount: 0,
+        baseAmount: fallbackBase,
+        tipAmount: fallbackTip,
+        totalAmount: round2(fallbackBase + fallbackTip),
+      };
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const info = await resolveEqualSplitCharge();
+      if (mounted) setEqualSplitCharge(info);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comingFromEqualSplit, sale_id, sucursal_id, groupPeopleCount, splitBaseForCharge, tipPercent]);
+
+  const displayChargePreview = comingFromEqualSplit
+    ? (equalSplitCharge ?? {
+        paidCount: 0,
+        baseAmount: splitAmountByIndex(splitBaseForCharge, groupPeopleCount, 0),
+        tipAmount: tipPercent > 0
+          ? round2(splitAmountByIndex(splitBaseForCharge, groupPeopleCount, 0) * (tipPercent / 100))
+          : Number(tipAmount || 0),
+        totalAmount: round2(
+          splitAmountByIndex(splitBaseForCharge, groupPeopleCount, 0) +
+          (
+            tipPercent > 0
+              ? round2(splitAmountByIndex(splitBaseForCharge, groupPeopleCount, 0) * (tipPercent / 100))
+              : Number(tipAmount || 0)
+          )
+        ),
+      })
+    : {
+        paidCount: 0,
+        baseAmount: Number(totalSinPropina || 0),
+        tipAmount: Number(tipAmount || 0),
+        totalAmount: Number(totalWithTip || totalSinPropina),
+      };
+
+  const displayTotalAmount = Number(displayChargePreview?.totalAmount ?? 0);
+  const totalLabel = useMemo(() => formatMoney(displayTotalAmount), [displayTotalAmount]);
+
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120 * 1000, intervalMs = 3000) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
     const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
@@ -473,8 +632,6 @@ export default function PaymentScreen() {
       return;
     }
 
-    // IMPORTANTE: solo bloquear si checkGatewayAvailable devuelve false.
-    // Si devuelve null (error / no respuesta), no bloqueamos aquí y dejamos que la creación de transacción sea la fuente de verdad.
     const avail = await checkGatewayAvailable(gateway).catch((e) => { console.warn('checkGatewayAvailable error in startCheckoutAndPoll', e); return null; });
     if (avail === false) { showGatewayUnavailableModal(gateway); return; }
 
@@ -485,25 +642,19 @@ export default function PaymentScreen() {
     const usuario_app_id_to_send =
       (userEmail && String(userEmail).trim()) || (userUsuarioAppId && String(userUsuarioAppId).trim()) || '';
 
-    const monto_subtotal = Number(totalSinPropinaFinal);
-    const monto_propina = Number(tipAmount || 0);
+    const chargeInfo = comingFromEqualSplit
+      ? (equalSplitCharge ?? await resolveEqualSplitCharge())
+      : {
+          paidCount: 0,
+          baseAmount: Number(totalSinPropina || 0),
+          tipAmount: Number(tipAmount || 0),
+          totalAmount: round2(Number(totalSinPropina || 0) + Number(tipAmount || 0)),
+        };
 
-    const isEqualSplitOrigin = params.groupPeople !== undefined && params.groupPeople !== null;
-    const items_pagados = isEqualSplitOrigin
-      ? [
-          {
-            codigo_item: String(1),
-            nombre_item: 'pago por partes iguales',
-            cantidad: 1,
-            precio_unitario: Number(monto_subtotal || 0),
-          },
-        ]
-      : (Array.isArray(items ? items : []) ? items : []).map(it => ({
-          codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
-          nombre_item: it.name ?? it.nombre ?? '',
-          cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
-          precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
-        }));
+    const monto_subtotal = Number(chargeInfo.baseAmount || 0);
+    const monto_propina = Number(chargeInfo.tipAmount || 0);
+
+    const items_pagados = buildItemsForGateway(chargeInfo.baseAmount);
 
     let resolvedPaymentMethodId = 1;
     try {
@@ -622,9 +773,10 @@ export default function PaymentScreen() {
       navigation.navigate('QRMain');
 
       const expectedAmount =
+        safeNum(chargeInfo.totalAmount) ||
         safeNum(params.perPersonAmount ?? params.per_person_amount ?? params.totalToCharge ?? params.total_persona ?? null) ||
         safeNum(totalWithTip) ||
-        safeNum(totalSinPropinaFinal);
+        safeNum(totalSinPropina);
 
       (async () => {
         pollingRef.current.stopRequested = false;
@@ -704,7 +856,7 @@ export default function PaymentScreen() {
       }
       pollingRef.current.stopRequested = true;
     };
-  }, [sale_id, sucursal_id, restaurante_id, totalWithTip, totalSinPropinaFinal, params.perPersonAmount]);
+  }, [sale_id, sucursal_id, restaurante_id, totalWithTip, totalSinPropina, params.perPersonAmount]);
 
   const validateBeforeStripe = () => {
     if (loadingInit) {
@@ -834,46 +986,25 @@ export default function PaymentScreen() {
     }
   };
 
-  const isEqualSplitOrigin = params.groupPeople !== undefined && params.groupPeople !== null;
-  const itemsForGateway = isEqualSplitOrigin
-    ? [
-        {
-          codigo_item: String(1),
-          nombre_item: 'pago por partes iguales',
-          cantidad: 1,
-          precio_unitario: Number(totalSinPropinaFinal || 0),
-        },
-      ]
-    : (Array.isArray(items ? items : []) ? items : []).map(it => ({
-        codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
-        nombre_item: it.name ?? it.nombre ?? '',
-        cantidad: Number(it.qty ?? it.cantidad ?? 1) || 1,
-        precio_unitario: Number(it.unitPrice ?? it.price ?? it.precio_item ?? it.precio ?? 0) || 0,
-      }));
-
   const onOptionPress = async (opt) => {
     if (opt.key === 'stripe') {
       if (!validateBeforeStripe()) return;
 
-      // Llamamos checkGatewayAvailable: solo bloqueamos si devuelve false
       try {
         const avail = await checkGatewayAvailable('stripe').catch((e) => { console.warn('checkGatewayAvailable stripe error', e); return null; });
         if (avail === false) {
           showGatewayUnavailableModal('stripe');
           return;
         }
-        // si avail === true -> seguimos; si avail === null -> también seguimos (no asumimos no disponible)
       } catch (e) {
         console.warn('checkGatewayAvailable stripe unexpected error (ignored):', e);
       }
 
-      // obtener métodos de tarjeta dinámicos
       try {
         setLoadingKey('stripe');
         const methods = await fetchCardPaymentMethods(restaurante_id, sucursal_id);
         setLoadingKey(null);
 
-        // Si detectamos crédito/débito tradicionales, abrimos selección
         if ((methods.creditId || methods.debitId)) {
           setCardMethodsMap(methods);
           setCardSelectForGateway('stripe');
@@ -882,16 +1013,14 @@ export default function PaymentScreen() {
           return;
         }
 
-        // Si detectamos un caso single-card (ej EposNow Card), abrimos modal en modo único
         if (methods.singleCardId) {
           setCardMethodsMap(methods);
           setCardSelectForGateway('stripe');
-          setSelectedCardType('card'); // preseleccionada
+          setSelectedCardType('card');
           setCardSelectModalVisible(true);
           return;
         }
 
-        // no hay métodos de tarjeta configurados: mostrar modal de método no disponible y NO continuar
         setGatewayModalMessage('No se encontraron métodos de tarjeta configurados (crédito/débito) para esta sucursal.');
         setGatewayModalVisible(true);
         setLoadingKey(null);
@@ -903,17 +1032,16 @@ export default function PaymentScreen() {
         return;
       }
     }
+
     if (opt.key === 'paypal') {
       if (!validateBeforeStripe()) return;
 
-      // Llamamos checkGatewayAvailable: solo bloqueamos si devuelve false
       try {
         const avail = await checkGatewayAvailable('paypal').catch((e) => { console.warn('checkGatewayAvailable paypal error', e); return null; });
         if (avail === false) {
           showGatewayUnavailableModal('paypal');
           return;
         }
-        // avail === true o null -> seguimos
       } catch (e) {
         console.warn('checkGatewayAvailable paypal unexpected error (ignored):', e);
       }
@@ -939,7 +1067,6 @@ export default function PaymentScreen() {
           return;
         }
 
-        // No configured -> show modal and stop
         showGatewayUnavailableModal('paypal', 'No se encontraron métodos de tarjeta configurados (crédito/débito) para esta sucursal.');
         setLoadingKey(null);
         return;
@@ -950,17 +1077,16 @@ export default function PaymentScreen() {
         return;
       }
     }
+
     if (opt.key === 'openpay') {
       if (!validateBeforeStripe()) return;
 
-      // Llamamos checkGatewayAvailable: solo bloqueamos si devuelve false
       try {
         const avail = await checkGatewayAvailable('openpay').catch((e) => { console.warn('checkGatewayAvailable openpay error', e); return null; });
         if (avail === false) {
           showGatewayUnavailableModal('openpay');
           return;
         }
-        // avail === true o null -> seguimos
       } catch (e) {
         console.warn('checkGatewayAvailable openpay unexpected error (ignored):', e);
       }
@@ -986,7 +1112,6 @@ export default function PaymentScreen() {
           return;
         }
 
-        // No configured -> show modal and stop
         setGatewayModalMessage('No se encontraron métodos de tarjeta configurados (crédito/débito) para esta sucursal.');
         setGatewayModalVisible(true);
         setLoadingKey(null);
@@ -1008,8 +1133,6 @@ export default function PaymentScreen() {
   ];
 
   const dateText = fecha_apertura ? new Date(fecha_apertura).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' }) : new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
-  const totalLabel = useMemo(() => formatMoney(totalWithTip || totalSinPropinaFinal), [totalWithTip, totalSinPropinaFinal]);
-
   const headerHeight = clamp(hp(10), 64, 112);
   const logoSize = clamp(Math.round(width * 0.28), 80, 160);
   const restaurantImageSize = clamp(Math.round(width * 0.16), 48, 120);
@@ -1084,7 +1207,6 @@ export default function PaymentScreen() {
     const singleCard = cardMethodsMap.singleCardId ?? null;
     let chosenId = null;
 
-    // Si existe singleCard (ej EposNow 'Card'), priorizamos eso
     if (singleCard !== null && Number.isFinite(Number(singleCard))) {
       chosenId = Number(singleCard);
     } else {
@@ -1107,10 +1229,19 @@ export default function PaymentScreen() {
         const creds = await fetchStripeCredentials(restaurante_id, sucursal_id);
         setLoadingKey(null);
         if (!creds || !creds.public_key) {
-          // -> USAR modal estilizado en lugar de Alert nativo
           showGatewayUnavailableModal('stripe', 'No se encontró la public_key de Stripe para esta sucursal. Verifica la configuración del restaurante.');
           return;
         }
+
+        const chargeInfo = comingFromEqualSplit
+          ? (equalSplitCharge ?? await resolveEqualSplitCharge())
+          : {
+              paidCount: 0,
+              baseAmount: Number(totalSinPropina || 0),
+              tipAmount: Number(tipAmount || 0),
+              totalAmount: round2(Number(totalSinPropina || 0) + Number(tipAmount || 0)),
+            };
+
         navigation.navigate('Stripe', {
           sucursal_id,
           sale_id,
@@ -1118,10 +1249,10 @@ export default function PaymentScreen() {
           usuario_app_id: userEmail || userUsuarioAppId,
           moneda,
           environment,
-          displayAmount: totalWithTip || totalSinPropinaFinal,
-          monto_subtotal: totalSinPropinaFinal,
-          monto_propina: tipAmount,
-          items: itemsForGateway,
+          displayAmount: chargeInfo.totalAmount,
+          monto_subtotal: chargeInfo.baseAmount,
+          monto_propina: chargeInfo.tipAmount,
+          items: buildItemsForGateway(chargeInfo.baseAmount),
           mesa_id,
           userFullname,
           userEmail,
@@ -1146,10 +1277,18 @@ export default function PaymentScreen() {
         setLoadingKey(null);
 
         if (!creds) {
-          // -> USAR modal estilizado en lugar de Alert nativo
           showGatewayUnavailableModal('openpay', 'No se encontraron credenciales válidas de OpenPay para esta sucursal. Verifica la configuración del restaurante.');
           return;
         }
+
+        const chargeInfo = comingFromEqualSplit
+          ? (equalSplitCharge ?? await resolveEqualSplitCharge())
+          : {
+              paidCount: 0,
+              baseAmount: Number(totalSinPropina || 0),
+              tipAmount: Number(tipAmount || 0),
+              totalAmount: round2(Number(totalSinPropina || 0) + Number(tipAmount || 0)),
+            };
 
         navigation.navigate('Openpay', {
           sucursal_id,
@@ -1158,9 +1297,9 @@ export default function PaymentScreen() {
           usuario_app_id: userEmail || userUsuarioAppId,
           moneda,
           environment: creds.environment ?? environment,
-          monto_subtotal: totalSinPropinaFinal,
-          monto_propina: tipAmount,
-          items: itemsForGateway,
+          monto_subtotal: chargeInfo.baseAmount,
+          monto_propina: chargeInfo.tipAmount,
+          items: buildItemsForGateway(chargeInfo.baseAmount),
           mesa_id,
           openpay_merchant_id: creds.merchant_id || '',
           openpay_public_api_key: creds.public_key || '',
@@ -1217,7 +1356,6 @@ export default function PaymentScreen() {
             </View>
 
             <View style={[styles.rightCol, { maxWidth: Math.round(width * 0.45) }]}>
-              <Text style={[styles.totalLabel, { fontSize: clamp(rf(1.8), 12, 16) }]}>Total</Text>
               <View style={styles.totalRow}>
                 <Text style={[styles.totalNumber, { fontSize: totalNumberFont }]} numberOfLines={1} ellipsizeMode="tail">
                   {totalLabel}
@@ -1277,7 +1415,7 @@ export default function PaymentScreen() {
 
       {gatewayModalVisible && (
         <View style={styles.modalBackdrop}>
-          <LinearGradient colors={['#fff','#fff']} style={[styles.gatewayModalBox, { width: Math.min(width - 48, 420) }]}>
+          <LinearGradient colors={['#fff', '#fff']} style={[styles.gatewayModalBox, { width: Math.min(width - 48, 420) }]}>
             <Ionicons name="alert-circle" size={44} color="#0046ff" style={{ marginBottom: 8 }} />
             <Text style={[styles.gatewayModalTitle, { fontSize: clamp(rf(2.2), 16, 20) }]}>Método no disponible</Text>
             <Text style={[styles.gatewayModalMessage, { fontSize: clamp(rf(1.6), 13, 16) }]}>{gatewayModalMessage}</Text>
@@ -1297,7 +1435,6 @@ export default function PaymentScreen() {
       <Modal visible={cardSelectModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={[styles.cardSelectBox, { width: Math.min(width - 48, 360) }]}>
-            {/* Si singleCardId está presente (ej EposNow Card), mostramos UI simplificada */}
             {cardMethodsMap.singleCardId ? (
               <>
                 <Text style={styles.cardSelectTitle}>Tarjeta disponible</Text>
@@ -1406,7 +1543,7 @@ const styles = StyleSheet.create({
   rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
   totalLabel: { color: 'rgba(255,255,255,0.95)', marginBottom: 6 },
   totalRow: { flexDirection: 'row', alignItems: 'flex-end' },
-  totalNumber: { color: '#fff', fontWeight: '900', letterSpacing: 0.6 },
+  totalNumber: { color: '#fff', fontWeight: '900', flexShrink: 1 },
   totalCurrency: { color: '#fff', marginLeft: 6, marginBottom: 3, opacity: 0.95 },
   rightThanks: { marginTop: 10, alignItems: 'flex-end' },
   thanksText: { color: '#fff', fontWeight: '700' },
@@ -1442,5 +1579,4 @@ const styles = StyleSheet.create({
   cardSelectConfirmText: { color: '#fff', fontWeight: '700' },
 
   safeAreaSpacer: { height: 12 },
-
 });

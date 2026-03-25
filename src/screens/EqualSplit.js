@@ -74,6 +74,21 @@ const round2 = (v) => {
   return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
 };
 
+const toCents = (v) => Math.round(Number(v || 0) * 100);
+const fromCents = (cents) => Number((Number(cents || 0) / 100).toFixed(2));
+
+const splitAmountByIndex = (amount, parts, index) => {
+  const safeParts = Math.max(1, Math.floor(Number(parts) || 1));
+  const safeIndex = Math.max(0, Math.min(safeParts - 1, Math.floor(Number(index) || 0)));
+  const totalCents = toCents(amount);
+  const base = Math.floor(totalCents / safeParts);
+  const remainder = totalCents % safeParts;
+
+  // el centavo sobrante queda para el/los últimos pagos
+  const extra = safeIndex >= (safeParts - remainder) ? 1 : 0;
+  return fromCents(base + extra);
+};
+
 export default function EqualSplit() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -113,8 +128,10 @@ export default function EqualSplit() {
   const moneda = route?.params?.moneda ?? 'MXN';
   const total_consumo_param = route?.params?.total ?? route?.params?.total_consumo ?? null;
 
-  const savedKey = saleId
-    ? `equal_split_people_${String(sucursalId ?? 'nosucursal')}_${String(saleId)}`
+  const ventaLookupId = saleId ?? token ?? route?.params?.ventaId ?? route?.params?.venta_id ?? null;
+
+  const savedKey = ventaLookupId
+    ? `equal_split_people_${String(sucursalId ?? 'nosucursal')}_${String(ventaLookupId)}`
     : (token ? `equal_split_people_token_${token}` : null);
 
   const normalizeItem = (raw, fallbackId) => {
@@ -134,11 +151,14 @@ export default function EqualSplit() {
   const [modalConfirmLoading, setModalConfirmLoading] = useState(false);
 
   const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
+  const [paidSplitCount, setPaidSplitCount] = useState(0);
 
   useEffect(() => {
     let mounted = true;
 
     const readComensalesFromServer = async (idVenta) => {
+      if (!idVenta) return null;
+
       const base = API_BASE_URL.replace(/\/$/, '');
       const headers = {
         Accept: 'application/json',
@@ -146,41 +166,31 @@ export default function EqualSplit() {
         ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
       };
 
-      const urlsToTry = [];
+      const url = `${base}/api/mesas/comensales/${encodeURIComponent(String(idVenta))}`;
 
-      urlsToTry.push(`${base}/api/mesas/comensales/${encodeURIComponent(String(idVenta))}`);
+      try {
+        const res = await fetch(url, { method: 'GET', headers });
+        if (!res.ok) return null;
 
-      const params = new URLSearchParams();
-      params.append('id_venta', String(idVenta));
-      if (sucursalId !== null && sucursalId !== undefined && String(sucursalId).trim() !== '') {
-        params.append('sucursal_id', String(sucursalId));
-      }
-      urlsToTry.push(`${base}/api/mesas/comensales?${params.toString()}`);
+        const json = await res.json();
 
-      for (const url of urlsToTry) {
-        try {
-          const res = await fetch(url, { method: 'GET', headers });
-          if (!res.ok) continue;
+        const candidates = [
+          json?.numero_comensales,
+          json?.data?.numero_comensales,
+          json?.result?.numero_comensales,
+          json?.comensales?.numero_comensales,
+          Array.isArray(json) ? json?.[0]?.numero_comensales : null,
+          Array.isArray(json?.data) ? json?.data?.[0]?.numero_comensales : null,
+        ];
 
-          const json = await res.json();
-
-          const candidates = [
-            json?.numero_comensales,
-            json?.data?.numero_comensales,
-            json?.result?.numero_comensales,
-            json?.comensales?.numero_comensales,
-            Array.isArray(json) ? json?.[0]?.numero_comensales : null,
-          ];
-
-          for (const candidate of candidates) {
-            const n = Number(candidate);
-            if (Number.isFinite(n) && n > 0) {
-              return n;
-            }
+        for (const candidate of candidates) {
+          const n = Number(candidate);
+          if (Number.isFinite(n) && n > 0) {
+            return n;
           }
-        } catch (err) {
-          console.warn('EqualSplit: error consultando comensales en servidor con', url, err);
         }
+      } catch (err) {
+        console.warn('EqualSplit: error consultando comensales en servidor con', url, err);
       }
 
       return null;
@@ -189,8 +199,8 @@ export default function EqualSplit() {
     const fetchSavedPeopleThenItems = async () => {
       let savedN = null;
 
-      if (saleId) {
-        savedN = await readComensalesFromServer(saleId);
+      if (ventaLookupId) {
+        savedN = await readComensalesFromServer(ventaLookupId);
 
         if (savedN != null) {
           if (mounted) {
@@ -279,13 +289,13 @@ export default function EqualSplit() {
     return () => {
       mounted = false;
     };
-  }, [token, saleId]);
+  }, [token, saleId, ventaLookupId]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!saleId) return;
-      const key = `equal_split_paid_${String(saleId)}`;
+      if (!ventaLookupId) return;
+      const key = `equal_split_paid_${String(ventaLookupId)}`;
       try {
         const rawLocal = await AsyncStorage.getItem(key);
         if (rawLocal === '1') {
@@ -296,7 +306,7 @@ export default function EqualSplit() {
         if (!sucursalId) return;
 
         const base = API_BASE_URL.replace(/\/$/, '');
-        const url = `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(String(sucursalId))}/ventas/${encodeURIComponent(String(saleId))}/splits`;
+        const url = `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(String(sucursalId))}/ventas/${encodeURIComponent(String(ventaLookupId))}/splits`;
         try {
           const res = await fetch(url, {
             method: 'GET',
@@ -310,16 +320,18 @@ export default function EqualSplit() {
           const sj = await res.json();
           const splitsArr = Array.isArray(sj.splits) ? sj.splits : [];
           const paidSplits = splitsArr.filter(s => String(s.estado ?? '').toLowerCase() === 'paid');
-          if (paidSplits.length > 0) {
-            const hasEqual = paidSplits.some(s => {
-              const code = String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim();
-              const name = String(s.nombre_item ?? s.nombre ?? s.name ?? '').toLowerCase();
-              return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
-            });
-            if (hasEqual) {
-              try { await AsyncStorage.setItem(key, '1'); } catch (e) { /* ignore */ }
-              if (mounted) setEqualsSplitPaid(true);
-            }
+
+          const paidEqualSplits = paidSplits.filter((s) => {
+            const code = String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim();
+            const name = String(s.nombre_item ?? s.nombre ?? s.name ?? '').toLowerCase();
+            return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
+          });
+
+          if (mounted) setPaidSplitCount(paidEqualSplits.length);
+
+          if (paidEqualSplits.length > 0) {
+            try { await AsyncStorage.setItem(key, '1'); } catch (e) { /* ignore */ }
+            if (mounted) setEqualsSplitPaid(true);
           }
         } catch (e) {
           console.warn('EqualSplit: error fetching splits', e);
@@ -330,7 +342,7 @@ export default function EqualSplit() {
     })();
 
     return () => { mounted = false; };
-  }, [saleId, sucursalId]);
+  }, [ventaLookupId, sucursalId]);
 
   const itemsSum = useMemo(() => {
     if (!items || !Array.isArray(items)) return 0;
@@ -353,10 +365,13 @@ export default function EqualSplit() {
 
   const people = (typeof totalComensales === 'number' && totalComensales > 0) ? totalComensales : 1;
 
-  const perPersonSubtotal = round2(subtotal / Math.max(1, people));
-  const perPersonIva = round2(iva / Math.max(1, people));
-  const perPersonBaseTotal = round2(total / Math.max(1, people));
-  const perPersonTip = round2(tipAmount / Math.max(1, people));
+  // base exacta por persona en centavos; el sobrante se queda para el último pago
+  const perPersonBaseTotal = splitAmountByIndex(total, Math.max(1, people), Math.max(0, paidSplitCount));
+  const perPersonSubtotal = splitAmountByIndex(subtotal, Math.max(1, people), Math.max(0, paidSplitCount));
+  const perPersonIva = splitAmountByIndex(iva, Math.max(1, people), Math.max(0, paidSplitCount));
+
+  // propina calculada sobre el monto exacto de esa persona
+  const perPersonTip = round2(perPersonBaseTotal * (tipPercent / 100));
   const perPersonTotalWithTip = round2(perPersonBaseTotal + perPersonTip);
 
   const perPersonStr = formatMoney(perPersonTotalWithTip);
@@ -404,6 +419,14 @@ export default function EqualSplit() {
       items,
       people,
       returnScreen: 'EqualSplit',
+
+      // valores exactos para que Propina no vuelva a repartir con flotantes
+      perPersonSubtotal,
+      perPersonIva,
+      perPersonTotal: perPersonBaseTotal,
+      perPersonTipAmount: perPersonTip,
+      perPersonTotalWithTip,
+
       tipApplied: payloadCommon.tipApplied,
     });
   };
@@ -510,15 +533,15 @@ export default function EqualSplit() {
       let serverOk = false;
       let serverResult = null;
 
-      if (saleId) {
-        const result = await postComensalesToServer(saleId, n);
+      if (ventaLookupId) {
+        const result = await postComensalesToServer(ventaLookupId, n);
         serverResult = result;
         if (result.ok) serverOk = true;
         else {
           console.warn('EqualSplit: no se pudo guardar comensales en servidor:', result);
         }
       } else {
-        console.warn('EqualSplit: saleId no disponible; no se intentará POST a /api/mesas/comensales');
+        console.warn('EqualSplit: ventaLookupId no disponible; no se intentará POST a /api/mesas/comensales');
       }
 
       try {
@@ -533,9 +556,9 @@ export default function EqualSplit() {
       setShowPeopleModal(false);
 
       if (serverOk) {
-        // ok
+        // success
       } else {
-        if (saleId) {
+        if (ventaLookupId) {
           Alert.alert(
             'Guardado localmente',
             'El número de comensales se guardó localmente pero no se pudo guardar en el servidor. Intenta de nuevo más tarde.'
@@ -685,7 +708,7 @@ export default function EqualSplit() {
               value={peopleInput}
               onChangeText={t => setPeopleInput(t.replace(/[^0-9]/g,''))}
               placeholder="Ej. 3"
-              style={{ borderWidth:1, borderColor:'#e5e7eb', borderRadius:8, padding: Math.round(wp(3)),color:'#000', marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
+              style={{ borderWidth:1, borderColor:'#e5e7eb', borderRadius:8, padding: Math.round(wp(3)), color:'#000', marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
               editable={!modalConfirmLoading}
             />
 
