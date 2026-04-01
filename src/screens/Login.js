@@ -54,11 +54,15 @@ export default function Login() {
     buttonContainerMarginTop: clamp(rf(40), 12, Math.round(height * 0.45)),
     toastBottomIOS: clamp(rf(80), 40, 140),
     toastBottomAndroid: clamp(rf(40), 20, 120),
+    termsLinkBottom: clamp(rf(18), 12, 36),
   };
 
   const topInset = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
-  const headerApprox = 56; 
-  const keyboardVerticalOffset = Platform.OS === 'ios' ? topInset + headerApprox : (StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 20);
+  const headerApprox = 56;
+  const keyboardVerticalOffset =
+    Platform.OS === 'ios'
+      ? topInset + headerApprox
+      : (StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 20);
 
   const toastBottomBase = Platform.OS === 'ios' ? scaled.toastBottomIOS : scaled.toastBottomAndroid;
   const toastBottom = toastBottomBase + (insets.bottom ?? 0);
@@ -115,8 +119,11 @@ export default function Login() {
       marginTop: scaled.titleMarginTop,
       marginBottom: titleCaritaSpacing,
       paddingHorizontal: Math.round(Math.min(width * 0.08, 28)),
-      minHeight: Math.round(scaled.titleFont * 1.6), 
+      minHeight: Math.round(scaled.titleFont * 1.6),
       width: '100%',
+    },
+    termsLinkBottomOverride: {
+      bottom: scaled.termsLinkBottom + (insets.bottom ?? 0),
     },
   });
 
@@ -256,6 +263,10 @@ export default function Login() {
     }
   };
 
+  const handleOpenTerms = () => {
+    navigation.navigate('Terms');
+  };
+
   return (
     <View style={styles.flex}>
       <LinearGradient
@@ -289,7 +300,7 @@ export default function Login() {
               onChangeText={setMail}
               keyboardType="email-address"
               autoCapitalize="none"
-              underlineColorAndroid="transparent" 
+              underlineColorAndroid="transparent"
               importantForAutofill="yes"
               textContentType="username"
               autoComplete="email"
@@ -338,6 +349,14 @@ export default function Login() {
           <View style={[styles.buttonContainer, dynamic.buttonContainerOverride]}>
           </View>
         </KeyboardAvoidingView>
+
+        <TouchableOpacity
+          style={[styles.termsFloatingContainer, dynamic.termsLinkBottomOverride]}
+          onPress={handleOpenTerms}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.termsFloatingText}>Consulta términos y condiciones</Text>
+        </TouchableOpacity>
       </LinearGradient>
 
       <Animated.View
@@ -378,7 +397,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     overflow: 'hidden',
     marginBottom: 16,
-
   },
 
   inputInner: {
@@ -396,10 +414,25 @@ const styles = StyleSheet.create({
   forgotPasswordContainer: { marginTop: 6, alignItems: 'center' },
   forgotPasswordText: { color: '#000', fontFamily: 'Montserrat-Regular', fontSize: 14, opacity: 0.9 },
   buttonContainer: { width: '80%', marginTop: 18 },
-  button: { backgroundColor: '#ffffff', padding: 7, borderRadius: 10, marginVertical: 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#000', borderRadius: 8, },
+  button: { backgroundColor: '#ffffff', padding: 7, borderRadius: 10, marginVertical: 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#000', borderRadius: 8 },
   icon: { width: 20, height: 20, marginRight: 10, color: "#000" },
   toast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, maxWidth: '85%' },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' },
   successToast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgb(0, 50, 186)', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
+
+  termsFloatingContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  termsFloatingText: {
+    color: '#000',
+    fontFamily: 'Montserrat-Regular',
+    fontSize: 13,
+    opacity: 0.95,
+    textDecorationLine: 'underline',
+  },
 });

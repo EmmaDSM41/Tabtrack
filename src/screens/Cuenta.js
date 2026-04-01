@@ -119,7 +119,7 @@ export default function Cuenta({ navigation }) {
     if (!privacyChecked || !termsChecked) {
       return Alert.alert('Debes aceptar privacidad y términos');
     }
-    if (!nombre || !apellido || !mail || !password || !telefono) {
+    if (!nombre || !apellido || !mail || !password) {
       return Alert.alert('Completa todos los campos obligatorios');
     }
 
@@ -136,7 +136,7 @@ export default function Cuenta({ navigation }) {
           apellido,
           mail,
           password,
-          telefono,
+          telefono: telefono.trim() ? telefono : null,
           firma_deslinde: firmaDeslinde,
         }),
       });
@@ -258,7 +258,7 @@ export default function Cuenta({ navigation }) {
             returnKeyType="next"
           />
           <TextInput
-            placeholder="Teléfono"
+            placeholder="Teléfono (opcional)"
             placeholderTextColor="#999"
             style={styles.input}
             keyboardType="phone-pad"

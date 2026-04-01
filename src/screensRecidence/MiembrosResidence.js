@@ -43,7 +43,7 @@ export default function MiembrosResidence() {
   const { qr: qrFromParams } = (route && route.params) || {};
 
   const [residents, setResidents] = useState([]);
-  const [departmentLabel, setDepartmentLabel] = useState('Habitación');
+  const [departmentLabel, setDepartmentLabel] = useState('Departamento');
   const [residentCount, setResidentCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -129,7 +129,7 @@ export default function MiembrosResidence() {
 
         if (mounted) {
           const numeroDepto = deptResp?.numero_departamento ?? `${departamento_id}`;
-          setDepartmentLabel(`Habitación ${numeroDepto}`);
+          setDepartmentLabel(`Departamento ${numeroDepto}`);
         }
 
         const usuariosVinculados = Array.isArray(deptResp?.usuarios_vinculados)

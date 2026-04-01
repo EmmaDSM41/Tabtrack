@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
   View,
@@ -13,6 +13,7 @@ import {
   PixelRatio,
   ActivityIndicator,
   DeviceEventEmitter,
+  AppState,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,10 +21,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 
 const staticWidth = Dimensions.get('window').width;
 
 const API_URL = 'https://api.tab-track.com';
+const API_URL_2 = 'https://api.residence.tab-track.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3Mjc0NzAzOSwianRpIjoiODIyOWZkNTQtNGVmYS00NGZmLTk1MWQtNjg5YjA1ZGVhYjE2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzI3NDcwMzksImV4cCI6MTc3NTMzOTAzOSwicm9sIjoiRWRpdG9yIn0.tfon8oCTx1Ue7pAdrJvwx5RfW51HA6yhsRRXaa6v3OY';
 
 export default function ProfileResidence({ navigation }) {
@@ -58,79 +61,374 @@ export default function ProfileResidence({ navigation }) {
   const optionFont = clamp(rf(3.6), 14, 20);
   const smallText = clamp(rf(3.2), 12, 16);
 
-  const notificationsKeyRef = React.useRef('user_notifications');
+  const notificationsReadRef = useRef(new Set());
+  const notificationsLoadedRef = useRef(false);
+  const notificationsRef = useRef([]);
+  const seenStorageKeyRef = useRef('user_notifications_seen');
+  const seenLoadedKeyRef = useRef(null);
+  const loadingNotificationsRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
 
   const isMarketingNotification = (text) => {
     if (!text) return false;
     return /pizz|pizzer|pizza|oferta|descuent|promocion|promo|sushi/i.test(String(text));
   };
 
-  useEffect(() => {
-    let listenerRef = null;
-    (async () => {
-      try {
-        let uid = await AsyncStorage.getItem('user_usuario_app_id');
-        const email = await AsyncStorage.getItem('user_email');
-        let storageKey = 'user_notifications';
-        if (uid && String(uid).trim()) storageKey = `user_notifications_${String(uid).trim()}`;
-        else if (email && String(email).trim()) storageKey = `user_notifications_${String(email).split('@')[0]}`;
-        notificationsKeyRef.current = storageKey;
+  const formatMoney = (n) => {
+    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  };
 
-        const raw = await AsyncStorage.getItem(storageKey);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              const filtered = parsed.filter(n => !isMarketingNotification(n?.text || n?.payload?.text || ''));
-              setNotifications(filtered);
-            } else {
-              setNotifications([]);
-            }
-          } catch (e) {
-            setNotifications([]);
-          }
-        } else {
-          setNotifications([]);
-        }
-      } catch (err) {
-        console.warn('Error cargando notificaciones desde AsyncStorage', err);
-        setNotifications([]);
+  const getAuthHeaders = (extra = {}) => {
+    const base = { 'Content-Type': 'application/json', ...extra };
+    if (TOKEN && TOKEN.trim().length > 0) base['Authorization'] = `Bearer ${TOKEN}`;
+    return base;
+  };
+
+  const buildNotificationKey = (n) => {
+    const saleId = n?.sale_id ?? n?.saleId ?? n?.transactionId ?? n?.id ?? '';
+    const date = n?.date ?? n?.createdAt ?? '';
+    const amount = Number(n?.amount ?? n?.total ?? 0) || 0;
+    const dept = n?.department_id ?? '';
+    return `${dept}_${saleId}_${date}_${amount}`;
+  };
+
+  const ensureSeenMarkersLoaded = useCallback(async (deptId) => {
+    const storageKey = deptId
+      ? `user_notifications_seen_dept_${String(deptId).trim()}`
+      : 'user_notifications_seen';
+
+    if (seenLoadedKeyRef.current === storageKey) return;
+
+    seenStorageKeyRef.current = storageKey;
+    seenLoadedKeyRef.current = storageKey;
+
+    try {
+      const raw = await AsyncStorage.getItem(storageKey);
+      let parsed = [];
+      try {
+        parsed = raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        parsed = [];
       }
 
-      listenerRef = DeviceEventEmitter.addListener('notificationReceived', async (notif) => {
-        try {
-          let normalized = notif || {};
-          if (!normalized.id) {
-            normalized = {
-              ...normalized,
-              id: `notif_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-            };
-          }
-
-          const incomingText = String(normalized.text || normalized.payload?.text || '');
-          if (isMarketingNotification(incomingText)) {
-            return;
-          }
-
-          setNotifications(prev => {
-            const next = [normalized, ...(Array.isArray(prev) ? prev : [])].slice(0, 200);
-            try { AsyncStorage.setItem(notificationsKeyRef.current, JSON.stringify(next)).catch(() => { }); } catch (e) { }
-            return next;
-          });
-
-          try { Toast.show(normalized.text || 'Consumo aprobado', { duration: Toast.durations.SHORT }); } catch (e) { }
-        } catch (e) {
-          console.warn('handler notificationReceived error', e);
-        }
-      });
-    })();
-
-    return () => {
-      try { listenerRef && listenerRef.remove(); } catch (e) { }
-    };
+      if (Array.isArray(parsed)) {
+        notificationsReadRef.current = new Set(parsed.map(String));
+      } else {
+        notificationsReadRef.current = new Set();
+      }
+    } catch (e) {
+      notificationsReadRef.current = new Set();
+    }
   }, []);
 
+  const persistSeenMarkers = useCallback(async () => {
+    try {
+      const key = seenStorageKeyRef.current || 'user_notifications_seen';
+      const arr = Array.from(notificationsReadRef.current || []);
+      await AsyncStorage.setItem(key, JSON.stringify(arr));
+    } catch (e) {
+      console.warn('persistSeenMarkers error', e);
+    }
+  }, []);
+
+  const normalizeNotification = (notif = {}) => {
+    const raw = notif?.payload ?? notif ?? {};
+
+    const saleId =
+      notif.saleId ??
+      raw.sale_id ??
+      raw.saleId ??
+      raw.transactionId ??
+      raw.transaction_id ??
+      raw.id ??
+      null;
+
+    const departmentId =
+      notif.departmentId ??
+      raw.department_id ??
+      raw.departmentId ??
+      raw.deptId ??
+      raw.departamento_id ??
+      raw.departamentoId ??
+      null;
+
+    const approvedByName =
+      raw.approved_by_usuario?.nombre ??
+      raw.approved_by_usuario?.name ??
+      raw.approved_by_usuario?.full_name ??
+      raw.approved_by_nombre ??
+      '';
+
+    const approvedByEmail =
+      raw.approved_by_email ??
+      raw.approved_email ??
+      raw.approved_by_usuario?.email ??
+      raw.approved_by_usuario?.correo ??
+      raw.approved_by_usuario?.mail ??
+      notif.email ??
+      '';
+
+    const dateStr =
+      notif.date ??
+      raw.date ??
+      raw.closed_at ??
+      raw.createdAt ??
+      raw.created_at ??
+      raw.fecha_cierre ??
+      raw.fecha_apertura ??
+      new Date().toISOString();
+
+    const amount = Number(
+      notif.amount ??
+      notif.total ??
+      raw.amount ??
+      raw.total ??
+      raw.total_consumo ??
+      raw?.detail_consumption?.total_consumo ??
+      0
+    ) || 0;
+
+    const baseText =
+      notif.text ||
+      raw.text ||
+      `Consumo aprobado${approvedByName ? ` por ${approvedByName}` : ''}${amount > 0 ? ` por $${formatMoney(amount)}` : ''}`;
+
+    return {
+      id: notif.id || `notif_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      read: Boolean(notif.read),
+      text: baseText,
+      title: notif.title || raw.title || 'Consumo aprobado',
+      amount,
+      total: amount,
+      saleId,
+      sale_id: saleId,
+      transactionId: saleId,
+      department_id: departmentId,
+      approvedByName,
+      approvedByEmail,
+      date: dateStr,
+      createdAt: dateStr,
+      payload: raw,
+      api_url_2: notif.api_url_2 || raw.api_url_2 || API_URL_2,
+      token: TOKEN,
+    };
+  };
+
+  const extractConsumptionsFromHistory = (json) => {
+    let rawConsumptions = null;
+
+    if (json && Array.isArray(json.consumptions)) {
+      rawConsumptions = json.consumptions;
+    } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0 && Array.isArray(json.periodos[0].consumptions)) {
+      rawConsumptions = json.periodos[0].consumptions;
+    } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0) {
+      const found = json.periodos.flatMap(p => Array.isArray(p.consumptions) ? p.consumptions : []);
+      if (found.length) rawConsumptions = found;
+    }
+
+    if (!rawConsumptions && json) {
+      for (const k of Object.keys(json)) {
+        if (k.toLowerCase().includes('consum') && Array.isArray(json[k])) {
+          rawConsumptions = json[k];
+          break;
+        }
+      }
+    }
+
+    return Array.isArray(rawConsumptions) ? rawConsumptions : [];
+  };
+
+  const loadNotificationsFromApi = useCallback(async () => {
+    if (loadingNotificationsRef.current) return;
+    loadingNotificationsRef.current = true;
+
+    try {
+      const deptId = await AsyncStorage.getItem('user_residence_departamento_id_actual');
+      if (!deptId) {
+        setNotifications([]);
+        return;
+      }
+
+      await ensureSeenMarkersLoaded(deptId);
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+      const periodo_desde = `${year}01`;
+      const periodo_hasta = `${year}${currentMonth}`;
+      const tzOffset = -360;
+
+      const base = API_URL_2.replace(/\/$/, '');
+      const path = `/api/residence/departamentos/${encodeURIComponent(String(deptId))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo_desde)}&periodo_hasta=${encodeURIComponent(periodo_hasta)}&detalle=true&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
+      const url = `${base}${path}`;
+
+      const headers = getAuthHeaders();
+
+      const res = await fetch(url, { method: 'GET', headers });
+      let json = null;
+      try {
+        json = await res.json();
+      } catch (e) {
+        json = null;
+      }
+
+      if (!res.ok) {
+        console.warn('[notifications] http', res.status, json);
+        return;
+      }
+
+      const rawConsumptions = extractConsumptionsFromHistory(json);
+      const nextNotifications = [];
+      const seen = new Set();
+      const prevKeys = new Set((notificationsRef.current || []).map((n) => n._key || buildNotificationKey(n)));
+
+      rawConsumptions.forEach((c, idx) => {
+        const detail = c.detail_consumption ?? c.detail ?? c.detailConsumption ?? null;
+        const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items : (Array.isArray(c.items) ? c.items : []);
+
+        const items = itemsRaw.map((it, i) => ({
+          id: `${c.sale_id ?? idx}-item-${i}`,
+          label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i + 1}`,
+          qty: Number(it.cantidad ?? it.qty ?? 1) || 1,
+          price: Number(it.precio_item ?? it.price ?? it.precio ?? 0) || 0,
+          raw: it,
+        }));
+
+        const approvedByName =
+          c.approved_by_usuario?.nombre ||
+          c.approved_by_usuario?.name ||
+          c.approved_by_usuario?.full_name ||
+          c.approved_by_nombre ||
+          null;
+
+        const approvedByEmail =
+          c.approved_by_email ??
+          c.approved_email ??
+          c.approved_by_usuario?.email ??
+          c.approved_by_usuario?.correo ??
+          c.approved_by_usuario?.mail ??
+          null;
+
+        const restaurantName = (c.restaurante && (c.restaurante.nombre || c.restaurante.name)) ? (c.restaurante.nombre || c.restaurante.name) : null;
+        const fallbackName = approvedByName || restaurantName || `Transacción ${c.sale_id ?? (idx + 1)}`;
+
+        const fechaA = (c.fechas && (c.fechas.fecha_apertura || c.fechas.fechaApertura)) || c.fecha_apertura || c.fechaApertura || null;
+        const fechaC = (c.fechas && (c.fechas.fecha_cierre || c.fechas.fechaCierre)) || c.fecha_cierre || c.fechaCierre || null;
+
+        const approvedState = String(c.estado ?? c.status ?? '').toLowerCase();
+        const isApproved =
+          Boolean(approvedByName || approvedByEmail || fechaC) ||
+          /aprob|cerrad|pagad|complet/i.test(approvedState);
+
+        if (!isApproved) return;
+
+        const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0) || 0;
+
+        const dateSource = fechaC || fechaA || c.updated_at || c.created_at || c.fecha || new Date().toISOString();
+        const normalizedDate = (() => {
+          try {
+            const d = new Date(dateSource);
+            return isNaN(d.getTime()) ? String(dateSource) : d.toISOString();
+          } catch (e) {
+            return String(dateSource);
+          }
+        })();
+
+        const notif = normalizeNotification({
+          id: c.sale_id ? `sale_${c.sale_id}_${normalizedDate}` : `sale_${idx}_${normalizedDate}`,
+          text: `Consumo aprobado${approvedByName ? ` por ${approvedByName}` : ''} por $${formatMoney(total)}`,
+          title: 'Consumo aprobado',
+          amount: total,
+          total,
+          sale_id: c.sale_id ?? null,
+          transactionId: c.sale_id ?? null,
+          department_id: deptId,
+          approved_by_name: approvedByName,
+          approved_by_email: approvedByEmail,
+          date: normalizedDate,
+          createdAt: normalizedDate,
+          payload: {
+            rawConsumption: c,
+            items,
+            detail,
+            approved_by_nombre: approvedByName,
+            approved_by_email: approvedByEmail,
+            department_id: deptId,
+            total_consumo: total,
+            fecha_apertura: fechaA,
+            fecha_cierre: fechaC,
+          },
+          api_url_2: API_URL_2,
+          token: TOKEN,
+        });
+
+        const key = buildNotificationKey(notif);
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const read = notificationsReadRef.current.has(key);
+
+        nextNotifications.push({
+          ...notif,
+          read,
+          _key: key,
+          name: notif.approvedByName || notif.title || 'Consumo aprobado',
+          timestamp: (() => {
+            try {
+              const d = new Date(normalizedDate);
+              return isNaN(d.getTime()) ? '' : d.toLocaleString();
+            } catch (e) {
+              return '';
+            }
+          })(),
+        });
+      });
+
+      nextNotifications.sort((a, b) => {
+        const ta = new Date(a.date || a.createdAt || 0).getTime();
+        const tb = new Date(b.date || b.createdAt || 0).getTime();
+        return tb - ta;
+      });
+
+      if (!notificationsLoadedRef.current) {
+        notificationsLoadedRef.current = true;
+        notificationsRef.current = nextNotifications;
+        setNotifications(nextNotifications);
+        return;
+      }
+
+      const newItems = nextNotifications.filter(n => !prevKeys.has(n._key));
+
+      if (newItems.length > 0) {
+        newItems.forEach(item => {
+          try {
+            Toast.show(item.text || 'Consumo aprobado', { duration: Toast.durations.SHORT });
+          } catch (e) {}
+        });
+      }
+
+      notificationsRef.current = nextNotifications;
+      setNotifications(nextNotifications);
+    } catch (err) {
+      console.warn('loadNotificationsFromApi error', err);
+    } finally {
+      loadingNotificationsRef.current = false;
+    }
+  }, [ensureSeenMarkersLoaded]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadNotificationsFromApi();
+    }, [loadNotificationsFromApi])
+  );
+
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
         let fullname = await AsyncStorage.getItem('user_fullname');
@@ -143,7 +441,7 @@ export default function ProfileResidence({ navigation }) {
           const email = await AsyncStorage.getItem('user_email');
           if (email && email.includes('@')) fullname = email.split('@')[0];
         }
-        if (fullname) setUsername(fullname);
+        if (fullname && mounted) setUsername(fullname);
       } catch (err) {
         console.warn('Error leyendo usuario desde AsyncStorage:', err);
         Toast.show('Error al cargar usuario', { duration: Toast.durations.SHORT });
@@ -153,24 +451,48 @@ export default function ProfileResidence({ navigation }) {
     (async () => {
       try {
         const cached = await AsyncStorage.getItem('user_profile_url');
-        if (cached) setProfileUrl(cached);
-      } catch (e) { }
+        if (cached && mounted) setProfileUrl(cached);
+      } catch (e) {}
 
       await loadProfileFromApi();
     })();
-  }, []);
+
+    loadNotificationsFromApi();
+
+    const interval = setInterval(() => {
+      loadNotificationsFromApi();
+    }, 4000);
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      const wasBackground = appStateRef.current.match(/inactive|background/);
+      appStateRef.current = nextState;
+
+      if (wasBackground && nextState === 'active') {
+        loadNotificationsFromApi();
+      }
+    });
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      try {
+        sub.remove();
+      } catch (e) {}
+    };
+  }, [loadNotificationsFromApi]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAllRead = async () => {
     try {
-      const next = notifications.map(n => ({ ...n, read: true }));
+      const next = notifications.map(n => {
+        const key = n._key || buildNotificationKey(n);
+        notificationsReadRef.current.add(key);
+        return { ...n, read: true, _key: key };
+      });
       setNotifications(next);
-      try {
-        await AsyncStorage.setItem(notificationsKeyRef.current || 'user_notifications', JSON.stringify(next));
-      } catch (e) {
-        console.warn('Error persistiendo markAllRead', e);
-      }
+      notificationsRef.current = next;
+      await persistSeenMarkers();
     } catch (e) {
       console.warn('markAllRead error', e);
     }
@@ -267,7 +589,7 @@ export default function ProfileResidence({ navigation }) {
             index: 0,
             routes: [{ name: 'Login' }]
           });
-        } catch (_) { }
+        } catch (_) {}
       }
 
       Toast.show('Sesión cerrada', { duration: Toast.durations.SHORT });
@@ -279,24 +601,17 @@ export default function ProfileResidence({ navigation }) {
           index: 0,
           routes: [{ name: 'Login' }]
         });
-      } catch (_) { }
+      } catch (_) {}
     }
   };
-  // abrir modal de notificaciones y marcarlas como leídas
+
   const openNotifications = async () => {
     try {
-      // mostramos el modal primero (UX inmediato)
       setShowNotifications(true);
-      // marcamos todas como leídas y persistimos
       await markAllRead();
     } catch (e) {
       console.warn('openNotifications error', e);
     }
-  };
-  const getAuthHeaders = (extra = {}) => {
-    const base = { 'Content-Type': 'application/json', ...extra };
-    if (TOKEN && TOKEN.trim().length > 0) base['Authorization'] = `Bearer ${TOKEN}`;
-    return base;
   };
 
   const loadProfileFromApi = async () => {
@@ -321,7 +636,7 @@ export default function ProfileResidence({ navigation }) {
         setProfileUrl(url);
         try {
           await AsyncStorage.setItem('user_profile_url', url);
-        } catch (e) { }
+        } catch (e) {}
 
         try {
           DeviceEventEmitter.emit('profileUpdated', url);
@@ -330,8 +645,8 @@ export default function ProfileResidence({ navigation }) {
         }
       } else {
         setProfileUrl(null);
-        try { await AsyncStorage.removeItem('user_profile_url').catch(() => null); } catch (_) { }
-        try { DeviceEventEmitter.emit('profileUpdated', null); } catch (e) { /**/ }
+        try { await AsyncStorage.removeItem('user_profile_url').catch(() => null); } catch (_) {}
+        try { DeviceEventEmitter.emit('profileUpdated', null); } catch (e) {}
       }
     } catch (err) {
       console.warn('Error cargando foto de perfil:', err);
@@ -487,8 +802,8 @@ export default function ProfileResidence({ navigation }) {
       }
 
       try {
-        await AsyncStorage.removeItem('user_profile_url').catch(() => { });
-      } catch (e) { }
+        await AsyncStorage.removeItem('user_profile_url').catch(() => {});
+      } catch (e) {}
 
       setProfileUrl(null);
 
@@ -500,7 +815,7 @@ export default function ProfileResidence({ navigation }) {
 
       try {
         await loadProfileFromApi();
-      } catch (_) { }
+      } catch (_) {}
     } catch (err) {
       console.warn('removeProfilePhoto error', err);
       Toast.show('Error al eliminar foto', { duration: Toast.durations.SHORT });
@@ -518,20 +833,15 @@ export default function ProfileResidence({ navigation }) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
-  // ------------------ Cambié: la navegación al presionar una notificación ------------------
-  // ahora navegamos a Experiences y mandamos { notification: {...} }
   function NotificationRow({ n }) {
     const dateLabel = n.date || n.createdAt ? new Date(n.date || n.createdAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     const title = 'Consumo aprobado';
     const amount = Number(n.amount ?? n.total ?? n.payload?.total ?? n.payload?.amount ?? 0) || 0;
 
     const buildNotificationPayload = () => {
-      // normalizar payload para ExperiencesScreen
       const raw = n.payload ?? n;
-      // posibles fields donde esté el sale id
       const saleId = n.saleId ?? raw?.sale_id ?? raw?.saleId ?? raw?.transactionId ?? raw?.transaction_id ?? raw?.id ?? null;
 
-      // periodo preferido (yyyyMM)
       let periodo = null;
       const dateStr = n.date ?? raw?.date ?? raw?.closed_at ?? raw?.createdAt ?? raw?.created_at ?? null;
       if (dateStr) {
@@ -542,16 +852,22 @@ export default function ProfileResidence({ navigation }) {
             const m = String(d.getMonth() + 1).padStart(2, '0');
             periodo = `${y}${m}`;
           }
-        } catch (e) { periodo = null; }
+        } catch (e) {
+          periodo = null;
+        }
       }
 
       return {
-        // claves que espera ExperiencesScreen: periodo, sale_id / transactionId, amount, date, rawResponse
         periodo,
         sale_id: saleId ?? null,
         transactionId: saleId ?? null,
         amount: amount || (raw?.amount ?? raw?.total) || null,
         date: dateStr || null,
+        department_id: n.department_id ?? raw?.department_id ?? null,
+        approved_by_name: n.approvedByName ?? raw?.approved_by_nombre ?? null,
+        approved_by_email: n.approvedByEmail ?? raw?.approved_by_email ?? null,
+        api_url_2: API_URL_2,
+        token: TOKEN,
         rawResponse: raw,
       };
     };
@@ -563,20 +879,26 @@ export default function ProfileResidence({ navigation }) {
         onPress={() => {
           try {
             const payload = buildNotificationPayload();
-            // navegamos a Experiences con la notificación normalizada
-            // payload es el objeto que ya creas (buildNotificationPayload)
             navigation.navigate('Experiences', {
               screen: 'ExperiencesResidence',
               params: { notification: payload }
             });
             setShowNotifications(false);
-            } catch (e) {
+          } catch (e) {
             console.warn('navigation to Experiences failed', e);
           }
         }}
       >
         <View style={styles.notLeft}>
-          <Text style={styles.notBranch} numberOfLines={1}>{title}</Text>
+          <Text style={styles.notBranch} numberOfLines={2}>{title}</Text>
+          <Text style={styles.notSale} numberOfLines={1}>
+            Aprobado por: {n.approvedByName || '—'}
+          </Text>
+          {/* <Text style={styles.notSale} numberOfLines={2}>
+            {n.approvedByName ? `Aprobado por: ${n.approvedByName}` : ''}
+            {n.approvedByEmail ? `${n.approvedByName ? ' · ' : ''}${n.approvedByEmail}` : ''}
+          </Text> */}
+          {/* {n.department_id ? <Text style={styles.notSale} numberOfLines={1}>Departamento: {n.department_id}</Text> : null} */}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 
@@ -586,10 +908,6 @@ export default function ProfileResidence({ navigation }) {
         </View>
       </TouchableOpacity>
     );
-  }
-
-  function formatMoney(n) {
-    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
   }
 
   return (
@@ -605,7 +923,7 @@ export default function ProfileResidence({ navigation }) {
             </View>
             <ScrollView style={[styles.modalList, { maxHeight: Math.round(Math.min(hp(60), 420)) }]}>
               {notifications && notifications.length > 0 ? (
-                notifications.map(n => <NotificationRow key={n.id} n={n} />)
+                notifications.map(n => <NotificationRow key={n._key || n.id} n={n} />)
               ) : (
                 <View style={styles.noNotifications}>
                   <Text style={styles.noNotificationsText}>No hay notificaciones nuevas.</Text>
@@ -655,13 +973,10 @@ export default function ProfileResidence({ navigation }) {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(24, hp(4), bottomSafe + 8) }]}>
         <View style={[styles.header, { height: headerHeight, paddingHorizontal: basePadding }]}>
- {/*          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
-            <Ionicons name="chevron-back" size={iconSize} color="#0046ff" />
-          </TouchableOpacity> */}
           <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
           <View style={styles.headerRight}>
             <TouchableOpacity onPress={openNotifications} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
-                <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
+              <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
               {unreadCount > 0 && (
                 <View style={[styles.badge, { right: 2, top: 2 }]}>
                   <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 10, 12) }]}>{unreadCount}</Text>
@@ -764,7 +1079,6 @@ export default function ProfileResidence({ navigation }) {
             {
               position: 'relative',
               overflow: 'hidden',
-
               marginTop: Math.max(12, hp(1.7)),
               paddingHorizontal: clamp(Math.round(width * 0.06), 12, 34),
               paddingVertical: clamp(10, 8, 14),
@@ -794,7 +1108,6 @@ export default function ProfileResidence({ navigation }) {
           />
           <Text style={[styles.termsText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Tabtrack</Text>
         </TouchableOpacity>
-
       </ScrollView>
     </SafeAreaView>
   );
