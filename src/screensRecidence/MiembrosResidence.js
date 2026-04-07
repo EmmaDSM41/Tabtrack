@@ -9,6 +9,8 @@ import {
   PixelRatio,
   Image,
   TouchableOpacity,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -17,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BASE = 'https://api.residence.tab-track.com';
 const BASE2 = 'https://api.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3Mjc0NzAzOSwianRpIjoiODIyOWZkNTQtNGVmYS00NGZmLTk1MWQtNjg5YjA1ZGVhYjE2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzI3NDcwMzksImV4cCI6MTc3NTMzOTAzOSwicm9sIjoiRWRpdG9yIn0.tfon8oCTx1Ue7pAdrJvwx5RfW51HA6yhsRRXaa6v3OY'; 
+const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
 
 const AVATAR_GRADIENTS = [
   ['#8E5CFF', '#5B8BFF'],
@@ -46,6 +48,171 @@ export default function MiembrosResidence() {
   const [departmentLabel, setDepartmentLabel] = useState('Departamento');
   const [residentCount, setResidentCount] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  const [showUnlinkModal, setShowUnlinkModal] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
+
+  const performLogout = async () => {
+    try {
+      const uid = await AsyncStorage.getItem('user_usuario_app_id');
+      const email = await AsyncStorage.getItem('user_email');
+      const currentId = uid || email || null;
+
+      try {
+        if (email) {
+          const profileCached = await AsyncStorage.getItem('user_profile_url');
+          const raw = await AsyncStorage.getItem('recent_accounts_v1');
+          let arr = raw ? JSON.parse(raw) : [];
+          arr = Array.isArray(arr) ? arr.filter(a => String(a.email).toLowerCase() !== String(email).toLowerCase()) : [];
+          arr.unshift({ email, avatarUrl: profileCached || null, savedAt: Date.now() });
+          if (!Array.isArray(arr)) arr = [];
+          if (arr.length > 6) arr = arr.slice(0, 6);
+          try { await AsyncStorage.setItem('recent_accounts_v1', JSON.stringify(arr)); } catch (e) { console.warn('save recent_accounts failed', e); }
+        }
+      } catch (e) {
+        console.warn('Guardar recent_account failed (pre-clean)', e);
+      }
+
+      const preserveKeys = new Set();
+
+      const visitsBase = 'user_visits';
+      const pendBase = 'pending_visits';
+      if (currentId) {
+        preserveKeys.add(`${visitsBase}_${currentId}`);
+        preserveKeys.add(`${pendBase}_${currentId}`);
+        preserveKeys.add(`favorites_${currentId}`);
+        preserveKeys.add(`favorites_objs_${currentId}`);
+      }
+      preserveKeys.add(visitsBase);
+      preserveKeys.add(pendBase);
+      preserveKeys.add('recent_accounts_v1');
+
+      const branchesPrefix = 'branches_cache_';
+
+      const allKeys = await AsyncStorage.getAllKeys();
+
+      const sessionPrefixes = ['session_', 'sess_', 'tmp_'];
+      const tokenNames = [
+        'auth_token',
+        'access_token',
+        'refresh_token',
+        'token',
+        'user_valid',
+        'user_admin_id_actual',
+        'user_edificio_id_actual',
+        'user_residence_departamento_id_actual',
+        'user_residence_rol_actual',
+        'user_residence_activo',
+        'user_email',
+        'user_fullname',
+        'user_profile_url',
+      ];
+
+      const keysToRemove = allKeys.filter(k => {
+        if (preserveKeys.has(k)) return false;
+        if (k.startsWith(branchesPrefix)) return false;
+        if (tokenNames.includes(k)) return true;
+        for (const p of sessionPrefixes) {
+          if (k.startsWith(p)) return true;
+        }
+        return false;
+      });
+
+      if (keysToRemove.length > 0) {
+        await AsyncStorage.multiRemove(keysToRemove);
+      }
+
+      try {
+        await AsyncStorage.multiRemove([
+          'user_usuario_app_id',
+          'user_email',
+          'user_valid',
+          'user_fullname',
+          'user_profile_url',
+          'user_admin_id_actual',
+          'user_edificio_id_actual',
+          'user_residence_departamento_id_actual',
+          'user_residence_rol_actual',
+          'user_residence_activo',
+        ]);
+      } catch (e) {
+        console.warn('Error removing persistent auth keys on logout', e);
+      }
+
+      try {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Recent' }]
+        });
+      } catch (e) {
+        console.warn('navigate RecentAccounts failed, falling back to Login', e);
+        try {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }]
+          });
+        } catch (_) {  }
+      }
+    } catch (err) {
+      console.warn('Error cerrando sesión:', err);
+      try {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }]
+        });
+      } catch (_) {  }
+    }
+  };
+
+  const handleUnlink = async () => {
+    try {
+      setUnlinking(true);
+
+      const id_admin_raw = await AsyncStorage.getItem('user_admin_id_actual');
+      const id_edificio_raw = await AsyncStorage.getItem('user_edificio_id_actual');
+      const mail = await AsyncStorage.getItem('user_email');
+
+      if (!id_admin_raw || !id_edificio_raw || !mail) {
+        throw new Error('Faltan datos para desvincular');
+      }
+
+      const payload = {
+        id_admin: Number(id_admin_raw),
+        id_edificio: Number(id_edificio_raw),
+        mail: String(mail),
+      };
+
+      const res = await fetch(`${BASE}/api/residence/departamentos-usuarios/deactivate`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text().catch(() => '');
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (_) {
+        json = null;
+      }
+
+      if (!res.ok) {
+        const message = json?.error || json?.message || text || `HTTP ${res.status}`;
+        throw new Error(message);
+      }
+
+      setShowUnlinkModal(false);
+      await performLogout();
+    } catch (err) {
+      console.warn('Error al desvincular:', err);
+      setUnlinking(false);
+      setShowUnlinkModal(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -360,6 +527,22 @@ export default function MiembrosResidence() {
     <View style={{ alignItems: 'center', marginVertical: 18 }}>
       <TouchableOpacity
         style={[
+          styles.unlinkButton,
+          {
+            paddingVertical: backBtnPadV,
+            paddingHorizontal: backBtnPadH,
+            minWidth: backBtnMinWidth,
+            marginBottom: 12,
+          },
+        ]}
+        onPress={() => setShowUnlinkModal(true)}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.unlinkButtonText}>Desvincular</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
           styles.backButton,
           {
             paddingVertical: backBtnPadV,
@@ -428,6 +611,46 @@ export default function MiembrosResidence() {
         }
         ListFooterComponent={ListFooter}
       />
+
+      <Modal
+        visible={showUnlinkModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!unlinking) setShowUnlinkModal(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>¿Estás seguro que quieres desvincularte de este departamento?</Text>
+
+            {unlinking ? (
+              <View style={{ marginTop: 18, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#0046ff" />
+                <Text style={styles.modalLoadingText}>Desvinculando...</Text>
+              </View>
+            ) : (
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalCancelButton]}
+                  onPress={() => setShowUnlinkModal(false)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.modalCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalConfirmButton]}
+                  onPress={handleUnlink}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.modalConfirmText}>Sí, desvincular</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -457,21 +680,15 @@ const styles = StyleSheet.create({
   rowWrap: { backgroundColor: '#fff' },
   rowInner: { flexDirection: 'row', alignItems: 'flex-start'  },
 
-  /* Contenedor del avatar: contiene una "sombra" circular y el contenido (imagen/gradiente) */
   avatarWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
-    // no elevation aquí; usamos la sombra circular manual (avatarShadow)
   },
-  /* sombra circular fija (garantiza forma perfectamente redonda) */
   avatarShadow: {
     position: 'absolute',
     backgroundColor: 'rgba(0,0,0,0.06)',
-    // width/height/borderRadius se aplican en runtime con inline styles
   },
-  /* la imagen o gradiente que muestra el avatar: siempre con borderRadius y overflow:hidden
-     quitamos elevation/shadow que podrían causar outline en algunos Android OEMs */
   avatarImage: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -521,5 +738,81 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '800',
     fontSize: 15,
+  },
+
+  unlinkButton: {
+    backgroundColor: '#e11d48',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+  },
+  unlinkButtonText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+  },
+  modalTitle: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 18,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelButton: {
+    backgroundColor: '#e5e7eb',
+  },
+  modalConfirmButton: {
+    backgroundColor: '#e11d48',
+  },
+  modalCancelText: {
+    color: '#111827',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  modalConfirmText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  modalLoadingText: {
+    marginTop: 12,
+    color: '#374151',
+    fontWeight: '600',
   },
 });

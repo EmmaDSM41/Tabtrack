@@ -21,7 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3Mjc0NzAzOSwianRpIjoiODIyOWZkNTQtNGVmYS00NGZmLTk1MWQtNjg5YjA1ZGVhYjE2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzI3NDcwMzksImV4cCI6MTc3NTMzOTAzOSwicm9sIjoiRWRpdG9yIn0.tfon8oCTx1Ue7pAdrJvwx5RfW51HA6yhsRRXaa6v3OY';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const PRIMARY = '#FEFFFFFF';
 
 export default function Login() {
@@ -189,7 +189,7 @@ export default function Login() {
         }
 
         if (usuario.usuario_app_id) {
-          await AsyncStorage.setItem('user_usuario_app_id', usuario.usuario_app_id);
+          await AsyncStorage.setItem('user_usuario_app_id', String(usuario.usuario_app_id));
         }
 
         await AsyncStorage.setItem('user_valid', String(data.valid));
@@ -216,9 +216,7 @@ export default function Login() {
           console.warn('Error guardando user_residence_activo', e);
         }
 
-        // --- NUEVO: guardar residence_departamento_id_actual y residence_rol_actual en AsyncStorage ---
         try {
-          // Preferir valores dentro de usuario, si no, revisar en data
           let deptId = null;
           let roleVal = null;
 
@@ -244,7 +242,34 @@ export default function Login() {
         } catch (e) {
           console.warn('Error guardando residence meta en AsyncStorage', e);
         }
-        // -------------------------------------------------------------------------------------
+
+        // NUEVO: guardar admin_id_actual y edificio_id_actual
+        try {
+          let adminIdActual = null;
+          let edificioIdActual = null;
+
+          if (usuario && usuario.admin_id_actual !== undefined && usuario.admin_id_actual !== null) {
+            adminIdActual = usuario.admin_id_actual;
+          } else if (data && data.admin_id_actual !== undefined && data.admin_id_actual !== null) {
+            adminIdActual = data.admin_id_actual;
+          }
+
+          if (usuario && usuario.edificio_id_actual !== undefined && usuario.edificio_id_actual !== null) {
+            edificioIdActual = usuario.edificio_id_actual;
+          } else if (data && data.edificio_id_actual !== undefined && data.edificio_id_actual !== null) {
+            edificioIdActual = data.edificio_id_actual;
+          }
+
+          if (adminIdActual !== null && adminIdActual !== undefined) {
+            await AsyncStorage.setItem('user_admin_id_actual', String(adminIdActual));
+          }
+
+          if (edificioIdActual !== null && edificioIdActual !== undefined) {
+            await AsyncStorage.setItem('user_edificio_id_actual', String(edificioIdActual));
+          }
+        } catch (e) {
+          console.warn('Error guardando admin_id_actual / edificio_id_actual en AsyncStorage', e);
+        }
 
         showToast(
           fullname ? `¡Bienvenido, ${fullname}!` : '¡Bienvenido!',
