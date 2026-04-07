@@ -89,7 +89,7 @@ export default function ProfileResidence({ navigation }) {
   };
 
   const buildNotificationKey = (n) => {
-    const saleId = n?.sale_id ?? n?.saleId ?? n?.transactionId ?? n?.id ?? '';
+    const saleId = n?.sale_id ?? n?.saleId ?? n?.transactionId ?? n?.transaction_id ?? n?.id ?? '';
     const date = n?.date ?? n?.createdAt ?? '';
     const amount = Number(n?.amount ?? n?.total ?? 0) || 0;
     const dept = n?.department_id ?? '';
@@ -140,6 +140,7 @@ export default function ProfileResidence({ navigation }) {
 
     const saleId =
       notif.saleId ??
+      notif.sale_id ??
       raw.sale_id ??
       raw.saleId ??
       raw.transactionId ??
@@ -192,6 +193,18 @@ export default function ProfileResidence({ navigation }) {
       0
     ) || 0;
 
+    const periodo = (() => {
+      try {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          return `${y}${m}`;
+        }
+      } catch (e) {}
+      return null;
+    })();
+
     const baseText =
       notif.text ||
       raw.text ||
@@ -207,11 +220,13 @@ export default function ProfileResidence({ navigation }) {
       saleId,
       sale_id: saleId,
       transactionId: saleId,
+      transaction_id: saleId,
       department_id: departmentId,
       approvedByName,
       approvedByEmail,
       date: dateStr,
       createdAt: dateStr,
+      periodo,
       payload: raw,
       api_url_2: notif.api_url_2 || raw.api_url_2 || API_URL_2,
       token: TOKEN,
@@ -338,6 +353,18 @@ export default function ProfileResidence({ navigation }) {
           }
         })();
 
+        const periodo = (() => {
+          try {
+            const d = new Date(normalizedDate);
+            if (!isNaN(d.getTime())) {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              return `${y}${m}`;
+            }
+          } catch (e) {}
+          return null;
+        })();
+
         const notif = normalizeNotification({
           id: c.sale_id ? `sale_${c.sale_id}_${normalizedDate}` : `sale_${idx}_${normalizedDate}`,
           text: `Consumo aprobado${approvedByName ? ` por ${approvedByName}` : ''} por $${formatMoney(total)}`,
@@ -345,22 +372,31 @@ export default function ProfileResidence({ navigation }) {
           amount: total,
           total,
           sale_id: c.sale_id ?? null,
+          saleId: c.sale_id ?? null,
           transactionId: c.sale_id ?? null,
+          transaction_id: c.sale_id ?? null,
           department_id: deptId,
           approved_by_name: approvedByName,
           approved_by_email: approvedByEmail,
           date: normalizedDate,
           createdAt: normalizedDate,
+          periodo,
           payload: {
             rawConsumption: c,
-            items,
             detail,
+            items,
             approved_by_nombre: approvedByName,
             approved_by_email: approvedByEmail,
             department_id: deptId,
             total_consumo: total,
             fecha_apertura: fechaA,
             fecha_cierre: fechaC,
+            sale_id: c.sale_id ?? null,
+            saleId: c.sale_id ?? null,
+            transactionId: c.sale_id ?? null,
+            transaction_id: c.sale_id ?? null,
+            id: c.sale_id ?? null,
+            periodo,
           },
           api_url_2: API_URL_2,
           token: TOKEN,
@@ -840,11 +876,11 @@ export default function ProfileResidence({ navigation }) {
 
     const buildNotificationPayload = () => {
       const raw = n.payload ?? n;
-      const saleId = n.saleId ?? raw?.sale_id ?? raw?.saleId ?? raw?.transactionId ?? raw?.transaction_id ?? raw?.id ?? null;
+      const saleId = n.saleId ?? n.sale_id ?? raw?.sale_id ?? raw?.saleId ?? raw?.transactionId ?? raw?.transaction_id ?? raw?.id ?? null;
 
-      let periodo = null;
+      let periodo = n.periodo ?? raw?.periodo ?? null;
       const dateStr = n.date ?? raw?.date ?? raw?.closed_at ?? raw?.createdAt ?? raw?.created_at ?? null;
-      if (dateStr) {
+      if (!periodo && dateStr) {
         try {
           const d = new Date(dateStr);
           if (!isNaN(d.getTime())) {
@@ -857,10 +893,13 @@ export default function ProfileResidence({ navigation }) {
         }
       }
 
-      return {
+      const payload = {
         periodo,
         sale_id: saleId ?? null,
+        saleId: saleId ?? null,
         transactionId: saleId ?? null,
+        transaction_id: saleId ?? null,
+        id: saleId ?? null,
         amount: amount || (raw?.amount ?? raw?.total) || null,
         date: dateStr || null,
         department_id: n.department_id ?? raw?.department_id ?? null,
@@ -869,7 +908,19 @@ export default function ProfileResidence({ navigation }) {
         api_url_2: API_URL_2,
         token: TOKEN,
         rawResponse: raw,
+        rawConsumption: raw?.rawConsumption ?? raw?.raw_consumption ?? null,
+        matchHints: {
+          sale_id: saleId ?? null,
+          transactionId: saleId ?? null,
+          transaction_id: saleId ?? null,
+          amount: amount || (raw?.amount ?? raw?.total) || null,
+          date: dateStr || null,
+          periodo,
+          department_id: n.department_id ?? raw?.department_id ?? null,
+        },
       };
+
+      return payload;
     };
 
     return (
@@ -881,7 +932,12 @@ export default function ProfileResidence({ navigation }) {
             const payload = buildNotificationPayload();
             navigation.navigate('Experiences', {
               screen: 'ExperiencesResidence',
-              params: { notification: payload }
+              params: {
+                notification: payload,
+                saleId: payload.sale_id,
+                transactionId: payload.transactionId,
+                periodo: payload.periodo,
+              }
             });
             setShowNotifications(false);
           } catch (e) {
@@ -894,11 +950,6 @@ export default function ProfileResidence({ navigation }) {
           <Text style={styles.notSale} numberOfLines={1}>
             Aprobado por: {n.approvedByName || '—'}
           </Text>
-          {/* <Text style={styles.notSale} numberOfLines={2}>
-            {n.approvedByName ? `Aprobado por: ${n.approvedByName}` : ''}
-            {n.approvedByEmail ? `${n.approvedByName ? ' · ' : ''}${n.approvedByEmail}` : ''}
-          </Text> */}
-          {/* {n.department_id ? <Text style={styles.notSale} numberOfLines={1}>Departamento: {n.department_id}</Text> : null} */}
           <Text style={styles.notDate}>{dateLabel}</Text>
         </View>
 

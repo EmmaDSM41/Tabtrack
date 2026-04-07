@@ -706,7 +706,7 @@ export default function CuentaResidence() {
               {(accountOpening || approveLoading) ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16) }]}>{ accountOpened ? 'Validar consumo' : 'Empezar consumo' }</Text>
+                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16) }]}>{ accountOpened ? 'Validar consumo' : 'Empezar consumo Nota: "Es necesario hacer una segunda verificacion"' }</Text>
               )}
             </TouchableOpacity>
           ) : (
