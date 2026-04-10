@@ -39,6 +39,7 @@ import Stripe from './Stripe';
 import ConfirmacionPago from './ConfirmacionPago';
 import SaleDetail from './PagoDetail';
 import ErrorPago from './ErrorPago';
+import { StackActions } from '@react-navigation/native';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -170,7 +171,28 @@ export default function Home() {
       <Tab.Screen name="GPS" component={GPSStackScreen} />
       <Tab.Screen name="Feed" component={FeedStackScreen} />
       <Tab.Screen name="QR" component={QRStackScreen} />
-      <Tab.Screen name="Experiences" component={ExperiencesStackScreen} />
+<Tab.Screen
+  name="Experiences"
+  component={ExperiencesStackScreen}
+  listeners={({ navigation }) => ({
+    tabPress: e => {
+      e.preventDefault();
+
+      const state = navigation.getState();
+      const experiencesRoute = state.routes.find(r => r.name === 'Experiences');
+      const nestedKey = experiencesRoute?.state?.key;
+
+      if (nestedKey) {
+        navigation.dispatch({
+          ...StackActions.popToTop(),
+          target: nestedKey,
+        });
+      }
+
+      navigation.navigate('Experiences', { screen: 'ExperiencesMain' });
+    },
+  })}
+/>
       <Tab.Screen name="Perfil" component={ProfileStackScreen} />
     </Tab.Navigator>
   );

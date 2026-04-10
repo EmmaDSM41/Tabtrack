@@ -126,6 +126,7 @@ export default function EqualSplit() {
   const mesero = route?.params?.mesero ?? route?.params?.waiter ?? null;
   const moneda = route?.params?.moneda ?? 'MXN';
   const total_consumo_param = route?.params?.total ?? route?.params?.total_consumo ?? null;
+  const restaurantImage = route?.params?.restaurantImage ?? null;
 
   const ventaLookupId = saleId ?? route?.params?.ventaId ?? route?.params?.venta_id ?? null;
 
@@ -384,6 +385,7 @@ export default function EqualSplit() {
     total_comensales: totalComensales,
     total_consumo: total_consumo_param ?? total,
     tipApplied: tipPercent > 0 ? { percent: tipPercent, tipAmount } : null,
+    restaurantImage,
   };
 
   const goToPropina = () => {
@@ -403,6 +405,7 @@ export default function EqualSplit() {
       perPersonTotalWithTip,
 
       tipApplied: payloadCommon.tipApplied,
+      restaurantImage,
     });
   };
 
@@ -464,7 +467,7 @@ export default function EqualSplit() {
       const url = `${base}/api/mesas/comensales`;
 
       const body = {
-        id_venta: String(idVenta), // aquí se manda el saleId original
+        id_venta: String(idVenta),
         sucursal_id: sucursalId !== null && sucursalId !== undefined && String(sucursalId).trim() !== ''
           ? Number(sucursalId)
           : null,
@@ -488,16 +491,6 @@ export default function EqualSplit() {
         return { ok: false, message: msg, raw: json };
       }
 
-      // La API responde con:
-      // {
-      //   data: {
-      //     fecha_registro,
-      //     id,
-      //     id_venta: "12|774",
-      //     numero_comensales: 2
-      //   },
-      //   message: "Registro guardado correctamente"
-      // }
       return { ok: true, raw: json };
     } catch (err) {
       console.warn('postComensalesToServer error', err);
@@ -595,7 +588,10 @@ export default function EqualSplit() {
             <View style={[styles.leftCol, { flex: 0, maxWidth: Math.round(Math.min(logoSize + wp(6), wp(40))) }]}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
               <View style={styles.logoWrap}>
-                <Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantImage} />
+                <Image
+                  source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
+                  style={styles.restaurantImage}
+                />
               </View>
             </View>
 

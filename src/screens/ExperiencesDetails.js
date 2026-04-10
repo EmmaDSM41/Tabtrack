@@ -807,15 +807,36 @@ export default function DetailScreen({ navigation, route }) {
       Alert.alert('Error', 'No se pudo abrir WhatsApp. Revisa la URL.');
     }
   };
+function normalizeVisitData(v) {
+  if (!v) return null;
 
+  const cleanName = (x) => {
+    const s = String(x ?? '').trim();
+    if (!s) return '';
+    if (s.toLowerCase() === 'restaurante') return '';
+    return s;
+  };
+
+  return {
+    ...v,
+    nombre: cleanName(v.nombre) || cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || '',
+    restaurantName: cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || cleanName(v.nombre) || '',
+    nombre_restaurante: cleanName(v.nombre_restaurante) || cleanName(v.restaurantName) || cleanName(v.nombre) || '',
+    branchName: v.branchName ?? v.nombre_sucursal ?? '',
+    nombre_sucursal: v.nombre_sucursal ?? v.branchName ?? '',
+    restaurantImage: v.restaurantImage ?? v.imagen_logo_url ?? v.logo_url ?? null,
+    bannerImage: v.bannerImage ?? v.imagen_banner_url ?? null,
+  };
+}
   useEffect(() => {
     (async () => {
-      if (route?.params?.visit) {
-        setVisit(route.params.visit);
-        setLoading(false);
-        try { await tryFetchSplits(route.params.visit); } catch (e) { /* noop */ }
-        return;
-      }
+if (route?.params?.visit) {
+  const normalizedVisit = normalizeVisitData(route.params.visit);
+  setVisit(normalizedVisit);
+  setLoading(false);
+  try { await tryFetchSplits(normalizedVisit); } catch (e) { /* noop */ }
+  return;
+}
 
       const id = route?.params?.visitId ?? route?.params?.id ?? null;
       if (id) {
@@ -1117,7 +1138,7 @@ export default function DetailScreen({ navigation, route }) {
             )}
           </View>
           <View style={styles.totalTextWrapper}>
-            <Text style={[styles.totalLabel, { fontSize: clamp(rf(3.2), 14, 18) }]}>{visit.restaurantName ?? 'Restaurante'}</Text>
+            <Text style={[styles.totalLabel, { fontSize: clamp(rf(3.2), 14, 18) }]}>{visit.nombre || visit.restaurantName || visit.nombre_restaurante || 'Restaurante'}</Text>
             <Text style={[styles.totalAmount, { fontSize: totalAmountFont, lineHeight: Math.round(totalAmountFont * 1.05) }]}>${total.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
             <Text style={[styles.totalSubtitle, { fontSize: clamp(rf(2.4), 11, 14) }]}>
               {showFull ? 'Cuenta completa' : (shouldShowFiltered ? 'Detalle - lo que pagaste' : 'Cuenta completa')}

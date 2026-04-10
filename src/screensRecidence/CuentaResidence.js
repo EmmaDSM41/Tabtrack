@@ -134,6 +134,19 @@ const buildPendingPaymentObj = (saleKey, itemsArr, amount) => {
   }
 };
 
+const getRestauranteIdFromResolveJson = (json) => {
+  const candidates = [
+    json?.mesa?.restaurante_id,
+    json?.restaurante?.id,
+    json?.restaurante_id,
+    json?.open_consumption?.restaurante_id,
+    json?.open_consumption?.restaurante?.id,
+  ];
+
+  const found = candidates.find(v => v !== null && v !== undefined && String(v).trim() !== '');
+  return found !== undefined ? found : null;
+};
+
 export default function CuentaResidence() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -187,13 +200,77 @@ export default function CuentaResidence() {
     try { navigation.navigate('QrResidence'); } catch (e) { try { navigation.goBack?.(); } catch(e) {} }
   };
 
+  const fetchRestaurantImage = useCallback(async (edificioIdToSearch, restauranteIdToSearch) => {
+    try {
+      const edificioId = edificioIdToSearch !== null && edificioIdToSearch !== undefined ? String(edificioIdToSearch).trim() : '';
+      const targetRestauranteId = restauranteIdToSearch !== null && restauranteIdToSearch !== undefined ? String(restauranteIdToSearch).trim() : '';
+
+      console.log('[CuentaResidence] fetchRestaurantImage -> edificioId:', edificioId, 'restauranteId:', targetRestauranteId);
+
+      if (!edificioId) {
+        console.log('[CuentaResidence] Falta edificioId. No se consulta imagen.');
+        if (isMountedRef.current) setRestaurantImageUri(null);
+        return;
+      }
+
+      if (!targetRestauranteId) {
+        console.log('[CuentaResidence] Falta restauranteId. No se consulta imagen.');
+        if (isMountedRef.current) setRestaurantImageUri(null);
+        return;
+      }
+
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/residence/edificios/${encodeURIComponent(edificioId)}/restaurantes`;
+      console.log('[CuentaResidence] Consultando imagen en:', url);
+
+      const headers = { Accept: 'application/json' };
+      if (API_AUTH_TOKEN) headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
+
+      console.log('[CuentaResidence] Status consulta restaurantes:', res.status);
+
+      if (!res.ok) {
+        console.log('[CuentaResidence] La consulta de restaurantes falló. Se usa imagen por defecto.');
+        if (isMountedRef.current) setRestaurantImageUri(null);
+        return;
+      }
+
+      const json = await res.json();
+      console.log('[CuentaResidence] Respuesta completa restaurantes:', json);
+
+      const restaurantes = Array.isArray(json?.restaurantes) ? json.restaurantes : [];
+      const found = restaurantes.find(r => String(r?.id) === targetRestauranteId);
+
+      console.log('[CuentaResidence] Restaurante encontrado:', found);
+
+      const imageUrl = found?.imagen_perfil_url && String(found.imagen_perfil_url).trim()
+        ? String(found.imagen_perfil_url).trim()
+        : null;
+
+      if (imageUrl) {
+        console.log('[CuentaResidence] imagen_perfil_url asignada:', imageUrl);
+      } else {
+        console.log('[CuentaResidence] No hay imagen_perfil_url o vino null. Se usa imagen por defecto.');
+      }
+
+      if (isMountedRef.current) {
+        setRestaurantImageUri(imageUrl);
+      }
+    } catch (err) {
+      console.warn('fetchRestaurantImage error', err);
+      console.log('[CuentaResidence] Error consultando imagen. Se usa imagen por defecto.');
+      if (isMountedRef.current) setRestaurantImageUri(null);
+    }
+  }, []);
+
   const applyResolveJsonToState = useCallback((json) => {
     try {
-      const oc = json.open_consumption ?? null;
+      console.log('[CuentaResidence] JSON resolve QR recibido:', json);
 
-      const possibleImage = json.imagen_banner_url ?? json.imagen_url ?? json.imagen ?? json.image_url ?? json.image ?? null;
-      if (possibleImage && String(possibleImage).trim()) setRestaurantImageUri(String(possibleImage).trim());
-      else setRestaurantImageUri(null);
+      const oc = json.open_consumption ?? null;
 
       const mesaObj = json.mesa ?? (oc && oc.mesa) ?? null;
       const mesaNumero = mesaObj?.numero_mesa ?? mesaObj?.external_table_id ?? mesaObj?.id ?? json.mesa_id ?? null;
@@ -201,7 +278,17 @@ export default function CuentaResidence() {
 
       setMesero((oc && oc.mesero) ?? json.mesero ?? null);
       setMoneda((oc && oc.moneda) ?? json.moneda ?? 'MXN');
-      setRestauranteId((json.restaurante && json.restaurante.id) ?? json.restaurante_id ?? null);
+
+      const resolvedRestauranteId = getRestauranteIdFromResolveJson(json);
+      console.log('[CuentaResidence] restauranteId desde resolve:', resolvedRestauranteId, {
+        mesa_restaurante_id: json?.mesa?.restaurante_id,
+        restaurante_obj_id: json?.restaurante?.id,
+        restaurante_id: json?.restaurante_id,
+        open_consumption_restaurante_id: json?.open_consumption?.restaurante_id,
+        open_consumption_restaurante_obj_id: json?.open_consumption?.restaurante?.id,
+      });
+
+      setRestauranteId(resolvedRestauranteId ?? null);
       setSucursalId(json.sucursal_id ?? null);
 
       const resolvedSaleId = (oc && oc.sale_id) ?? json.sale_id ?? json.venta_id ?? json.external_sale_id ?? json.id ?? null;
@@ -280,13 +367,23 @@ export default function CuentaResidence() {
         setCanOpenAccount(!!canOpen);
         setAccountOpened(false);
       }
+
+      return {
+        restauranteId: resolvedRestauranteId,
+      };
     } catch (err) {
       console.warn('applyResolveJsonToState error', err);
+      return { restauranteId: null };
     }
   }, []);
 
   const fetchConsumo = useCallback(async (opts = { showLoading: true }) => {
-    if (!qr) { openErrorModal('QR no encontrado. Vuelve a escanear.'); if (isMountedRef.current) setLoading(false); return; }
+    if (!qr) {
+      openErrorModal('QR no encontrado. Vuelve a escanear.');
+      if (isMountedRef.current) setLoading(false);
+      return;
+    }
+
     if (opts.showLoading && isMountedRef.current) setLoading(true);
 
     try {
@@ -295,6 +392,7 @@ export default function CuentaResidence() {
         usuarioAppId = await AsyncStorage.getItem('user_usuario_app_id');
         if (usuarioAppId) usuarioAppId = String(usuarioAppId).trim();
       } catch (e) { usuarioAppId = null; }
+
       if (!usuarioAppId) {
         openErrorModal('Usuario no identificado. Inicia sesión de nuevo.');
         if (isMountedRef.current) setLoading(false);
@@ -302,6 +400,12 @@ export default function CuentaResidence() {
       }
 
       const resolveUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/residence/qr/resolve`;
+      console.log('[CuentaResidence] Consultando QR resolve:', {
+        resolveUrl,
+        qr,
+        usuarioAppId,
+      });
+
       const res = await fetch(resolveUrl, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
@@ -309,15 +413,20 @@ export default function CuentaResidence() {
       });
 
       if (!isMountedRef.current) return;
+
       if (!res.ok) {
         let txt = `No se pudo resolver el QR (HTTP ${res.status}).`;
-        try { const errJson = await res.json(); if (errJson && (errJson.error || errJson.message)) txt = String(errJson.error || errJson.message); } catch(e){}
+        try {
+          const errJson = await res.json();
+          if (errJson && (errJson.error || errJson.message)) txt = String(errJson.error || errJson.message);
+        } catch (e) {}
         openErrorModal(txt);
         if (isMountedRef.current) setLoading(false);
         return;
       }
 
       const json = await res.json();
+      console.log('[CuentaResidence] Respuesta de QR resolve:', json);
 
       const apertura = json.apertura ?? null;
       const aperturaStatus = apertura?.status ? String(apertura.status).toUpperCase() : null;
@@ -334,7 +443,22 @@ export default function CuentaResidence() {
         return;
       }
 
-      applyResolveJsonToState(json);
+      const { restauranteId: resolvedRestaurantIdFromJson } = applyResolveJsonToState(json);
+
+      let edificioId = null;
+      try {
+        const rawEdificioId = await AsyncStorage.getItem('user_edificio_id_actual');
+        edificioId = rawEdificioId !== null && rawEdificioId !== undefined ? String(rawEdificioId).trim() : '';
+      } catch (e) {
+        edificioId = '';
+      }
+
+      console.log('[CuentaResidence] Datos para imagen desde resolve:', {
+        edificioId,
+        restauranteId: resolvedRestaurantIdFromJson,
+      });
+
+      await fetchRestaurantImage(edificioId, resolvedRestaurantIdFromJson);
 
     } catch (err) {
       console.warn('fetchConsumo error', err);
@@ -342,7 +466,7 @@ export default function CuentaResidence() {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [qr, applyResolveJsonToState, navigation]);
+  }, [qr, applyResolveJsonToState, fetchRestaurantImage]);
 
   useEffect(() => { fetchConsumo({ showLoading: true }); }, [qr]);
 
@@ -379,7 +503,24 @@ export default function CuentaResidence() {
       }
 
       const json = await res.json();
-      applyResolveJsonToState(json);
+      console.log('[CuentaResidence] Respuesta open-account:', json);
+
+      const resolvedData = applyResolveJsonToState(json);
+
+      let edificioId = null;
+      try {
+        const rawEdificioId = await AsyncStorage.getItem('user_edificio_id_actual');
+        edificioId = rawEdificioId !== null && rawEdificioId !== undefined ? String(rawEdificioId).trim() : '';
+      } catch (e) {
+        edificioId = '';
+      }
+
+      console.log('[CuentaResidence] Datos para imagen desde open-account:', {
+        edificioId,
+        restauranteId: resolvedData?.restauranteId ?? null,
+      });
+
+      await fetchRestaurantImage(edificioId, resolvedData?.restauranteId ?? null);
 
       const aperturaStatus = json.apertura?.status ? String(json.apertura.status).toUpperCase() : null;
       if (aperturaStatus && aperturaStatus.includes('OPEN')) {
@@ -390,7 +531,7 @@ export default function CuentaResidence() {
         if (aperturaStatus === 'NO_OPEN_SALE') {
           openNoSaleModal('El servidor indicó que no hay cuenta disponible.');
         } else {
-          Alert.alert('Información', 'Respuesta recibida del servidor.' );
+          Alert.alert('Información', 'Respuesta recibida del servidor.');
         }
       }
 
@@ -437,6 +578,7 @@ export default function CuentaResidence() {
       }
 
       const json = await res.json();
+      console.log('[CuentaResidence] Respuesta approve:', json);
 
       try {
         if (json && json.sale_id) {
@@ -499,7 +641,6 @@ export default function CuentaResidence() {
           restauranteId: json.restaurante_id ?? restauranteId,
           sucursalId: json.sucursal_id ?? sucursalId,
           rawResponse: json,
-          // ADICIÓN: envío de edificio_id hacia la pantalla de confirmación
           edificioId: json.edificio_id ?? json.edificioId ?? null,
         });
       } catch (e) {
@@ -706,7 +847,7 @@ export default function CuentaResidence() {
               {(accountOpening || approveLoading) ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16) }]}>{ accountOpened ? 'Validar consumo' : 'Empezar consumo Nota: "Es necesario hacer una segunda verificacion"' }</Text>
+                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>{ accountOpened ? 'Validar consumo' : 'Empezar consumo - Es necesario hacer una segunda verificacion' }</Text>
               )}
             </TouchableOpacity>
           ) : (
@@ -722,7 +863,6 @@ export default function CuentaResidence() {
           <View style={{ height: Math.max(28, hp(3.6)) }} />
         </ScrollView>
       )}
-
     </SafeAreaView>
   );
 }
@@ -770,7 +910,7 @@ const styles = StyleSheet.create({
   desgloseTitle: { marginTop: 6, fontWeight: '700', color: '#333' },
   desgloseSeparator: { height: 1, backgroundColor: '#e9e9e9', marginTop: 10, marginBottom: 12 },
 
-  items: {} ,
+  items: {},
   itemBlock: { marginBottom: 10 },
   itemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 0 },
   itemName: { color: '#333', flex: 1 },

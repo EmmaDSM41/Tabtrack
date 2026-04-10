@@ -108,6 +108,8 @@ export default function SplashResidence() {
         'user_residence_departamento_id_actual',
         'user_residence_rol_actual',
         'user_residence_fetchedAt',
+        'user_admin_id_actual',
+        'user_edificio_id_actual',
       ];
       const pairs = await AsyncStorage.multiGet(keys);
       const backup = {};
@@ -128,6 +130,8 @@ export default function SplashResidence() {
         'user_residence_departamento_id_actual',
         'user_residence_rol_actual',
         'user_residence_fetchedAt',
+        'user_admin_id_actual',
+        'user_edificio_id_actual',
       ];
       await AsyncStorage.multiRemove(keys);
       console.warn('clearResidenceKeys: removed residence keys');
@@ -184,15 +188,25 @@ export default function SplashResidence() {
     try {
       const activo = (typeof user.residence_activo !== 'undefined') ? user.residence_activo
                     : (typeof user.activo !== 'undefined' ? user.activo : null);
+
       const departamentoId = (typeof user.residence_departamento_id_actual !== 'undefined') ? user.residence_departamento_id_actual
                          : (typeof user.departamento_id_actual !== 'undefined' ? user.departamento_id_actual : null);
+
       const rol = (typeof user.residence_rol_actual !== 'undefined') ? user.residence_rol_actual
                 : (typeof user.residence_rol !== 'undefined') ? user.residence_rol : (user.rol_actual ?? null);
+
+      const adminIdActual = (typeof user.user_admin_id_actual !== 'undefined') ? user.user_admin_id_actual
+                         : (typeof user.admin_id_actual !== 'undefined' ? user.admin_id_actual : null);
+
+      const edificioIdActual = (typeof user.user_edificio_id_actual !== 'undefined') ? user.user_edificio_id_actual
+                            : (typeof user.edificio_id_actual !== 'undefined' ? user.edificio_id_actual : null);
 
       const toSet = [];
       if (typeof activo !== 'undefined' && activo !== null) toSet.push(['user_residence_activo', String(!!activo)]);
       if (typeof departamentoId !== 'undefined' && departamentoId !== null) toSet.push(['user_residence_departamento_id_actual', String(departamentoId)]);
       if (rol !== null && typeof rol !== 'undefined') toSet.push(['user_residence_rol_actual', String(rol)]);
+      if (adminIdActual !== null && typeof adminIdActual !== 'undefined') toSet.push(['user_admin_id_actual', String(adminIdActual)]);
+      if (edificioIdActual !== null && typeof edificioIdActual !== 'undefined') toSet.push(['user_edificio_id_actual', String(edificioIdActual)]);
       toSet.push(['user_residence_fetchedAt', new Date().toISOString()]);
 
       if (toSet.length > 0) {

@@ -75,6 +75,8 @@ export default function Dividir() {
   const [moneda, setMoneda] = useState(route?.params?.moneda ?? 'MXN');
   const [externalTotalConsumo, setExternalTotalConsumo] = useState(incomingTotalConsumo ?? null);
 
+  const [restaurantImage, setRestaurantImage] = useState(route?.params?.restaurantImage ?? null);
+
   const [equalsSplitPaid, setEqualsSplitPaid] = useState(false);
 
   const [styledAlertVisible, setStyledAlertVisible] = useState(false);
@@ -195,6 +197,10 @@ export default function Dividir() {
 
       if (route.params.mesero) setMesero(route.params.mesero);
       if (route.params.moneda) setMoneda(route.params.moneda);
+
+      if (route.params.restaurantImage) {
+        setRestaurantImage(route.params.restaurantImage);
+      }
 
       if (route.params.total_consumo !== undefined && route.params.total_consumo !== null) {
         setExternalTotalConsumo(Number(route.params.total_consumo) || null);
@@ -452,6 +458,48 @@ export default function Dividir() {
     return () => { mounted = false; };
   }, [saleId, route?.params]);
 
+  useEffect(() => {
+    let mounted = true;
+    const fetchRestaurantImage = async () => {
+      try {
+        if (route?.params?.restaurantImage) {
+          if (mounted) setRestaurantImage(route.params.restaurantImage);
+          return;
+        }
+
+        if (!restauranteId || !sucursalId) return;
+
+        const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(String(restauranteId))}/sucursales`;
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+          },
+        });
+
+        if (!res.ok) return;
+
+        const json = await res.json();
+        const sucursales = Array.isArray(json?.sucursales) ? json.sucursales : [];
+        const found = sucursales.find((s) => String(s?.id) === String(sucursalId));
+        const logoUrl = found?.imagen_logo_url ?? null;
+
+        if (mounted) {
+          setRestaurantImage(logoUrl && String(logoUrl).trim() ? String(logoUrl).trim() : null);
+        }
+      } catch (err) {
+        console.warn('Error consultando imagen de sucursal', err);
+      }
+    };
+
+    fetchRestaurantImage();
+    return () => {
+      mounted = false;
+    };
+  }, [restauranteId, sucursalId, route?.params?.restaurantImage]);
+
   const toggleItem = (index) => {
     setItems(prev => prev.map((it, i) => {
       if (i !== index) return it;
@@ -509,6 +557,7 @@ export default function Dividir() {
     total_comensales: totalComensales,
     total_consumo: externalTotalConsumo ?? total,
     selected_item_ids: selectedIdsArray,
+    restaurantImage,
   });
 
   const savePendingLocal = async (saleIdLocal, idsArray = [], amount = 0) => {
@@ -552,6 +601,7 @@ export default function Dividir() {
       total: selTotal,
       people: 1,
       ...sharedHiddenFields(),
+      restaurantImage,
     });
   };
 
@@ -590,6 +640,7 @@ export default function Dividir() {
       total: pTotal,
       total_consumo: pTotal,
       total_from_dividir: pTotal,
+      restaurantImage,
     });
     return;
   };
@@ -610,7 +661,7 @@ export default function Dividir() {
         iva,
         total,
         total_comensales: totalComensales,
-        restaurantImage: null,
+        restaurantImage,
         ...sharedHiddenFields(),
       });
       return;
@@ -632,7 +683,7 @@ export default function Dividir() {
       iva: pIva,
       total: pTotal,
       total_comensales: totalComensales,
-      restaurantImage: null,
+      restaurantImage,
       ...sharedHiddenFields(),
     });
   };
@@ -716,7 +767,10 @@ export default function Dividir() {
             <View style={[styles.leftCol]}>
               <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: Math.round(Math.min(120, wp(28))), height: Math.round(Math.min(48, wp(28) * 0.32)), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
               <View style={[styles.logoWrap, { marginTop: Math.max(6, hp(0.6)), padding: Math.max(6, wp(1.5)), borderRadius: Math.max(8, wp(2)) }]}>
-                <Image source={require('../../assets/images/restaurante.jpeg')} style={[styles.restaurantImage, { width: Math.round(Math.min(96, wp(16))), height: Math.round(Math.min(96, wp(16))), borderRadius: Math.round(Math.min(96, wp(16)) * 0.16) }]} />
+                <Image
+                  source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
+                  style={[styles.restaurantImage, { width: Math.round(Math.min(96, wp(16))), height: Math.round(Math.min(96, wp(16))), borderRadius: Math.round(Math.min(96, wp(16)) * 0.16) }]}
+                />
               </View>
             </View>
 

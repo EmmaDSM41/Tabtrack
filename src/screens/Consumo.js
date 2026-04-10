@@ -8,7 +8,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN =  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
+const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const formatMoney = (n) => Number.isFinite(n) ? n.toLocaleString('es-MX',{ minimumFractionDigits:2, maximumFractionDigits:2 }) : '0.00';
 
 const totalFontSizeFor = (str) => {
@@ -147,6 +147,7 @@ export default function Consumo() {
   const mesaId = route?.params?.mesaId ?? route?.params?.mesa_id ?? null;
   const mesero = route?.params?.mesero ?? null;
   const moneda = route?.params?.moneda ?? 'MXN';
+  const restaurantImage = route?.params?.restaurantImage ?? null;
 
   const payloadCommon = { token, items, subtotal, iva, total };
 
@@ -157,6 +158,7 @@ export default function Consumo() {
     sucursal_id: sucursalId, sucursalId,
     mesa_id: mesaId, mesaId,
     mesero, moneda,
+    restaurantImage,
   });
 
   const [tipApplied, setTipApplied] = useState(null);
@@ -197,7 +199,12 @@ export default function Consumo() {
           <View style={styles.gradientRow}>
             <View style={styles.leftCol}>
               <Image source={require('../../assets/images/logo2.png')} style={styles.tabtrackLogo} resizeMode="contain" />
-              <View style={styles.logoWrap}><Image source={require('../../assets/images/restaurante.jpeg')} style={styles.restaurantImage} /></View>
+              <View style={styles.logoWrap}>
+                <Image
+                  source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
+                  style={styles.restaurantImage}
+                />
+              </View>
             </View>
 
             <View style={styles.rightCol}>
@@ -250,24 +257,6 @@ export default function Consumo() {
             <Text style={styles.primaryButtonText}>{addTipLabel}</Text>
           </TouchableOpacity>
 
-{/*           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => {
-              const payload = attachMetaDup({
-                token,
-                items,
-                subtotal,
-                iva,
-                total,
-                ...(tipApplied ? { tipAmount: Number(tipApplied.tipAmount || 0), totalWithTip: Number(tipApplied.totalWithTip || (total + Number(tipApplied.tipAmount || 0))), tipPercent: Number(tipApplied.percent || 0) } : {}),
-              });
-              navigation.navigate('Payment', payload);
-            }}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.primaryButtonText}>Proceder a pagar</Text>
-          </TouchableOpacity> */}
-
           <TouchableOpacity style={[styles.ghostButton]} onPress={() => navigation.goBack()} activeOpacity={0.9}><Text style={styles.ghostButtonText}>Volver</Text></TouchableOpacity>
         </View>
       </ScrollView>
@@ -288,14 +277,11 @@ export default function Consumo() {
   );
 }
 
-/* base styles that are not dimension-dependent */
 const stylesBase = StyleSheet.create({
   loaderWrap: { flex:1, justifyContent:'center', alignItems:'center' },
 });
 
-/* responsive styles generator */
 function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
-  // safe top to avoid notch/statusbar overlap
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const contentMaxWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
 
@@ -345,7 +331,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
     },
     totalLabel: { color: 'rgba(255,255,255,0.95)', fontSize: Math.round(clamp(rf(3.2), 12, 16)), marginBottom: Math.round(hp(0.6)) },
     totalRow: { flexDirection: 'row', alignItems: 'flex-end' },
-    totalNumber: { color: '#fff', fontWeight: '900' /* fontSize set dynamically */ },
+    totalNumber: { color: '#fff', fontWeight: '900' },
     totalCurrency: { color: '#fff', fontSize: Math.round(clamp(rf(3.2), 12, 16)), marginLeft: Math.round(wp(1)), marginBottom: Math.round(hp(0.2)), opacity: 0.95 },
     rightThanks: { marginTop: Math.round(hp(1)), alignItems: 'flex-end' },
     thanksText: { color: '#fff', fontWeight: '700', fontSize: Math.round(clamp(rf(3.2), 12, 16)) },

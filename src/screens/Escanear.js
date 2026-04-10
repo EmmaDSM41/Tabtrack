@@ -1,4 +1,3 @@
-/* archivo completo con tus cambios solicitados (solo modificaciones puntuales) */
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
@@ -74,7 +73,6 @@ async function saveVisitToStorage(visit) {
     if (existingIndex >= 0) arr.splice(existingIndex, 1);
     arr.unshift(normalized);
     await AsyncStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(arr.slice(0, 50)));
-    // borrar pending relacionado si existe
     try {
       if (normalized.sale_id) {
         const rawPend = await AsyncStorage.getItem(PENDING_VISITS_KEY);
@@ -159,7 +157,6 @@ export default function Escanear() {
   const { width, height, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
 
-  // safe paddings (usar insets correctamente para iOS/Android)
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const bottomSafe = Math.round(insets?.bottom ?? 0);
   const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
@@ -188,7 +185,6 @@ export default function Escanear() {
   const [styledAlertTitle, setStyledAlertTitle] = useState('');
   const [styledAlertMessage, setStyledAlertMessage] = useState('');
 
-  // Nuevo modal blanco para alertas de conflicto
   const [conflictAlertVisible, setConflictAlertVisible] = useState(false);
   const [conflictAlertTitle, setConflictAlertTitle] = useState('');
   const [conflictAlertMessage, setConflictAlertMessage] = useState('');
@@ -205,9 +201,8 @@ export default function Escanear() {
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
-  // estado de descuento (monto) y etiqueta de porcentaje para UI
   const [discountAmount, setDiscountAmount] = useState(0);
-  const [discountPercentLabel, setDiscountPercentLabel] = useState(null); // e.g. "7%" or "7% + 3%"
+  const [discountPercentLabel, setDiscountPercentLabel] = useState(null);
 
   const checkPendingPromotions = useCallback(async (log = false) => {
     try {
@@ -304,6 +299,30 @@ export default function Escanear() {
     }
   };
 
+  const fetchSucursalLogo = useCallback(async (restId, sucId) => {
+    try {
+      if (!restId || !sucId) return null;
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(String(restId))}/sucursales`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined,
+        },
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const sucursales = Array.isArray(json?.sucursales) ? json.sucursales : [];
+      const found = sucursales.find(s => String(s?.id) === String(sucId));
+      const logo = found?.imagen_logo_url ?? null;
+      return logo && String(logo).trim() ? String(logo).trim() : null;
+    } catch (e) {
+      console.warn('fetchSucursalLogo error', e);
+      return null;
+    }
+  }, []);
+
   const fetchConsumo = useCallback(async (opts = { showLoading: true }) => {
     if (!token) { openErrorModal('Token no encontrado. Vuelve a escanear.'); if (isMountedRef.current) setLoading(false); return; }
     if (opts.showLoading && isMountedRef.current) setLoading(true);
@@ -316,12 +335,15 @@ export default function Escanear() {
 
       const json = await res.json();
 
+      const nextRestauranteId = json.restaurante_id ?? json.restaurante ?? null;
+      const nextSucursalId = json.sucursal_id ?? json.sucursal ?? null;
+
       if (isMountedRef.current) {
         setMesaId(json.mesa_id ?? json.mesa ?? null);
         setMesero(json.mesero ?? json.cajero ?? null);
         setMoneda(json.moneda ?? 'MXN');
-        setRestauranteId(json.restaurante_id ?? json.restaurante ?? null);
-        setSucursalId(json.sucursal_id ?? json.sucursal ?? null);
+        setRestauranteId(nextRestauranteId);
+        setSucursalId(nextSucursalId);
         setSaleId(json.sale_id ?? json.venta_id ?? json.id ?? null);
         setTotalComensales(safeNum(json.total_comensales ?? 0));
         setFechaApertura(json.fecha_apertura ?? null);
@@ -334,15 +356,27 @@ export default function Escanear() {
 
       const rawItems = Array.isArray(json.items) ? json.items : [];
 
-      // --- NUEVA LÓGICA: detectar si precio_item es precio UNITARIO o TOTAL DE LÍNEA ---
+      if (nextRestauranteId && nextSucursalId) {
+        try {
+          const logoUrl = await fetchSucursalLogo(nextRestauranteId, nextSucursalId);
+          if (isMountedRef.current) {
+            if (logoUrl) {
+              setRestaurantImageUri(logoUrl);
+            } else if (!possibleImage) {
+              setRestaurantImageUri(null);
+            }
+          }
+        } catch (e) {
+          if (isMountedRef.current && !possibleImage) setRestaurantImageUri(null);
+        }
+      }
+
       const reportedTotalFromJson = safeNum(json.total_consumo ?? json.total ?? json.totales_venta?.total_neto ?? json.totales_venta?.total_neto ?? 0);
       const sumPrecioFieldNoQty = rawItems.reduce((s, it) => {
         return s + safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
       }, 0);
 
-      // Si reportedTotal está presente y coincide (aprox.) con la suma de los campos precio_item **sin** multiplicar por cantidad,
-      // entonces asumimos que esos campos representan el TOTAL de la línea (y por tanto hay que dividir entre cantidad).
-      const EPS = 0.5; // tolerancia en MXN (pequeña)
+      const EPS = 0.5;
       const precioItemRepresentaTotalDeLinea = (reportedTotalFromJson > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalFromJson) <= EPS);
 
       const expandedItems = [];
@@ -350,12 +384,10 @@ export default function Escanear() {
         const rawQty = Math.max(1, safeNum(it.cantidad ?? it.qty ?? 1));
         const rawPrecioField = safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
 
-        // si detectamos que precio_item = total de la línea -> dividir entre cantidad
         let unitPrice;
         if (rawQty > 1 && precioItemRepresentaTotalDeLinea && rawPrecioField !== 0) {
           unitPrice = +(rawPrecioField / rawQty).toFixed(2);
         } else {
-          // caso por defecto: precio_field es precio unitario (o qty==1), usarlo directamente
           unitPrice = +Number(rawPrecioField || 0).toFixed(2);
         }
 
@@ -376,7 +408,6 @@ export default function Escanear() {
         }
       });
 
-      // reportedTotal: preferimos el total mandado por el servidor si está disponible, sino sumamos
       const reportedTotal = safeNum(json.total_consumo ?? json.total ?? 0);
       const computedTotal = reportedTotal > 0 ? reportedTotal : expandedItems.reduce((s,x)=> s + safeNum(x.lineTotal), 0);
       if (isMountedRef.current) setOriginalTotalConsumo(+computedTotal.toFixed(2));
@@ -384,15 +415,12 @@ export default function Escanear() {
       const neutralItems = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
       if (isMountedRef.current) { setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
 
-      // --- DESCUENTO ---
-      // Lógica mejorada: si llega monto_total lo usamos; si no, buscamos en detalle[] porcentajes y los calculamos sobre computedTotal.
       try {
         let montoDesc = safeNum(json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0);
         let percentLabel = null;
 
         const detalle = Array.isArray(json?.descuentos_venta?.detalle) ? json.descuentos_venta.detalle : (Array.isArray(json?.totales_venta?.descuentos) ? json.totales_venta.descuentos : []);
         if ((!montoDesc || montoDesc <= 0) && Array.isArray(detalle) && detalle.length > 0) {
-          // sumar montos directos y calcular montos desde porcentajes
           let acum = 0;
           const pctParts = [];
           for (const d of detalle) {
@@ -410,7 +438,6 @@ export default function Escanear() {
           if (pctParts.length === 1) percentLabel = `${pctParts[0]}%`;
           else if (pctParts.length > 1) percentLabel = pctParts.map(x => `${x}%`).join(' + ');
         } else {
-          // si montoDesc viene y detalle tiene un porcentaje único, podemos mostrarlo también
           if (Array.isArray(detalle) && detalle.length === 1) {
             const p = safeNum(detalle[0].porcentaje ?? detalle[0].percent ?? 0);
             if (p > 0) percentLabel = `${p}%`;
@@ -424,7 +451,6 @@ export default function Escanear() {
       } catch (e) {
         if (isMountedRef.current) { setDiscountAmount(0); setDiscountPercentLabel(null); }
       }
-      // --- FIN DESCUENTO ---
 
       const sale = json.sale_id ?? json.venta_id ?? json.id ?? null;
       const suc = json.sucursal_id ?? json.sucursal ?? null;
@@ -680,7 +706,7 @@ export default function Escanear() {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [token]);
+  }, [token, fetchSucursalLogo]);
 
   useEffect(() => { fetchConsumo({ showLoading: true }); }, [token]);
 
@@ -691,7 +717,6 @@ export default function Escanear() {
   const fechaTexto = fechaApertura ? new Date(fechaApertura).toLocaleString('es-MX') : '';
   const fechaCierreTexto = fechaCierre ? new Date(fechaCierre).toLocaleString('es-MX') : '';
 
-  // --- cálculo para saber si hay pagos por consumo ---
   const consumoPaid = useMemo(() => {
     try {
       const anyItemPaid = Array.isArray(items) && items.some(it => !!it.paid || safeNum(it.paidAmount) > 0);
@@ -718,12 +743,9 @@ export default function Escanear() {
   const subtotalValueFont = clamp(rf(3.8), 16, 22);
   const primaryBtnPadding = Math.max(12, hp(1.6));
 
-  // botones deshabilitados (para feedback visual)
-  const primaryDisabled = consumoPaid || equalsSplitPaid; // Pago en una sola: bloquear si consumoPaid o equal paid
-  // ---- CAMBIO: bloquear "Pagar por consumo" si hay descuento detectado ----
+  const primaryDisabled = consumoPaid || equalsSplitPaid;
   const pagarConsumoDisabled = equalsSplitPaid || (Number(discountAmount || 0) > 0);
-  // -----------------------------------------------------------------------
-  const equalSplitDisabled = consumoPaid; // Pago por partes iguales: bloquear si consumoPaid
+  const equalSplitDisabled = consumoPaid;
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
@@ -865,7 +887,6 @@ export default function Escanear() {
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-              // Bloqueos: si hay pago por consumo o pago por partes iguales -> bloquear
               if (consumoPaid) {
                 showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con este método ahora.');
                 return;
@@ -933,7 +954,6 @@ export default function Escanear() {
             <Text style={[styles.primaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago en una sola exhibición</Text>
           </TouchableOpacity>
 
-      
           <TouchableOpacity
             style={[
               styles.secondaryButton,
@@ -942,7 +962,6 @@ export default function Escanear() {
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-              // Bloqueo si equal split ya pagado
               if (equalsSplitPaid) {
                 showConflictAlert('Pago por partes iguales en curso', 'Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.');
                 return;
@@ -959,6 +978,7 @@ export default function Escanear() {
                 restaurante_id: restauranteId ?? null,
                 saleId: saleId ?? null,
                 hideEqualButton: true, 
+                restaurantImage: restaurantImageUri ?? null,
               };
               try {
                 const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items };
@@ -977,7 +997,6 @@ export default function Escanear() {
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pagar por consumo</Text>
           </TouchableOpacity>
 
-
           <TouchableOpacity
             style={[
               styles.secondaryButton,
@@ -986,7 +1005,6 @@ export default function Escanear() {
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-              // Bloqueo si hay pago por consumo detectado
               if (consumoPaid) {
                 showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con el pago por partes iguales.');
                 return;
@@ -1013,6 +1031,7 @@ export default function Escanear() {
                 mesa_id: mesaId ?? null,
                 restaurante_id: restauranteId ?? null,
                 saleId: saleId ?? null,
+                restaurantImage: restaurantImageUri ?? null,
               };
               try {
                 const pending = { sale_id: saleId ?? null, restaurante_id: restauranteId ?? null, sucursal_id: sucursalId ?? null, restaurantImage: restaurantImageUri ?? null, mesa: mesaId ?? null, fecha_iniciado: new Date().toISOString(), total: originalTotalConsumo, moneda, items: normalizedItemsForEqual };
@@ -1055,7 +1074,6 @@ export default function Escanear() {
         </View>
       )}
 
-      {/* Modal blanco con texto negro para alertas de conflicto */}
       {conflictAlertVisible && (
         <View style={styles.conflictBackdrop}>
           <View style={[styles.conflictBox, { width: Math.min(layoutWidth - 48, Math.max(wp(72), 300)) }]}>
@@ -1163,7 +1181,6 @@ const styles = StyleSheet.create({
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // estilos nuevos para modal blanco (alertas de conflicto)
   conflictBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.35)' },
   conflictBox: { backgroundColor: '#fff', borderRadius: 12, padding: 16, alignItems: 'flex-start', elevation: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowOffset: { width: 0, height: 8 }, shadowRadius: 12 },
   conflictTitle: { fontWeight: '800', color: '#111', fontSize: 16, marginBottom: 6, textAlign: 'left' },
