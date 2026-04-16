@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const API_BASE_URL = 'https://api.residence.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
+
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
 
@@ -186,10 +187,63 @@ export default function CuentaResidence() {
   const [approveLoading, setApproveLoading] = useState(false);
 
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [validationBannerVisible, setValidationBannerVisible] = useState(false);
+
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
   const suppressNoOpenSaleRef = useRef(false);
+
+  const validationBannerKey = useMemo(() => {
+    if (!qr) return null;
+    return `residence_validation_banner_state_${String(qr).trim()}`;
+  }, [qr]);
+
+  const persistValidationBannerState = useCallback(async (state) => {
+    try {
+      if (!validationBannerKey) return;
+
+      if (!state) {
+        await AsyncStorage.removeItem(validationBannerKey);
+        return;
+      }
+
+      await AsyncStorage.setItem(
+        validationBannerKey,
+        JSON.stringify({
+          started: !!state.started,
+          visible: !!state.visible,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    } catch (e) {
+      console.warn('persistValidationBannerState error', e);
+    }
+  }, [validationBannerKey]);
+
+  const loadValidationBannerState = useCallback(async () => {
+    try {
+      if (!validationBannerKey) return;
+
+      const raw = await AsyncStorage.getItem(validationBannerKey);
+      if (!raw) {
+        if (isMountedRef.current) setValidationBannerVisible(false);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw);
+        if (isMountedRef.current) {
+          setValidationBannerVisible(parsed?.started === true && parsed?.visible === true);
+        }
+      } catch (e) {
+        if (isMountedRef.current) setValidationBannerVisible(false);
+      }
+    } catch (e) {
+      console.warn('loadValidationBannerState error', e);
+      if (isMountedRef.current) setValidationBannerVisible(false);
+    }
+  }, [validationBannerKey]);
 
   const openErrorModal = (m) => { setErrorModalMessage(m || 'Ocurrió un error'); setErrorModalVisible(true); };
   const closeErrorModal = () => setErrorModalVisible(false);
@@ -370,10 +424,11 @@ export default function CuentaResidence() {
 
       return {
         restauranteId: resolvedRestauranteId,
+        aperturaStatusRaw,
       };
     } catch (err) {
       console.warn('applyResolveJsonToState error', err);
-      return { restauranteId: null };
+      return { restauranteId: null, aperturaStatusRaw: null };
     }
   }, []);
 
@@ -468,9 +523,15 @@ export default function CuentaResidence() {
     }
   }, [qr, applyResolveJsonToState, fetchRestaurantImage]);
 
-  useEffect(() => { fetchConsumo({ showLoading: true }); }, [qr]);
+  useEffect(() => {
+    loadValidationBannerState();
+    fetchConsumo({ showLoading: true });
+  }, [qr, loadValidationBannerState, fetchConsumo]);
 
-  useFocusEffect(useCallback(() => { fetchConsumo({ showLoading: false }); }, [fetchConsumo]));
+  useFocusEffect(useCallback(() => {
+    loadValidationBannerState();
+    fetchConsumo({ showLoading: false });
+  }, [loadValidationBannerState, fetchConsumo]));
 
   const handleStartConsumption = async () => {
     if (!qr) { openErrorModal('QR no disponible.'); return; }
@@ -525,8 +586,12 @@ export default function CuentaResidence() {
       const aperturaStatus = json.apertura?.status ? String(json.apertura.status).toUpperCase() : null;
       if (aperturaStatus && aperturaStatus.includes('OPEN')) {
         setAccountOpened(true);
+
         const resolvedSaleId = (json.open_consumption && json.open_consumption.sale_id) ?? json.external_sale_id ?? json.sale_id ?? json.venta_id ?? null;
         if (resolvedSaleId) setSaleId(String(resolvedSaleId));
+
+        setValidationBannerVisible(true);
+        await persistValidationBannerState({ started: true, visible: true });
       } else {
         if (aperturaStatus === 'NO_OPEN_SALE') {
           openNoSaleModal('El servidor indicó que no hay cuenta disponible.');
@@ -631,6 +696,11 @@ export default function CuentaResidence() {
       } catch (e) {
         console.warn('Error creando notificación tras aprobar consumo', e);
       }
+
+      try {
+        await persistValidationBannerState(null);
+        setValidationBannerVisible(false);
+      } catch (e) {}
 
       try {
         navigation.navigate('ConfirmacionConsumo', {
@@ -755,7 +825,7 @@ export default function CuentaResidence() {
                   {restaurantImageUri ? (
                     <Image source={{ uri: restaurantImageUri }} style={[styles.restaurantImage, { width: restaurantImgSize, height: restaurantImgSize, borderRadius: Math.round(restaurantImgSize * 0.16) }]} />
                   ) : (
-                    <Image source={require('../../assets/images/restaurante.jpeg')} style={[styles.restaurantImage, { width: restaurantImgSize, height: restaurantImgSize, borderRadius: Math.round(restaurantImgSize * 0.16) }]} />
+                    <Image source={require('../../assets/images/LogoResB.png')} style={[styles.restaurantImage, { width: restaurantImgSize, height: restaurantImgSize, borderRadius: Math.round(restaurantImgSize * 0.16) }]} />
                   )}
                 </View>
               </View>
@@ -831,12 +901,23 @@ export default function CuentaResidence() {
             </View>
           </View>
 
-          { (canOpenAccount || accountOpened) ? (
+          {validationBannerVisible ? (
+            <View style={[styles.validationInlineBox, { width: Math.min(layoutWidth * 0.92, layoutWidth - 10) }]}>
+              <Text style={[styles.validationInlineText, { fontSize: clamp(rf(2.9), 13, 16) }]}>
+                Se agregará el monto a tu consumo del mes,{'\n'}¿deseas validar?
+              </Text>
+            </View>
+          ) : null}
+
+          {(canOpenAccount || accountOpened) ? (
             <TouchableOpacity
               style={[
                 styles.smallPrimaryButton,
-                { width: layoutWidth, paddingVertical: Math.max(10, hp(1.2)) },
-                accountOpened ? { backgroundColor: '#16a34a' } : null,
+                {
+                  width: layoutWidth,
+                  paddingVertical: Math.max(10, hp(1.2)),
+                  backgroundColor: accountOpened ? '#16a34a' : '#0046ff',
+                },
                 (accountOpening || approveLoading) ? { opacity: 0.75 } : null
               ]}
               activeOpacity={0.85}
@@ -847,7 +928,9 @@ export default function CuentaResidence() {
               {(accountOpening || approveLoading) ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>{ accountOpened ? 'Validar consumo' : 'Empezar consumo - Es necesario hacer una segunda verificacion' }</Text>
+                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>
+                  {accountOpened ? 'Validar consumo' : 'Empezar consumo - Es necesario hacer una segunda verificacion'}
+                </Text>
               )}
             </TouchableOpacity>
           ) : (
@@ -904,7 +987,17 @@ const styles = StyleSheet.create({
   rightThanks: { marginTop: 10, alignItems: 'flex-end' },
   thanksText: { color: '#fff', fontWeight: '700' },
 
-  contentPlain: { backgroundColor: '#fff', borderRadius: 0, paddingVertical: 16, paddingHorizontal: 16, marginTop: 0, shadowColor: '#000', shadowOpacity: 0.02, shadowRadius: 8, elevation: 1 },
+  contentPlain: {
+    backgroundColor: '#fff',
+    borderRadius: 0,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginTop: 0,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1
+  },
   cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   mesaText: { fontWeight: '900', color: '#222' },
   desgloseTitle: { marginTop: 6, fontWeight: '700', color: '#333' },
@@ -972,4 +1065,23 @@ const styles = StyleSheet.create({
   noSaleMessage: { color: '#111', fontSize: 15, marginBottom: 18, textAlign: 'center', lineHeight: 20 },
   noSaleBtn: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 30, borderRadius: 8 },
   noSaleBtnText: { color: '#0046ff', fontWeight: '800', fontSize: 16, textAlign: 'center' },
+
+  validationInlineBox: {
+    marginTop: 12,
+    backgroundColor: '#d9d9d9',
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: '#2f2f2f',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  validationInlineText: {
+    color: '#3a3a3a',
+    textAlign: 'center',
+    lineHeight: 18,
+    fontWeight: '400',
+  },
 });

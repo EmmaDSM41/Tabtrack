@@ -15,6 +15,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FILTER_OPTIONS = ['Todos los avisos', 'Administración', 'Mantenimiento', 'Comunidad', 'Menu'];
@@ -24,6 +25,7 @@ const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6
 
 export default function FeedResicende() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
   const wp = (p) => (p * width) / 100;
@@ -106,10 +108,10 @@ export default function FeedResicende() {
     const priority = priorityRaw === 'urgente' || priorityRaw === 'alta' ? 'urgente' : 'normal';
 
     const cmap = {
-      'Administración': '#2563EB',
-      'Mantenimiento': '#F97316',
-      'Comunidad': '#10B981',
-      'Menu': '#6366F1',
+      Administración: '#2563EB',
+      Mantenimiento: '#F97316',
+      Comunidad: '#10B981',
+      Menu: '#6366F1',
     };
     const color = cmap[category] ?? '#2563EB';
 
@@ -136,7 +138,11 @@ export default function FeedResicende() {
 
   const parseHorarioRange = (horario) => {
     if (!horario || typeof horario !== 'string') return null;
-    const parts = horario.split(/\s*(?:-|–|—|a|to)\s*/i).map(p => p.trim()).filter(Boolean);
+    const parts = horario
+      .split(/\s*(?:-|–|—|\bto\b|\ba\b)\s*/i)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
     if (parts.length < 2) return null;
     const start = parseTimeTokenToMinutes(parts[0]);
     const end = parseTimeTokenToMinutes(parts[1]);
@@ -159,7 +165,7 @@ export default function FeedResicende() {
 
   const formatHorarioDisplay = (horario) => {
     if (!horario || typeof horario !== 'string') return null;
-    return horario.replace(/\s*(?:-|–|—|a|to)\s*/gi, ' - ');
+    return horario.replace(/\s*(?:-|–|—|\bto\b|\ba\b)\s*/gi, ' - ');
   };
 
   useEffect(() => {
@@ -170,12 +176,18 @@ export default function FeedResicende() {
         const deptRaw = await AsyncStorage.getItem('user_residence_departamento_id_actual');
         if (!deptRaw) {
           console.warn('FeedResicende: no department id in AsyncStorage (user_residence_departamento_id_actual)');
-          if (mounted) { setNotices([]); setRestaurants([]); }
+          if (mounted) {
+            setNotices([]);
+            setRestaurants([]);
+          }
           return;
         }
         const deptId = String(deptRaw).trim();
         if (!deptId) {
-          if (mounted) { setNotices([]); setRestaurants([]); }
+          if (mounted) {
+            setNotices([]);
+            setRestaurants([]);
+          }
           return;
         }
 
@@ -198,7 +210,10 @@ export default function FeedResicende() {
 
         if (!edificioId) {
           console.warn('FeedResicende: no edificioId discovered; leaving notices empty.');
-          if (mounted) { setNotices([]); setRestaurants([]); }
+          if (mounted) {
+            setNotices([]);
+            setRestaurants([]);
+          }
           return;
         }
 
@@ -332,7 +347,7 @@ export default function FeedResicende() {
   });
 
   const dropdownMaxHeight = Math.round(Math.min(height * 0.55, 360));
-  const bottomNavHeight = Math.round(Math.min(96, hp(9))); 
+  const bottomNavHeight = Math.round(Math.min(96, hp(9)));
 
   const extraBottomWhenDropdown = dropdownVisible ? dropdownMaxHeight + bottomNavHeight + 40 : 28;
 
@@ -340,10 +355,10 @@ export default function FeedResicende() {
     if (filterBtnRef.current && filterBtnRef.current.measureInWindow) {
       filterBtnRef.current.measureInWindow((x, y, w, h) => {
         setFilterBtnRect({ x, y, w, h });
-        const spaceBelow = height - (y + h) - bottomNavHeight; 
+        const spaceBelow = height - (y + h) - bottomNavHeight;
         const dropdownH = dropdownMaxHeight;
         if (spaceBelow < dropdownH) {
-          const needed = dropdownH - spaceBelow + 16; 
+          const needed = dropdownH - spaceBelow + 16;
           const target = Math.max(0, scrollY + needed);
           if (flatListRef.current && typeof flatListRef.current.scrollToOffset === 'function') {
             flatListRef.current.scrollToOffset({ offset: target, animated: true });
@@ -429,7 +444,7 @@ export default function FeedResicende() {
   const HeaderWithFilterAndRestaurants = () => (
     <View>
       <View style={{ paddingHorizontal: outerPad, marginTop: Math.round(hp(2)) }}>
-        {(Array.isArray(restaurants) && restaurants.length > 0) ? (
+        {Array.isArray(restaurants) && restaurants.length > 0 ? (
           restaurants.map((r) => (
             <View key={r.id} style={[styles.restaurantCardWrap, { borderRadius: cardRadius, marginBottom: 12 }]}>
               <LinearGradient
@@ -463,7 +478,9 @@ export default function FeedResicende() {
                   </View>
 
                   <View style={{ marginLeft: 12 }}>
-                    <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]} numberOfLines={1}>{r.nombre}</Text>
+                    <Text style={[styles.stripTitle, { fontSize: Math.round(clamp(rf(4.0), 16, 18)) }]} numberOfLines={1}>
+                      {r.nombre}
+                    </Text>
                     <Text style={[styles.stripSubtitle, { fontSize: smallText }]} numberOfLines={1}>
                       {r.edificio_nombre ?? 'Residencia Universitaria'}
                     </Text>
@@ -637,8 +654,9 @@ export default function FeedResicende() {
         style={[
           styles.header,
           {
-            height: headerHeight,
-            paddingBottom: Math.round(hp(1.2)),
+            height: headerHeight + Math.round(insets.top * 0.8),
+            paddingTop: insets.top + Math.round(hp(1.1)),
+            paddingBottom: Math.round(hp(1.0)),
           },
         ]}
       >
@@ -674,7 +692,7 @@ const styles = StyleSheet.create({
 
   header: {
     width: '100%',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     elevation: 6,
     shadowColor: '#000',
@@ -682,7 +700,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
   },
-  headerContent: { alignItems: 'center', marginBottom: 6 },
+  headerContent: { alignItems: 'center', marginBottom: 2 },
   headerTitle: { color: '#fff', fontWeight: '800' },
   headerSubtitle: { color: 'rgba(255,255,255,0.92)', marginTop: 4 },
 

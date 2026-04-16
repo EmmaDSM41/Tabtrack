@@ -31,7 +31,7 @@ import Share from 'react-native-share';
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
 const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
-const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 export default function ExperiencesScreen() {
   const navigation = useNavigation();
@@ -138,7 +138,7 @@ export default function ExperiencesScreen() {
           periodo,
           month: m,
           year,
-          title: `${MONTH_NAMES[m-1]} ${year}`,
+          title: `${MONTH_NAMES[m - 1]} ${year}`,
           billing: null,
           counts: { closed_count: 0, open_count: 0 },
           amount: 0,
@@ -163,7 +163,7 @@ export default function ExperiencesScreen() {
       }
 
       try {
-        const currentPeriodo = `${year}${String(now.getMonth() + 1).padStart(2,'0')}`;
+        const currentPeriodo = `${year}${String(now.getMonth() + 1).padStart(2, '0')}`;
         const idxCur = months.findIndex(m => m.periodo === currentPeriodo);
         if (idxCur >= 0) {
           const detailPath = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo_desde=${encodeURIComponent(currentPeriodo)}&periodo_hasta=${encodeURIComponent(currentPeriodo)}&detalle=true&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
@@ -279,11 +279,11 @@ export default function ExperiencesScreen() {
         rawConsumptions.forEach((c, idx) => {
           const detail = c.detail_consumption ?? c.detail ?? c.detailConsumption ?? null;
           const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
-                           (Array.isArray(c.items) ? c.items : []);
+            (Array.isArray(c.items) ? c.items : []);
 
           const items = itemsRaw.map((it, i) => ({
             id: `${c.sale_id ?? idx}-item-${i}`,
-            label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i+1}`,
+            label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i + 1}`,
             qty: Number(it.cantidad ?? it.qty ?? 1) || 1,
             price: Number(it.precio_item ?? it.price ?? it.precio ?? 0) || 0,
             raw: it,
@@ -295,7 +295,7 @@ export default function ExperiencesScreen() {
           const restaurantName = (c.restaurante && (c.restaurante.nombre || c.restaurante.name)) ? (c.restaurante.nombre || c.restaurante.name) : null;
           const fallbackName = aprovedBy || openedBy || restaurantName || `Transacción ${c.sale_id ?? (idx + 1)}`;
 
-          const initials = String((aprovedBy || openedBy || restaurantName || '').split(' ').map(x => x[0] || '').slice(0,2).join('')).toUpperCase() || '—';
+          const initials = String((aprovedBy || openedBy || restaurantName || '').split(' ').map(x => x[0] || '').slice(0, 2).join('')).toUpperCase() || '—';
 
           const fechaA = (c.fechas && (c.fechas.fecha_apertura || c.fechas.fechaApertura)) || c.fecha_apertura || c.fechaApertura || null;
           const fechaC = (c.fechas && (c.fechas.fecha_cierre || c.fechas.fechaCierre)) || c.fecha_cierre || c.fechaCierre || null;
@@ -304,9 +304,9 @@ export default function ExperiencesScreen() {
           if (fechaA) {
             const d = new Date(fechaA);
             const day = d.getDate();
-            const monthShort = MONTH_NAMES[d.getMonth()].slice(0,3).toLowerCase();
-            const hours = String(d.getHours()).padStart(2,'0');
-            const mins = String(d.getMinutes()).padStart(2,'0');
+            const monthShort = MONTH_NAMES[d.getMonth()].slice(0, 3).toLowerCase();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins = String(d.getMinutes()).padStart(2, '0');
             timestamp = `${day} ${monthShort} · ${hours}:${mins}`;
           }
 
@@ -397,7 +397,7 @@ export default function ExperiencesScreen() {
       monthObj = monthsData.find(m => String(m.periodo) === String(targetPeriodo));
     }
     if (!monthObj && notif.month && notif.year) {
-      const mm = String(notif.month).padStart(2,'0');
+      const mm = String(notif.month).padStart(2, '0');
       const peri = `${notif.year}${mm}`;
       monthObj = monthsData.find(m => String(m.periodo) === peri);
     }
@@ -455,7 +455,7 @@ export default function ExperiencesScreen() {
               if (node) {
                 const handle = findNodeHandle(node);
                 if (handle) {
-                  UIManager.measureLayout(handle, findNodeHandle(sheetScrollRef.current) || handle, () => {}, (left, top) => {
+                  UIManager.measureLayout(handle, findNodeHandle(sheetScrollRef.current) || handle, () => { }, (left, top) => {
                     if (sheetScrollRef.current) sheetScrollRef.current.scrollTo({ y: Math.max(0, top - 60), animated: true });
                   });
                 }
@@ -520,7 +520,7 @@ export default function ExperiencesScreen() {
         y: y - 10,
         size: titleSize,
         font: helvetica,
-        color: rgb(1,1,1),
+        color: rgb(1, 1, 1),
       });
 
       page.drawText('Detalle de consumos', {
@@ -536,7 +536,7 @@ export default function ExperiencesScreen() {
         y: y - 26,
         size: 10,
         font: helvetica,
-        color: rgb(0.42,0.42,0.42),
+        color: rgb(0.42, 0.42, 0.42),
       });
 
       y -= 60;
@@ -550,8 +550,8 @@ export default function ExperiencesScreen() {
           y = pH - 60;
         }
 
-        page.drawText(tx.name || 'Transacción', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.07,0.07,0.07), });
-        page.drawText(tx.timestamp || fmtDate(tx.fecha_apertura) || '', { x: pW - marginLeft - 160, y: y, size: 9, font: helvetica, color: rgb(0.45,0.45,0.45) });
+        page.drawText(tx.name || 'Transacción', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.07, 0.07, 0.07), });
+        page.drawText(tx.timestamp || fmtDate(tx.fecha_apertura) || '', { x: pW - marginLeft - 160, y: y, size: 9, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
         y -= 18;
 
         let subtotal = 0;
@@ -566,29 +566,29 @@ export default function ExperiencesScreen() {
             y = pH - 60;
           }
 
-          page.drawText(label, { x: marginLeft + 8, y: y, size: 10, font: helvetica, color: rgb(0.2,0.2,0.2) });
+          page.drawText(label, { x: marginLeft + 8, y: y, size: 10, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
           const priceText = `$${fmtCurrency(totalItem)}`;
           const textWidth = helvetica.widthOfTextAtSize(priceText, 10);
-          page.drawText(priceText, { x: pW - marginLeft - textWidth, y: y, size: 10, font: helvetica, color: rgb(0.07,0.07,0.07) });
+          page.drawText(priceText, { x: pW - marginLeft - textWidth, y: y, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
           y -= 14;
         }
 
-        page.drawText('Subtotal:', { x: marginLeft + 8, y: y - 6, size: 10, font: helvetica, color: rgb(0.42,0.13,0.66) });
+        page.drawText('Subtotal:', { x: marginLeft + 8, y: y - 6, size: 10, font: helvetica, color: rgb(0.42, 0.13, 0.66) });
         const subtotalText = `$${fmtCurrency(subtotal)}`;
         const subW = helvetica.widthOfTextAtSize(subtotalText, 10);
-        page.drawText(subtotalText, { x: pW - marginLeft - subW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07,0.07,0.07) });
+        page.drawText(subtotalText, { x: pW - marginLeft - subW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
         y -= 24;
 
-        page.drawLine({ start: { x: marginLeft, y }, end: { x: pW - marginLeft, y }, thickness: 0.5, color: rgb(0.92,0.92,0.92) });
+        page.drawLine({ start: { x: marginLeft, y }, end: { x: pW - marginLeft, y }, thickness: 0.5, color: rgb(0.92, 0.92, 0.92) });
         y -= 12;
       }
 
       if ((consumptions || []).length === 0) {
-        page.drawText('No hay consumos registrados en este periodo.', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.45,0.45,0.45) });
+        page.drawText('No hay consumos registrados en este periodo.', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
       }
 
       const genText = `Generado el ${new Date().toLocaleString()}`;
-      page.drawText(genText, { x: marginLeft, y: 36, size: 9, font: helvetica, color: rgb(0.45,0.45,0.45) });
+      page.drawText(genText, { x: marginLeft, y: 36, size: 9, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
 
       const base64 = await pdfDoc.saveAsBase64({ dataUri: false });
 
@@ -630,7 +630,7 @@ export default function ExperiencesScreen() {
     });
   };
 
-  const formatMoney = (n, {currencySign = '', negativeSign = '-'} = {}) => {
+  const formatMoney = (n, { currencySign = '', negativeSign = '-' } = {}) => {
     const num = Number(n);
     if (!Number.isFinite(num)) return '…';
 
@@ -660,7 +660,7 @@ export default function ExperiencesScreen() {
 
   const renderTransaction = (tx) => {
     const expanded = expandedTxIds.includes(tx.id);
-    const computedSubtotalNum = Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty)||1)), 0) : 0;
+    const computedSubtotalNum = Array.isArray(tx.items) ? tx.items.reduce((s, it) => s + ((Number(it.price) || 0) * (Number(it.qty) || 1)), 0) : 0;
     const computedSubtotal = +computedSubtotalNum.toFixed(2);
 
     return (
@@ -671,7 +671,7 @@ export default function ExperiencesScreen() {
           try {
             const y = ev.nativeEvent.layout.y;
             txPositionsRef.current[tx.id] = y;
-          } catch (e) {}
+          } catch (e) { }
         }}
         ref={(ref) => {
           if (ref) txRefsMap.current[tx.id] = ref;
@@ -680,7 +680,7 @@ export default function ExperiencesScreen() {
         <TouchableOpacity onPress={() => toggleTxExpand(tx.id)} activeOpacity={0.85} style={sheetStyles.personHeader}>
           <View style={sheetStyles.personLeft}>
             <View style={[sheetStyles.avatar, { backgroundColor: '#6B21A8' }]}>
-              <Text style={sheetStyles.avatarText}>{(tx.initials || '??').slice(0,2)}</Text>
+              <Text style={sheetStyles.avatarText}>{(tx.initials || '??').slice(0, 2)}</Text>
             </View>
           </View>
 
@@ -727,7 +727,7 @@ export default function ExperiencesScreen() {
 
   const listDataFallback = [
     {
-      periodo: `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2,'0')}`,
+      periodo: `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`,
       month: new Date().getMonth() + 1,
       year: new Date().getFullYear(),
       title: `${MONTH_NAMES[new Date().getMonth()]} ${new Date().getFullYear()}`,
@@ -749,10 +749,10 @@ export default function ExperiencesScreen() {
           try {
             const y = ev.nativeEvent.layout.y;
             monthPositionsRef.current[item.periodo] = y;
-          } catch (e) {}
+          } catch (e) { }
         }}
       >
-        <View style={[ styles.paymentCard, isPending ? styles.paymentCardPending : styles.paymentCardDefault ]}>
+        <View style={[styles.paymentCard, isPending ? styles.paymentCardPending : styles.paymentCardDefault]}>
           <View style={styles.paymentTopRow}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
               <View style={[styles.paymentIconWrap, { width: 52, height: 52, borderRadius: 12 }]}>
@@ -761,7 +761,7 @@ export default function ExperiencesScreen() {
 
               <View style={{ marginLeft: 14, flex: 1 }}>
                 <Text style={styles.paymentTitle} numberOfLines={2}>{item.title}</Text>
-                <Text style={styles.paymentDate}>{ `${item.year}-${String(item.month).padStart(2,'0')}-01`}</Text>
+                <Text style={styles.paymentDate}>{`${item.year}-${String(item.month).padStart(2, '0')}-01`}</Text>
                 <TouchableOpacity onPress={() => openSheetFor(item)}>
                   <Text style={styles.linkText}>{item.transactions} transacciones</Text>
                 </TouchableOpacity>
@@ -809,7 +809,7 @@ export default function ExperiencesScreen() {
   let available = assignedBalance - consumed;
 
   if (Array.isArray(monthsData) && monthsData.length) {
-    const cur = monthsData.find(m => m.periodo === `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`);
+    const cur = monthsData.find(m => m.periodo === `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`);
     if (cur && cur.billing) {
       if (cur.billing.saldo_mensual !== undefined && cur.billing.saldo_mensual !== null) {
         const n = Number(cur.billing.saldo_mensual);
@@ -863,7 +863,7 @@ export default function ExperiencesScreen() {
     const currentMonthNumber = now.getMonth() + 1;
     const upto = monthsData.filter(m => Number(m.month) <= currentMonthNumber);
     const currentObj = upto.find(m => Number(m.month) === currentMonthNumber) || null;
-    const prev = upto.filter(m => Number(m.month) !== currentMonthNumber).sort((a,b) => Number(b.month) - Number(a.month));
+    const prev = upto.filter(m => Number(m.month) !== currentMonthNumber).sort((a, b) => Number(b.month) - Number(a.month));
     if (currentObj) {
       return [currentObj, ...prev];
     }
@@ -1016,8 +1016,6 @@ export default function ExperiencesScreen() {
             <TouchableOpacity
               onPress={closeSheet}
               style={sheetStyles.closeBtnTouchable}
-              hitSlop={{ top: 60, left: 60, right: 60, bottom: 60 }}
-              pressRetentionOffset={{ top: 54, left: 54, right: 54, bottom: 54 }}
               accessibilityRole="button"
               accessibilityLabel="Cerrar detalle"
             >
@@ -1056,7 +1054,7 @@ export default function ExperiencesScreen() {
                   </Text>
                 </View>
 
-{/*                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                {/*                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text style={{ color: '#6B7280', fontWeight: '700' }}>Disponible mensual</Text>
                   <Text style={{ color: selectedAvailableBalance < 0 ? '#DC2626' : '#111827', fontWeight: '800' }}>
                     {formatMoney(Math.max(0, selectedAvailableBalance), { currencySign: '$' })}
@@ -1265,8 +1263,17 @@ const sheetStyles = StyleSheet.create({
   },
   handleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 10, paddingHorizontal: 12 },
   handle: { width: 64, height: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
-  closeBtnTouchable: { position: 'absolute', right: 8, top: -8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
-
+  closeBtnTouchable: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+  },
   sheetContent: { paddingHorizontal: 18, paddingBottom: 36 },
   sheetTitle: { fontSize: 18, fontWeight: '900', textAlign: 'center', marginTop: 30, color: '#111827' },
 
