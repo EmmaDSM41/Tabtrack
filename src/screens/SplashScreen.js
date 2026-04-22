@@ -5,9 +5,12 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const DEFAULT_HOME_KEY = 'user_default_home';
+
 export default function SplashScreen({ navigation }) {
   useEffect(() => {
     let mounted = true;
+    let timer = null;
 
     const decideAndNavigate = async () => {
       try {
@@ -18,14 +21,28 @@ export default function SplashScreen({ navigation }) {
 
         const hasSession = !!(uid || (valid && (valid === 'true' || valid === '1')) || email);
 
+        let targetRoute = 'Welcome';
+
+        if (hasSession) {
+          const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
+
+          if (defaultHome === 'residence') {
+            targetRoute = 'HomeResidence';
+          } else if (defaultHome === 'home') {
+            targetRoute = 'Home';
+          } else {
+            targetRoute = 'SelectDefaultHome';
+          }
+        }
+
         // Mantener el mismo delay visual que ya tenía: 3s
-        setTimeout(() => {
+        timer = setTimeout(() => {
           if (!mounted) return;
-          navigation.replace(hasSession ? 'Home' : 'Welcome');
+          navigation.replace(targetRoute);
         }, 3000);
       } catch (err) {
         // En caso de error, seguir al welcome (pero mantener el splash por 3s)
-        setTimeout(() => {
+        timer = setTimeout(() => {
           if (!mounted) return;
           navigation.replace('Welcome');
         }, 3000);
@@ -36,6 +53,7 @@ export default function SplashScreen({ navigation }) {
 
     return () => {
       mounted = false;
+      if (timer) clearTimeout(timer);
     };
   }, [navigation]);
 

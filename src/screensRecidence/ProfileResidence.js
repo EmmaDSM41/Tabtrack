@@ -598,7 +598,9 @@ export default function ProfileResidence({ navigation }) {
           'user_email',
           'user_valid',
           'user_fullname',
-          'user_profile_url'
+          'user_profile_url',
+          'user_default_home',
+
         ]);
       } catch (e) {
         console.warn('Error removing persistent auth keys on logout', e);

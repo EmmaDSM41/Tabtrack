@@ -23,9 +23,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE_URL = 'https://api.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
-const formatMoney = (n) =>
-  Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+const formatMoney = (n) => {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '0.00';
 
+  const [integerPart, decimalPart] = value.toFixed(2).split('.');
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return `${formattedInteger}.${decimalPart}`;
+};
 const totalFontSizeFor = (str) => {
   const len = String(str).length;
   if (len > 18) return 10;

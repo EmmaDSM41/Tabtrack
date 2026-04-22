@@ -23,14 +23,24 @@ import SendEmail from './src/screens/SendEmail';
 import ResetPassword from './src/screens/ResetPassword';
 import RecentAccounts from './src/screens/RecentAccount';
 import QuickLogin from './src/screens/QuickLogin';
+import SelectDefaultHome from './src/screens/SelectDefaultHome';
 
 const Stack = createNativeStackNavigator();
 
+const linking = {
+  prefixes: ['tabtrack://'],
+  config: {
+    screens: {
+      Home: 'home',
+    },
+  },
+};
+
+
 export default function App() {
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {/* Auth screens (sin barra) */}
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Welcome" component={WelcomeScreen} />
         <Stack.Screen name="CreateAccount" component={CreateAccount} />
@@ -44,15 +54,12 @@ export default function App() {
         <Stack.Screen name="ResetPassword" component={ResetPassword} />
         <Stack.Screen name="Recent" component={RecentAccounts} />
         <Stack.Screen name="QuickLogin" component={QuickLogin} />
+        <Stack.Screen name="SelectDefaultHome" component={SelectDefaultHome} />
+        
 
-       
-        {/* Auth screens Recidence */}
         <Stack.Screen name="CodeResidence" component={CodeResidence} />
         <Stack.Screen name="SplashResidence" component={SplashResidence} />
 
- 
- 
-        {/* Main app con barra */}
         <Stack.Screen name="Home" component={Home} />
         <Stack.Screen name="HomeResidence" component={HomeResidence} />
       </Stack.Navigator>

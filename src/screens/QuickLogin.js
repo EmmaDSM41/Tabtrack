@@ -20,9 +20,10 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const API_HOST = 'https://api.tab-track.com'; 
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
+const API_HOST = 'https://api.tab-track.com';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
+const DEFAULT_HOME_KEY = 'user_default_home';
 
 export default function QuickLoginScreen() {
   const navigation = useNavigation();
@@ -126,6 +127,11 @@ export default function QuickLoginScreen() {
       } else {
         if (email) await AsyncStorage.setItem('user_email', String(email));
       }
+
+      // Fuerza que al iniciar sesión vuelva a pedir qué home usar
+      try {
+        await AsyncStorage.removeItem(DEFAULT_HOME_KEY);
+      } catch (_) {}
     } catch (e) {
       console.warn('QuickLogin save auth error', e);
     }
@@ -134,14 +140,14 @@ export default function QuickLoginScreen() {
     const welcomeText = welcomeName ? `¡Bienvenido, ${welcomeName}!` : '¡Bienvenido!';
     showToast(welcomeText, true, 900, () => {
       try {
-        navigation.replace('Home'); 
+        navigation.replace('SelectDefaultHome');
       } catch (e) {
-        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        navigation.reset({ index: 0, routes: [{ name: 'SelectDefaultHome' }] });
       }
     });
   };
 
-  const avatarSize = Math.round(Math.min(width * 0.18, 84)); 
+  const avatarSize = Math.round(Math.min(width * 0.18, 84));
   const logoWidth = Math.min(220, Math.round(width * 0.58));
   const backTop = (insets.top ?? 12) + 6;
 
@@ -246,7 +252,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#111', 
+    borderColor: '#111',
     justifyContent: 'center',
     paddingHorizontal: 12,
     backgroundColor: 'transparent',
@@ -264,7 +270,7 @@ const styles = StyleSheet.create({
   continueBtn: {
     backgroundColor: '#5f82ff',
     paddingVertical: 12,
-    borderRadius: 26, 
+    borderRadius: 26,
     alignItems: 'center',
     width: '100%',
     marginTop: 2,

@@ -27,9 +27,15 @@ const PENDING_VISITS_KEY = 'pending_visits';
 
 const PENDING_POLL_INTERVAL_MS = 8000; 
 
-const formatMoney = (n, currency = 'MXN') =>
-  Number.isFinite(n) ? `${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '0.00';
+const formatMoney = (n) => {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '0.00';
 
+  const [integerPart, decimalPart] = value.toFixed(2).split('.');
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return `${formattedInteger}.${decimalPart}`;
+};
 const safeNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;

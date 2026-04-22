@@ -17,10 +17,15 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const formatMoney = (n) =>
-  Number.isFinite(n)
-    ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '0.00';
+const formatMoney = (n) => {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '0.00';
+
+  const [integerPart, decimalPart] = value.toFixed(2).split('.');
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return `${formattedInteger}.${decimalPart}`;
+};
 
 export default function OneExhibicion() {
   const navigation = useNavigation();

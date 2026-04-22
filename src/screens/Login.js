@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const PRIMARY = '#FEFFFFFF';
+const DEFAULT_HOME_KEY = 'user_default_home';
 
 export default function Login() {
   const navigation = useNavigation();
@@ -271,11 +272,19 @@ export default function Login() {
           console.warn('Error guardando admin_id_actual / edificio_id_actual en AsyncStorage', e);
         }
 
+        const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
+        const targetRoute =
+          defaultHome === 'residence'
+            ? 'HomeResidence'
+            : defaultHome === 'home'
+              ? 'Home'
+              : 'SelectDefaultHome';
+
         showToast(
           fullname ? `¡Bienvenido, ${fullname}!` : '¡Bienvenido!',
           true,
           700,
-          () => navigation.replace('Home')
+          () => navigation.replace(targetRoute)
         );
       } else {
         const errMsg = data?.error || data?.message || 'Correo o contraseña inválidos';
