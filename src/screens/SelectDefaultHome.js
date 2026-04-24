@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,16 @@ import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DEFAULT_HOME_KEY = 'user_default_home';
+const RESIDENCE_ACTIVE_KEY = 'user_residence_activo';
 
-// Cambia estas rutas por tus logos reales
 const PRINCIPAL_LOGO = require('../../assets/images/logo.png');
 const RESIDENCE_LOGO = require('../../assets/images/LogoRes.jpeg');
 
 export default function SelectDefaultHome({ navigation }) {
   const { width } = useWindowDimensions();
   const [loading, setLoading] = useState(false);
+  const [showResidence, setShowResidence] = useState(false);
+  const [checkingResidence, setCheckingResidence] = useState(true);
 
   const BASE_WIDTH = 375;
   const rf = (size) => Math.round((size * width) / BASE_WIDTH);
@@ -33,6 +35,24 @@ export default function SelectDefaultHome({ navigation }) {
   const subtitleSize = clamp(rf(14), 12, 18);
   const optionTitleSize = clamp(rf(18), 16, 24);
   const optionDescSize = clamp(rf(12), 11, 14);
+
+  useEffect(() => {
+    const loadResidenceFlag = async () => {
+      try {
+        const value = await AsyncStorage.getItem(RESIDENCE_ACTIVE_KEY);
+        const normalized = String(value ?? '').trim().toLowerCase();
+        const active = normalized === 'true' || normalized === '1';
+        setShowResidence(active);
+      } catch (error) {
+        console.warn('Error leyendo user_residence_activo:', error);
+        setShowResidence(false);
+      } finally {
+        setCheckingResidence(false);
+      }
+    };
+
+    loadResidenceFlag();
+  }, []);
 
   const chooseHome = async (value) => {
     try {
@@ -119,19 +139,29 @@ export default function SelectDefaultHome({ navigation }) {
         </Text>
 
         <View style={styles.list}>
-          <OptionRow
-            value="home"
-            title="Tabtrack"
-            desc="Abrirá la pantalla principal normal de la app."
-            imageSource={PRINCIPAL_LOGO}
-          />
+          {checkingResidence ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator size="small" color="#0046ff" />
+            </View>
+          ) : (
+            <>
+              <OptionRow
+                value="home"
+                title="Tabtrack"
+                desc="Abrirá la pantalla principal normal de la app."
+                imageSource={PRINCIPAL_LOGO}
+              />
 
-          <OptionRow
-            value="residence"
-            title="Tabtrack Residence"
-            desc="Abrirá la versión de residencia como app principal."
-            imageSource={RESIDENCE_LOGO}
-          />
+              {showResidence && (
+                <OptionRow
+                  value="residence"
+                  title="Tabtrack Residence"
+                  desc="Abrirá la versión de residencia como app principal."
+                  imageSource={RESIDENCE_LOGO}
+                />
+              )}
+            </>
+          )}
         </View>
 
         <Text style={styles.footer}>
@@ -240,5 +270,7 @@ const styles = StyleSheet.create({
   },
   loadingWrap: {
     marginTop: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

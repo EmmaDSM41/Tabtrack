@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
-const API_TOKEN =  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
+const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const PRIMARY = '#FEFFFFFF';
 
 export default function ChangePassword() {
@@ -42,7 +42,7 @@ export default function ChangePassword() {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState(''); 
+  const [email, setEmail] = useState('');
 
   const toastAnim = useRef(new Animated.Value(0)).current;
   const [toastMsg, setToastMsg] = useState('');
@@ -69,6 +69,19 @@ export default function ChangePassword() {
     });
   };
 
+  const getPasswordError = (password) => {
+    if (password.length < 8) {
+      return 'La contraseña debe tener al menos 8 caracteres';
+    }
+    if (!/[A-Z]/.test(password)) {
+      return 'La contraseña debe incluir al menos una mayúscula';
+    }
+    if (!/[0-9]/.test(password)) {
+      return 'La contraseña debe incluir al menos un número';
+    }
+    return null;
+  };
+
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
       setOldPassword('');
@@ -78,7 +91,7 @@ export default function ChangePassword() {
     // Obtener el email desde AsyncStorage al montar el componente
     const getEmail = async () => {
       try {
-        const storedEmail = await AsyncStorage.getItem('user_mail'); 
+        const storedEmail = await AsyncStorage.getItem('user_mail');
         if (storedEmail) {
           setEmail(storedEmail);
         } else {
@@ -96,6 +109,11 @@ export default function ChangePassword() {
   const handleChangePassword = async () => {
     if (!oldPassword || !newPassword) {
       return showToast('Completa ambos campos');
+    }
+
+    const passwordError = getPasswordError(newPassword);
+    if (passwordError) {
+      return showToast(passwordError);
     }
 
     setLoading(true);
@@ -120,15 +138,19 @@ export default function ChangePassword() {
             'Authorization': `Bearer ${API_TOKEN}`,
           },
           body: JSON.stringify({
-            mail: email, // Usar el estado 'email'
-            password: oldPassword, // Usar 'password' en lugar de 'old_password'
+            mail: email,
+            password: oldPassword,
             new_password: newPassword,
           }),
         });
 
         const textEmail = await resEmail.text();
         let dataEmail;
-        try { dataEmail = JSON.parse(textEmail); } catch { dataEmail = { error: textEmail }; }
+        try {
+          dataEmail = JSON.parse(textEmail);
+        } catch {
+          dataEmail = { error: textEmail };
+        }
 
         if (resEmail.ok) {
           showToast('Contraseña actualizada', true, 1200, () => navigation.goBack());
@@ -156,14 +178,18 @@ export default function ChangePassword() {
             'Authorization': `Bearer ${API_TOKEN}`,
           },
           body: JSON.stringify({
-            password: oldPassword, // Usar 'password' en lugar de 'old_password'
+            password: oldPassword,
             new_password: newPassword,
           }),
         });
 
         const textId = await resId.text();
         let dataId;
-        try { dataId = JSON.parse(textId); } catch { dataId = { error: textId }; }
+        try {
+          dataId = JSON.parse(textId);
+        } catch {
+          dataId = { error: textId };
+        }
 
         if (resId.ok) {
           showToast('Contraseña actualizada', true, 1200, () => navigation.goBack());
@@ -283,7 +309,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
       paddingVertical: Math.round(hp(4)),
     },
     logo: {
-      width: Math.round(clamp(wp(50), 120, 260)), // escala con límites
+      width: Math.round(clamp(wp(50), 120, 260)),
       height: Math.round(clamp(rf(11), 36, 120)),
       resizeMode: 'contain',
       marginBottom: Math.round(hp(2)),
