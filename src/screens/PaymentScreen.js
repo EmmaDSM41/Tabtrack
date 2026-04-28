@@ -1135,14 +1135,14 @@ export default function PaymentScreen() {
   const dateText = fecha_apertura ? new Date(fecha_apertura).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' }) : new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
   const headerHeight = clamp(hp(10), 64, 112);
   const logoSize = clamp(Math.round(width * 0.28), 80, 160);
-  const restaurantImageSize = clamp(Math.round(width * 0.16), 48, 120);
+  const restaurantImageSize = clamp(Math.round(width * 0.15), 48, 120);
   const contentWidth = Math.min(Math.round(width - 32), Math.max(420, Math.round(width * 0.92)));
   const contentPadding = clamp(Math.round(width * 0.04), 12, 28);
   const payButtonHeight = clamp(Math.round(hp(6)), 44, 60);
   const optionRowHeight = clamp(Math.round(hp(6.5)), 48, 72);
   const iconBoxSize = clamp(Math.round(width * 0.11), 40, 64);
   const titleFont = clamp(rf(2.8), 14, 20);
-  const totalNumberFont = clamp(rf(6.0), 20, 40);
+  const totalNumberFont = clamp(rf(6.0), 31, 40);
 
   async function fetchOpenpayCredentials(restId, sucId) {
     try {
@@ -1258,6 +1258,8 @@ export default function PaymentScreen() {
           userEmail,
           stripe_public_key: creds.public_key,
           payment_method_id: chosenId,
+          restaurantImage: restaurantImage,
+
         });
       } catch (err) {
         setLoadingKey(null);
@@ -1306,6 +1308,8 @@ export default function PaymentScreen() {
           userFullname,
           userEmail,
           payment_method_id: chosenId,
+          restaurantImage: restaurantImage,
+
         });
         return;
       } catch (err) {

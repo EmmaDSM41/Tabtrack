@@ -24,7 +24,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const API_BASE_URL = 'https://api.residence.tab-track.com';
 const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
-
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
 
@@ -189,6 +188,8 @@ export default function CuentaResidence() {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [validationBannerVisible, setValidationBannerVisible] = useState(false);
 
+  const [startConsumptionModalVisible, setStartConsumptionModalVisible] = useState(false);
+
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
@@ -320,8 +321,9 @@ export default function CuentaResidence() {
     }
   }, []);
 
-  const applyResolveJsonToState = useCallback((json) => {
+  const applyResolveJsonToState = useCallback((json, options = {}) => {
     try {
+      const { deferOpenAccountState = false } = options;
       console.log('[CuentaResidence] JSON resolve QR recibido:', json);
 
       const oc = json.open_consumption ?? null;
@@ -415,8 +417,10 @@ export default function CuentaResidence() {
         setCanOpenAccount(!!canOpen);
         setAccountOpened(false);
       } else if (aperturaStatusRaw && aperturaStatusRaw.includes('OPEN')) {
-        setAccountOpened(true);
-        setCanOpenAccount(false);
+        if (!deferOpenAccountState) {
+          setAccountOpened(true);
+          setCanOpenAccount(false);
+        }
       } else {
         setCanOpenAccount(!!canOpen);
         setAccountOpened(false);
@@ -432,7 +436,7 @@ export default function CuentaResidence() {
     }
   }, []);
 
-  const fetchConsumo = useCallback(async (opts = { showLoading: true }) => {
+  const fetchConsumo = useCallback(async (opts = { showLoading: true, deferOpenAccountState: false }) => {
     if (!qr) {
       openErrorModal('QR no encontrado. Vuelve a escanear.');
       if (isMountedRef.current) setLoading(false);
@@ -498,7 +502,7 @@ export default function CuentaResidence() {
         return;
       }
 
-      const { restauranteId: resolvedRestaurantIdFromJson } = applyResolveJsonToState(json);
+      const { restauranteId: resolvedRestaurantIdFromJson } = applyResolveJsonToState(json, { deferOpenAccountState: !!opts.deferOpenAccountState });
 
       let edificioId = null;
       try {
@@ -533,8 +537,18 @@ export default function CuentaResidence() {
     fetchConsumo({ showLoading: false });
   }, [loadValidationBannerState, fetchConsumo]));
 
-  const handleStartConsumption = async () => {
+  const handleCloseStartModal = useCallback(async () => {
+    setStartConsumptionModalVisible(false);
+    setAccountOpened(true);
+    setCanOpenAccount(false);
+    setValidationBannerVisible(true);
+    await persistValidationBannerState({ started: true, visible: true });
+  }, [persistValidationBannerState]);
+
+  const handleStartConsumptionConfirmed = async () => {
     if (!qr) { openErrorModal('QR no disponible.'); return; }
+    if (accountOpening || approveLoading) return;
+
     setAccountOpening(true);
     try {
       let usuarioAppId = null;
@@ -566,7 +580,7 @@ export default function CuentaResidence() {
       const json = await res.json();
       console.log('[CuentaResidence] Respuesta open-account:', json);
 
-      const resolvedData = applyResolveJsonToState(json);
+      const resolvedData = applyResolveJsonToState(json, { deferOpenAccountState: true });
 
       let edificioId = null;
       try {
@@ -585,13 +599,12 @@ export default function CuentaResidence() {
 
       const aperturaStatus = json.apertura?.status ? String(json.apertura.status).toUpperCase() : null;
       if (aperturaStatus && aperturaStatus.includes('OPEN')) {
-        setAccountOpened(true);
-
         const resolvedSaleId = (json.open_consumption && json.open_consumption.sale_id) ?? json.external_sale_id ?? json.sale_id ?? json.venta_id ?? null;
         if (resolvedSaleId) setSaleId(String(resolvedSaleId));
 
-        setValidationBannerVisible(true);
-        await persistValidationBannerState({ started: true, visible: true });
+        try { await fetchConsumo({ showLoading: false, deferOpenAccountState: true }); } catch(e) { /* noop */ }
+
+        setStartConsumptionModalVisible(true);
       } else {
         if (aperturaStatus === 'NO_OPEN_SALE') {
           openNoSaleModal('El servidor indicó que no hay cuenta disponible.');
@@ -600,14 +613,17 @@ export default function CuentaResidence() {
         }
       }
 
-      try { await fetchConsumo({ showLoading: false }); } catch(e) { /* noop */ }
-
       setAccountOpening(false);
     } catch (err) {
       console.warn('handleStartConsumption error', err);
       Alert.alert('Error', 'No se pudo iniciar consumo. Revisa tu conexión.');
       setAccountOpening(false);
     }
+  };
+
+  const handleStartConsumption = async () => {
+    if (accountOpening || approveLoading) return;
+    await handleStartConsumptionConfirmed();
   };
 
   const handleApproveConsumption = async () => {
@@ -755,7 +771,6 @@ export default function CuentaResidence() {
   const itemNameFont = clamp(rf(3.6), 12, 16);
   const itemPriceWidth = Math.min(Math.max(wp(28), 90), 140);
   const subtotalValueFont = clamp(rf(3.8), 16, 22);
-  const primaryBtnPadding = Math.max(12, hp(1.6));
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
@@ -805,6 +820,47 @@ export default function CuentaResidence() {
 
             <TouchableOpacity style={styles.noSaleBtn} onPress={closeNoSaleModal} activeOpacity={0.8}>
               <Text style={styles.noSaleBtnText}>Aceptar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={startConsumptionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseStartModal}
+      >
+        <View style={styles.startModalBackdrop}>
+          <View style={[styles.startModalBox, { width: Math.min(layoutWidth - 36, wp(88)) }]}>
+            <TouchableOpacity
+              style={styles.startModalCloseBtn}
+              onPress={handleCloseStartModal}
+              activeOpacity={0.8}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={20} color="#6b7280" />
+            </TouchableOpacity>
+
+            <View style={styles.startModalIconWrap}>
+              <Ionicons name="checkmark-circle-outline" size={34} color="#0046ff" />
+            </View>
+
+            <Text style={styles.startModalTitle}>¿Aprobar consumo?</Text>
+            <Text style={styles.startModalMessage}>
+              Se agregará el monto a tu consumo del mes,{' '}
+              ¿deseas validar?
+            </Text>
+
+            <TouchableOpacity
+              style={styles.startModalAcceptBtn}
+              onPress={async () => {
+                setStartConsumptionModalVisible(false);
+                await handleApproveConsumption();
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.startModalAcceptBtnText}>Validar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -904,7 +960,8 @@ export default function CuentaResidence() {
           {validationBannerVisible ? (
             <View style={[styles.validationInlineBox, { width: Math.min(layoutWidth * 0.92, layoutWidth - 10) }]}>
               <Text style={[styles.validationInlineText, { fontSize: clamp(rf(2.9), 13, 16) }]}>
-                Se agregará el monto a tu consumo del mes,{'\n'}¿deseas validar?
+                Se agregará el monto a tu consumo del mes,{' '}
+                ¿deseas validar?
               </Text>
             </View>
           ) : null}
@@ -929,7 +986,7 @@ export default function CuentaResidence() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>
-                  {accountOpened ? 'Validar consumo' : 'Empezar consumo - Es necesario hacer una segunda verificacion'}
+                  {accountOpened ? 'Validar consumo' : 'Comenzar consumo'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1083,5 +1140,75 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     fontWeight: '400',
+  },
+
+  startModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  startModalBox: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 14,
+    overflow: 'hidden',
+  },
+  startModalCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
+  startModalIconWrap: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    marginTop: 6,
+  },
+  startModalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#111',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  startModalMessage: {
+    fontSize: 15,
+    color: '#111',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  startModalAcceptBtn: {
+    width: '100%',
+    backgroundColor: '#0046ff',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startModalAcceptBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 15,
   },
 });

@@ -43,7 +43,7 @@ export default function StripePay() {
     sucursal_id = null,
     sale_id = null,
     restaurante_id = null,
-    usuario_app_id = null, // email fallback that you used previously
+    usuario_app_id = null, 
     moneda = 'MXN',
     environment = 'sandbox',
     displayAmount = null,
@@ -804,7 +804,7 @@ export default function StripePay() {
             <View style={styles.gradientRight}>
               <Text style={styles.gradientSmall}>Total</Text>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-                <Text style={[styles.gradientTotal, { fontSize: Math.max(22, Math.round(winW * 0.07)) }]}>{formatAmount(displayAmountFinal)}</Text>
+                <Text style={[styles.gradientTotal, { fontSize: Math.max(30, Math.round(winW * 0.07)) }]}>{formatAmount(displayAmountFinal)}</Text>
                 <Text style={styles.gradientCurrency}> {moneda ?? 'MXN'}</Text>
               </View>
               <Text style={styles.gradientDetail}>Detalle</Text>

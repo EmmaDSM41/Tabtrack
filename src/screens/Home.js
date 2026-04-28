@@ -40,6 +40,7 @@ import ConfirmacionPago from './ConfirmacionPago';
 import SaleDetail from './PagoDetail';
 import ErrorPago from './ErrorPago';
 import { StackActions } from '@react-navigation/native';
+import SelectDefaultHome from './SelectDefaultHome';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -122,6 +123,7 @@ function ProfileStackScreen() {
       <Stack.Screen name="Restaurant" component={RestaurantDetailScreen} />
       <Stack.Screen name="SaleDetail" component={SaleDetail} />
       <Stack.Screen name="ExperiencesDetails" component={ExperiencesDetails} />
+      <Stack.Screen name="SelectDefaultHome" component={SelectDefaultHome} />
       
     </Stack.Navigator>
   );

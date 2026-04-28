@@ -315,7 +315,7 @@ export default function OpenPay() {
       payment_method_id,
       moneda,
       usuario_app_id: usuario_app_id ?? params.userEmail ?? usuario_app_id ?? '',
-      redirect_url: "https://www.tab-track.com/openpay/return",
+      redirect_url: "https://www.tab-track.com/success_payment.html",
       customer_data: {
         email: customer_email || params.userEmail || userEmail || '',
         nombre: holder_name || params.userFullname || userFullname || '',
@@ -408,7 +408,7 @@ export default function OpenPay() {
       payment_method_id,
       moneda,
       usuario_app_id: usuario_app_id_to_send,
-      redirect_url: "https://www.tab-track.com/openpay/return",
+      redirect_url: "https://www.tab-track.com/success_payment.html",
       customer_data: {},
       metadata: {
         mesa_id: mesa_id ?? null,
@@ -945,7 +945,7 @@ export default function OpenPay() {
           <View style={styles.gradientRight}>
             <Text style={styles.gradientSmall}>Total</Text>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-              <Text style={[styles.gradientTotal, { fontSize: Math.max(22, Math.round(winW * 0.07)) }]}>{formatAmount(displayAmountFinal)}</Text>
+              <Text style={[styles.gradientTotal, { fontSize: Math.max(30, Math.round(winW * 0.07)) }]}>{formatAmount(displayAmountFinal)}</Text>
               <Text style={styles.gradientCurrency}> {moneda ?? 'MXN'}</Text>
             </View>
             <Text style={styles.gradientDetail}>Detalle</Text>

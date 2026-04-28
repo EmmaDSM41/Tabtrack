@@ -325,9 +325,9 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
     gradientRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
     leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
 
-    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 28, 48)), marginBottom: Math.round(hp(0.6)) },
+    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 37, 48)), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.6)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
-    restaurantImage: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96)/8), backgroundColor: '#fff' },
+    restaurantImage: { width: Math.round(clamp(wp(15), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96)/8), backgroundColor: '#fff' },
 
     rightCol: {
       alignItems: 'flex-end',

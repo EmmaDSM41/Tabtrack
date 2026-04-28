@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const DEFAULT_HOME_KEY = 'user_default_home';
 const RESIDENCE_ACTIVE_KEY = 'user_residence_activo';
@@ -23,8 +24,9 @@ const RESIDENCE_LOGO = require('../../assets/images/LogoRes.jpeg');
 export default function SelectDefaultHome({ navigation }) {
   const { width } = useWindowDimensions();
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [showResidence, setShowResidence] = useState(false);
-  const [checkingResidence, setCheckingResidence] = useState(true);
+  const [selectedHome, setSelectedHome] = useState('home');
 
   const BASE_WIDTH = 375;
   const rf = (size) => Math.round((size * width) / BASE_WIDTH);
@@ -37,34 +39,42 @@ export default function SelectDefaultHome({ navigation }) {
   const optionDescSize = clamp(rf(12), 11, 14);
 
   useEffect(() => {
-    const loadResidenceFlag = async () => {
+    const loadSettings = async () => {
       try {
-        const value = await AsyncStorage.getItem(RESIDENCE_ACTIVE_KEY);
-        const normalized = String(value ?? '').trim().toLowerCase();
-        const active = normalized === 'true' || normalized === '1';
-        setShowResidence(active);
+        const [residenceRaw, defaultHomeRaw] = await Promise.all([
+          AsyncStorage.getItem(RESIDENCE_ACTIVE_KEY),
+          AsyncStorage.getItem(DEFAULT_HOME_KEY),
+        ]);
+
+        const residenceNormalized = String(residenceRaw ?? '').trim().toLowerCase();
+        const residenceActive = residenceNormalized === 'true' || residenceNormalized === '1';
+        setShowResidence(residenceActive);
+
+        const savedHome = String(defaultHomeRaw ?? '').trim().toLowerCase();
+        if (savedHome === 'residence' && residenceActive) {
+          setSelectedHome('residence');
+        } else {
+          setSelectedHome('home');
+        }
       } catch (error) {
-        console.warn('Error leyendo user_residence_activo:', error);
+        console.warn('Error cargando preferencias de home:', error);
         setShowResidence(false);
+        setSelectedHome('home');
       } finally {
-        setCheckingResidence(false);
+        setChecking(false);
       }
     };
 
-    loadResidenceFlag();
+    loadSettings();
   }, []);
 
   const chooseHome = async (value) => {
     try {
       setLoading(true);
-      await AsyncStorage.setItem(DEFAULT_HOME_KEY, value);
 
-      const targetRoute = value === 'residence' ? 'HomeResidence' : 'Home';
-
-      navigation.reset({
-        index: 0,
-        routes: [{ name: targetRoute }],
-      });
+      const finalValue = value === 'residence' && !showResidence ? 'home' : value;
+      await AsyncStorage.setItem(DEFAULT_HOME_KEY, finalValue);
+      setSelectedHome(finalValue);
     } catch (error) {
       console.warn('Error guardando la app principal:', error);
     } finally {
@@ -72,34 +82,61 @@ export default function SelectDefaultHome({ navigation }) {
     }
   };
 
-  const OptionRow = ({ value, title, desc, imageSource }) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() => chooseHome(value)}
-      disabled={loading}
-      style={styles.optionRow}
-    >
-      <View
+  const OptionRow = ({ value, title, desc, imageSource }) => {
+    const selected = selectedHome === value;
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => chooseHome(value)}
+        disabled={loading}
         style={[
-          styles.circle,
-          {
-            width: circleSize,
-            height: circleSize,
-            borderRadius: circleSize / 2,
-          },
+          styles.optionRow,
+          selected && styles.optionRowSelected,
         ]}
       >
-        <Image source={imageSource} style={styles.circleImage} />
-      </View>
+        <View
+          style={[
+            styles.circle,
+            {
+              width: circleSize,
+              height: circleSize,
+              borderRadius: circleSize / 2,
+              borderColor: selected ? '#2f6eff' : 'rgba(0,0,0,0.08)',
+            },
+            selected && styles.circleSelected,
+          ]}
+        >
+          <Image source={imageSource} style={styles.circleImage} />
+        </View>
 
-      <View style={styles.textWrap}>
-        <Text style={[styles.optionTitle, { fontSize: optionTitleSize }]}>{title}</Text>
-        <Text style={[styles.optionDesc, { fontSize: optionDescSize }]}>{desc}</Text>
-      </View>
+        <View style={styles.textWrap}>
+          <View style={styles.titleRow}>
+            <Text style={[styles.optionTitle, { fontSize: optionTitleSize }]}>
+              {title}
+            </Text>
+            {selected && (
+              <View style={styles.selectedPill}>
+                <Text style={styles.selectedPillText}>Seleccionado</Text>
+              </View>
+            )}
+          </View>
 
-      <Text style={styles.chevron}>›</Text>
-    </TouchableOpacity>
-  );
+          <Text style={[styles.optionDesc, { fontSize: optionDescSize }]}>
+            {desc}
+          </Text>
+        </View>
+
+        <View style={styles.chevronWrap}>
+          <Ionicons
+            name={selected ? 'checkmark-circle' : 'chevron-forward'}
+            size={selected ? 22 : 26}
+            color={selected ? '#2f6eff' : '#9ca3af'}
+          />
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -135,11 +172,11 @@ export default function SelectDefaultHome({ navigation }) {
         </Text>
 
         <Text style={[styles.subtitle, { fontSize: subtitleSize }]}>
-          Cada vez que abras la sesión, la app entrará automáticamente en la opción que elijas aquí.
+          La app entrará automáticamente en la opción que elijas aquí.
         </Text>
 
         <View style={styles.list}>
-          {checkingResidence ? (
+          {checking ? (
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="small" color="#0046ff" />
             </View>
@@ -167,6 +204,16 @@ export default function SelectDefaultHome({ navigation }) {
         <Text style={styles.footer}>
           Puedes cambiarlo después volviendo a esta pantalla.
         </Text>
+
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.85}
+          disabled={loading}
+        >
+          <Ionicons name="arrow-back" size={18} color="#fff" />
+          <Text style={styles.backButtonText}>Volver</Text>
+        </TouchableOpacity>
 
         {loading && (
           <View style={styles.loadingWrap}>
@@ -219,19 +266,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     marginBottom: 10,
   },
+  optionRowSelected: {
+    transform: [{ scale: 1.01 }],
+  },
   circle: {
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
+    borderWidth: 2,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
     flexShrink: 0,
+  },
+  circleSelected: {
+    shadowColor: '#2f6eff',
+    shadowOpacity: 0.14,
+    elevation: 4,
   },
   circleImage: {
     width: '84%',
@@ -243,9 +297,26 @@ const styles = StyleSheet.create({
     marginLeft: 14,
     justifyContent: 'center',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   optionTitle: {
     color: '#000',
     fontFamily: 'Montserrat-Bold',
+  },
+  selectedPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(47,110,255,0.10)',
+  },
+  selectedPillText: {
+    color: '#2f6eff',
+    fontFamily: 'Montserrat-Bold',
+    fontSize: 11,
   },
   optionDesc: {
     color: '#000',
@@ -254,11 +325,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
-  chevron: {
-    fontSize: 30,
-    color: '#9ca3af',
+  chevronWrap: {
     marginLeft: 8,
-    marginTop: -2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   footer: {
     marginTop: 10,
@@ -267,6 +337,27 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat-Regular',
     opacity: 0.68,
     paddingHorizontal: 10,
+  },
+  backButton: {
+    marginTop: 18,
+    alignSelf: 'center',
+    backgroundColor: '#0046ff',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#0046ff',
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontFamily: 'Montserrat-Bold',
+    fontSize: 14,
   },
   loadingWrap: {
     marginTop: 14,

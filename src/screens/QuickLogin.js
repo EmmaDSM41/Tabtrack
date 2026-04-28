@@ -23,7 +23,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const API_HOST = 'https://api.tab-track.com';
 const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
-const DEFAULT_HOME_KEY = 'user_default_home';
 
 export default function QuickLoginScreen() {
   const navigation = useNavigation();
@@ -127,11 +126,6 @@ export default function QuickLoginScreen() {
       } else {
         if (email) await AsyncStorage.setItem('user_email', String(email));
       }
-
-      // Fuerza que al iniciar sesión vuelva a pedir qué home usar
-      try {
-        await AsyncStorage.removeItem(DEFAULT_HOME_KEY);
-      } catch (_) {}
     } catch (e) {
       console.warn('QuickLogin save auth error', e);
     }
@@ -140,9 +134,9 @@ export default function QuickLoginScreen() {
     const welcomeText = welcomeName ? `¡Bienvenido, ${welcomeName}!` : '¡Bienvenido!';
     showToast(welcomeText, true, 900, () => {
       try {
-        navigation.replace('SelectDefaultHome');
+        navigation.replace('Home');
       } catch (e) {
-        navigation.reset({ index: 0, routes: [{ name: 'SelectDefaultHome' }] });
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
       }
     });
   };

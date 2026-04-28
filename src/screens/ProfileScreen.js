@@ -138,8 +138,8 @@ export default function ProfileScreen({ navigation }) {
     return () => {
       isMountedRef.current = false;
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      try { deviceListener && deviceListener.remove(); } catch(e){ /* noop */ }
-      try { profileListener && profileListener.remove(); } catch(e){ /* noop */ }
+      try { deviceListener && deviceListener.remove(); } catch (e) { /* noop */ }
+      try { profileListener && profileListener.remove(); } catch (e) { /* noop */ }
     };
   }, []);
 
@@ -1260,7 +1260,7 @@ export default function ProfileScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(24, hp(4), bottomSafe + 8) }]}>
         <View style={[styles.header, { height: headerHeight, paddingHorizontal: basePadding }]}>
-{/*           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
+          {/*           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
             <Ionicons name="chevron-back" size={iconSize} color="#0046ff" />
           </TouchableOpacity> */}
           <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
@@ -1357,11 +1357,17 @@ export default function ProfileScreen({ navigation }) {
             onPress={() => navigation.navigate('InfoPersonal')}
             optionFont={optionFont}
           />
-{/*           <Option icon="card-outline" label="Métodos de Pago" onPress={() => navigation.navigate('Payments')} optionFont={optionFont} />*/} 
+          {/*           <Option icon="card-outline" label="Métodos de Pago" onPress={() => navigation.navigate('Payments')} optionFont={optionFont} />*/}
           <Option icon="document-text-outline" label="Facturación" onPress={() => navigation.navigate('Facturacion')} optionFont={optionFont} />
           <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('Security')} optionFont={optionFont} />
           <Option icon="help-circle-outline" label="Ayuda / FAQ" onPress={() => navigation.navigate('Help')} optionFont={optionFont} />
           <Option icon="refresh-circle-outline" label="Actualizar contraseña" onPress={() => navigation.navigate('ChangePassword')} optionFont={optionFont} />
+          <Option
+            icon="home-outline"
+            label="Seleccionar home"
+            onPress={() => navigation.navigate('SelectDefaultHome')}
+            optionFont={optionFont}
+          />
           <Option icon="log-out-outline" label="Cerrar sesión" onPress={() => setShowLogoutModal(true)} optionFont={optionFont} />
         </View>
 

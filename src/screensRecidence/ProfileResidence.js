@@ -1111,6 +1111,12 @@ export default function ProfileResidence({ navigation }) {
           <Option icon="lock-closed-outline" label="Politicas de seguridad" onPress={() => navigation.navigate('SecurityResidence')} optionFont={optionFont} />
           <Option icon="help-circle-outline" label="Ayuda / FAQ" onPress={() => navigation.navigate('Help')} optionFont={optionFont} />
           <Option icon="refresh-circle-outline" label="Actualizar contraseña" onPress={() => navigation.navigate('ChangePassword')} optionFont={optionFont} />
+          <Option
+            icon="home-outline"
+            label="Seleccionar home"
+            onPress={() => navigation.navigate('SelectDefaultHome')}
+            optionFont={optionFont}
+          />
           <Option icon="log-out-outline" label="Cerrar sesión" onPress={() => setShowLogoutModal(true)} optionFont={optionFont} />
         </View>
 

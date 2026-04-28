@@ -276,9 +276,7 @@ export default function Login() {
         const targetRoute =
           defaultHome === 'residence'
             ? 'HomeResidence'
-            : defaultHome === 'home'
-              ? 'Home'
-              : 'SelectDefaultHome';
+            : 'Home';
 
         showToast(
           fullname ? `¡Bienvenido, ${fullname}!` : '¡Bienvenido!',

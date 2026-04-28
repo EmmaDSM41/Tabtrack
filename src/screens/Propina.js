@@ -319,9 +319,9 @@ export default function Propina() {
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
   const headerHeight = clampLocal(rf(48), 60, 120);
   const logoWidth = clampLocal(Math.round(width * 0.32), 88, 180);
-  const restImageSize = clampLocal(Math.round(width * 0.18), 56, 120);
+  const restImageSize = clampLocal(Math.round(width * 0.15), 50, 120);
   const contentMaxWidth = Math.min(Math.round(width - 32), Math.max(420, Math.round(width * 0.9)));
-  const totalFontSize = clampLocal(rf(26), 18, 44);
+  const totalFontSize = clampLocal(rf(30), 28, 44);
   const smallFont = clampLocal(rf(12), 11, 18);
   const sectionTitleFont = clampLocal(rf(16), 14, 22);
   const optionFont = clampLocal(rf(14), 13, 20);
