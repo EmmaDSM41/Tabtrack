@@ -18,14 +18,14 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
 
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
 
-const PENDING_POLL_INTERVAL_MS = 8000; 
+const PENDING_POLL_INTERVAL_MS = 8000;
 
 const formatMoney = (n) => {
   const value = Number(n);
@@ -49,7 +49,6 @@ function useResponsive() {
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   return { width, height, wp, hp, rf, clamp };
 }
-
 
 async function saveVisitToStorage(visit) {
   try {
@@ -227,9 +226,14 @@ export default function Escanear() {
 
           const splitsBySaleUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/sucursal/${encodeURIComponent(String(suc))}/ventas/${encodeURIComponent(String(sale))}/splits`;
           try {
+            await ensureToken();
             const sr = await fetch(splitsBySaleUrl, {
               method: 'GET',
-              headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+              },
             });
             if (!sr || !sr.ok) { keep.push(p); continue; }
             const sjson = await sr.json();
@@ -309,12 +313,13 @@ export default function Escanear() {
     try {
       if (!restId || !sucId) return null;
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(String(restId))}/sucursales`;
+      await ensureToken();
       const res = await fetch(url, {
         method: 'GET',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined,
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) return null;
@@ -335,7 +340,15 @@ export default function Escanear() {
 
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
-      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined }}); 
+      await ensureToken();
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
+      });
       if (!isMountedRef.current) return;
       if (!res.ok) { openErrorModal(`No se pudo obtener el consumo (HTTP ${res.status}).`); if (isMountedRef.current) setLoading(false); return; }
 
@@ -399,10 +412,10 @@ export default function Escanear() {
 
         const originalId = it.codigo_item ?? it.codigo ?? it.id ?? it.item_id ?? `item-${idx}`;
         for (let k = 0; k < rawQty; k++) {
-          const unitId = `${String(originalId)}#${idx}#${k+1}`;
+          const unitId = `${String(originalId)}#${idx}#${k + 1}`;
           expandedItems.push({
             id: String(unitId),
-            name: it.nombre_item ?? it.nombre ?? it.name ?? `Item ${idx+1}`,
+            name: it.nombre_item ?? it.nombre ?? it.name ?? `Item ${idx + 1}`,
             qty: 1,
             unitPrice: unitPrice,
             lineTotal: unitPrice,
@@ -415,7 +428,7 @@ export default function Escanear() {
       });
 
       const reportedTotal = safeNum(json.total_consumo ?? json.total ?? 0);
-      const computedTotal = reportedTotal > 0 ? reportedTotal : expandedItems.reduce((s,x)=> s + safeNum(x.lineTotal), 0);
+      const computedTotal = reportedTotal > 0 ? reportedTotal : expandedItems.reduce((s, x) => s + safeNum(x.lineTotal), 0);
       if (isMountedRef.current) setOriginalTotalConsumo(+computedTotal.toFixed(2));
 
       const neutralItems = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
@@ -485,9 +498,9 @@ export default function Escanear() {
 
       if (!eqPreviously) {
         try {
-          const allocatedFromLocal = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 })); 
+          const allocatedFromLocal = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
           if (localPaidSet && localPaidSet.size > 0) {
-            for (let ui=0; ui<allocatedFromLocal.length; ui++) {
+            for (let ui = 0; ui < allocatedFromLocal.length; ui++) {
               const e = allocatedFromLocal[ui];
               const raw = e.raw ?? {};
               const candidates = [
@@ -511,9 +524,9 @@ export default function Escanear() {
               }
             }
           }
-          const paidSumLocal = allocatedFromLocal.reduce((s,it) => s + safeNum(it.paidAmount || 0), 0);
+          const paidSumLocal = allocatedFromLocal.reduce((s, it) => s + safeNum(it.paidAmount || 0), 0);
           const outstandingLocal = +(computedTotal - paidSumLocal).toFixed(2);
-          if (isMountedRef.current) { setItems(allocatedFromLocal); setTotalConsumo(outstandingLocal >=0 ? outstandingLocal : 0); }
+          if (isMountedRef.current) { setItems(allocatedFromLocal); setTotalConsumo(outstandingLocal >= 0 ? outstandingLocal : 0); }
         } catch (e) { console.warn('Error applying local paid set', e); }
       }
 
@@ -527,9 +540,14 @@ export default function Escanear() {
           if (tx) {
             const splitsUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/${encodeURIComponent(tx)}/splits`;
             try {
+              await ensureToken();
               const splitsRes = await fetch(splitsUrl, {
                 method: 'GET',
-                headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                  ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+                },
               });
               if (splitsRes && splitsRes.ok) {
                 const splitsJson = await splitsRes.json();
@@ -545,7 +563,7 @@ export default function Escanear() {
                   });
 
                   if (hasEqualSplitPaid) {
-                    try { await AsyncStorage.setItem(`equal_split_paid_${String(sale)}`, '1'); } catch(e) {}
+                    try { await AsyncStorage.setItem(`equal_split_paid_${String(sale)}`, '1'); } catch (e) {}
                     if (isMountedRef.current) { setEqualsSplitPaid(true); setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
                     const paidCodesRaw = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                     const paidCodesFiltered = paidCodesRaw.filter(c => c !== '1');
@@ -556,7 +574,7 @@ export default function Escanear() {
                     const paidCodes = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                     const paidSet = new Set(paidCodes.map(String));
                     const allocated = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
-                    for (let ui=0; ui<allocated.length; ui++) {
+                    for (let ui = 0; ui < allocated.length; ui++) {
                       const e = allocated[ui];
                       const raw = e.raw ?? {};
                       const candidates = [
@@ -579,7 +597,7 @@ export default function Escanear() {
                       }
                     }
                     const localSet2 = await readLocalPaidIds(sale);
-                    for (let ui=0; ui<allocated.length; ui++) {
+                    for (let ui = 0; ui < allocated.length; ui++) {
                       const e = allocated[ui];
                       if (e.paid) continue;
                       const raw = e.raw ?? {};
@@ -601,7 +619,7 @@ export default function Escanear() {
                         allocated[ui].paid = price > 0;
                       }
                     }
-                    const paidSum = allocated.reduce((s,it) => s + safeNum(it.paidAmount || 0), 0);
+                    const paidSum = allocated.reduce((s, it) => s + safeNum(it.paidAmount || 0), 0);
                     const outstanding = +(computedTotal - paidSum).toFixed(2);
                     if (isMountedRef.current) { setItems(allocated); setTotalConsumo(outstanding >= 0 ? outstanding : 0); }
                     const unionArr = Array.from(new Set([...(Array.from(localSet2 || []).map(String)), ...paidCodes.map(String)])).filter(Boolean);
@@ -618,9 +636,14 @@ export default function Escanear() {
         if (!splitsHandled && suc) {
           try {
             const splitsBySaleUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/sucursal/${encodeURIComponent(String(suc))}/ventas/${encodeURIComponent(String(sale))}/splits`;
+            await ensureToken();
             const sr = await fetch(splitsBySaleUrl, {
               method: 'GET',
-              headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+              },
             });
             if (sr && sr.ok) {
               const sj = await sr.json();
@@ -634,7 +657,7 @@ export default function Escanear() {
                 });
 
                 if (hasEqualSplitPaid) {
-                  try { await AsyncStorage.setItem(`equal_split_paid_${String(sale)}`, '1'); } catch(e) {}
+                  try { await AsyncStorage.setItem(`equal_split_paid_${String(sale)}`, '1'); } catch (e) {}
                   if (isMountedRef.current) { setEqualsSplitPaid(true); setItems(neutralItems); setTotalConsumo(+computedTotal.toFixed(2)); }
                   const paidCodesRaw = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                   const paidCodesFiltered = paidCodesRaw.filter(c => c !== '1');
@@ -643,7 +666,7 @@ export default function Escanear() {
                   const paidCodes = paidSplits.map(s => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
                   const paidSet = new Set(paidCodes.map(String));
                   const allocated = expandedItems.map(it => ({ ...it, paid: false, paidPartial: false, paidAmount: 0 }));
-                  for (let ui=0; ui<allocated.length; ui++) {
+                  for (let ui = 0; ui < allocated.length; ui++) {
                     const e = allocated[ui];
                     const raw = e.raw ?? {};
                     const candidates = [
@@ -665,7 +688,7 @@ export default function Escanear() {
                     }
                   }
                   const localSet3 = await readLocalPaidIds(sale);
-                  for (let ui=0; ui<allocated.length; ui++) {
+                  for (let ui = 0; ui < allocated.length; ui++) {
                     const e = allocated[ui];
                     if (e.paid) continue;
                     const raw = e.raw ?? {};
@@ -687,7 +710,7 @@ export default function Escanear() {
                       allocated[ui].paid = price > 0;
                     }
                   }
-                  const paidSum = allocated.reduce((s,it) => s + safeNum(it.paidAmount || 0), 0);
+                  const paidSum = allocated.reduce((s, it) => s + safeNum(it.paidAmount || 0), 0);
                   const outstanding = +(computedTotal - paidSum).toFixed(2);
                   if (isMountedRef.current) { setItems(allocated); setTotalConsumo(outstanding >= 0 ? outstanding : 0); }
                   const unionArr = Array.from(new Set([...(Array.from(localSet3 || []).map(String)), ...paidCodes.map(String)])).filter(Boolean);
@@ -948,7 +971,7 @@ export default function Escanear() {
                 const keySale = String(saleId ?? '');
                 if (keySale) {
                   const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
-                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch (e) { console.warn('Error saving pending_payment', e); }
                 }
               } catch (e) { console.warn('Error saving pending visit before navigate', e); }
 
@@ -983,7 +1006,7 @@ export default function Escanear() {
                 mesa_id: mesaId ?? null,
                 restaurante_id: restauranteId ?? null,
                 saleId: saleId ?? null,
-                hideEqualButton: true, 
+                hideEqualButton: true,
                 restaurantImage: restaurantImageUri ?? null,
               };
               try {
@@ -992,7 +1015,7 @@ export default function Escanear() {
                 const keySale = String(saleId ?? '');
                 if (keySale) {
                   const pendingPaymentObj = buildPendingPaymentObj(keySale, items, originalTotalConsumo);
-                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch (e) { console.warn('Error saving pending_payment', e); }
                 }
               } catch (e) { console.warn('Error saving pending visit before navigate', e); }
               navigation.navigate('Dividir', paramsDividir);
@@ -1045,7 +1068,7 @@ export default function Escanear() {
                 const keySale = String(saleId ?? '');
                 if (keySale) {
                   const pendingPaymentObj = buildPendingPaymentObj(keySale, normalizedItemsForEqual, originalTotalConsumo);
-                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch(e) { console.warn('Error saving pending_payment', e); }
+                  try { await AsyncStorage.setItem(`pending_payment_${keySale}`, JSON.stringify(pendingPaymentObj)); } catch (e) { console.warn('Error saving pending_payment', e); }
                 }
               } catch (e) { console.warn('Error saving pending visit before navigate', e); }
               navigation.navigate('EqualSplit', paramsEqual);
@@ -1143,7 +1166,7 @@ const styles = StyleSheet.create({
   desgloseTitle: { marginTop: 6, fontWeight: '700', color: '#333' },
   desgloseSeparator: { height: 1, backgroundColor: '#e9e9e9', marginTop: 10, marginBottom: 12 },
 
-  items: {} ,
+  items: {},
   itemBlock: { marginBottom: 10 },
   itemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 0 },
   itemName: { color: '#333', flex: 1 },

@@ -20,9 +20,9 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.residence.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const VISITS_STORAGE_KEY = 'user_visits';
 const PENDING_VISITS_KEY = 'pending_visits';
@@ -257,6 +257,8 @@ export default function CuentaResidence() {
 
   const fetchRestaurantImage = useCallback(async (edificioIdToSearch, restauranteIdToSearch) => {
     try {
+      await ensureToken();
+
       const edificioId = edificioIdToSearch !== null && edificioIdToSearch !== undefined ? String(edificioIdToSearch).trim() : '';
       const targetRestauranteId = restauranteIdToSearch !== null && restauranteIdToSearch !== undefined ? String(restauranteIdToSearch).trim() : '';
 
@@ -278,7 +280,7 @@ export default function CuentaResidence() {
       console.log('[CuentaResidence] Consultando imagen en:', url);
 
       const headers = { Accept: 'application/json' };
-      if (API_AUTH_TOKEN) headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+      if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
 
       const res = await fetch(url, {
         method: 'GET',
@@ -446,6 +448,8 @@ export default function CuentaResidence() {
     if (opts.showLoading && isMountedRef.current) setLoading(true);
 
     try {
+      await ensureToken();
+
       let usuarioAppId = null;
       try {
         usuarioAppId = await AsyncStorage.getItem('user_usuario_app_id');
@@ -467,7 +471,7 @@ export default function CuentaResidence() {
 
       const res = await fetch(resolveUrl, {
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
         body: JSON.stringify({ qr: qr, usuario_app_id: usuarioAppId }),
       });
 
@@ -551,6 +555,8 @@ export default function CuentaResidence() {
 
     setAccountOpening(true);
     try {
+      await ensureToken();
+
       let usuarioAppId = null;
       try {
         usuarioAppId = await AsyncStorage.getItem('user_usuario_app_id');
@@ -565,7 +571,7 @@ export default function CuentaResidence() {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/residence/qr/open-account`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
         body: JSON.stringify({ qr: qr, usuario_app_id: usuarioAppId }),
       });
 
@@ -632,6 +638,8 @@ export default function CuentaResidence() {
 
     setApproveLoading(true);
     try {
+      await ensureToken();
+
       let usuarioAppId = null;
       try {
         usuarioAppId = await AsyncStorage.getItem('user_usuario_app_id');
@@ -646,7 +654,7 @@ export default function CuentaResidence() {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/residence/ventas/${encodeURIComponent(String(saleId))}/approve`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: API_AUTH_TOKEN ? `Bearer ${API_AUTH_TOKEN}` : undefined },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
         body: JSON.stringify({ qr: qr, usuario_app_id: usuarioAppId }),
       });
 
@@ -846,7 +854,7 @@ export default function CuentaResidence() {
               <Ionicons name="checkmark-circle-outline" size={34} color="#0046ff" />
             </View>
 
-            <Text style={styles.startModalTitle}>¿Aprobar consumo?</Text>
+            <Text style={styles.startModalTitle}>¿Validar consumo?</Text>
             <Text style={styles.startModalMessage}>
               Se agregará el monto a tu consumo del mes,{' '}
               ¿deseas validar?
@@ -986,7 +994,7 @@ export default function CuentaResidence() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>
-                  {accountOpened ? 'Validar consumo' : 'Comenzar consumo'}
+                  {accountOpened ? 'Validar consumo' : 'Aprobar consumo'}
                 </Text>
               )}
             </TouchableOpacity>

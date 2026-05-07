@@ -26,6 +26,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StripeProvider, CardField, confirmPayment, confirmSetupIntent } from '@stripe/stripe-react-native';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const DEFAULT_LOGO = require('../../assets/images/logo2.png');
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
@@ -39,11 +40,11 @@ export default function StripePay() {
 
   const {
     api_host = 'https://api.tab-track.com',
-    api_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78',
+    api_token = '',
     sucursal_id = null,
     sale_id = null,
     restaurante_id = null,
-    usuario_app_id = null, 
+    usuario_app_id = null,
     moneda = 'MXN',
     environment = 'sandbox',
     displayAmount = null,
@@ -60,6 +61,20 @@ export default function StripePay() {
     pollingIntervalMs = 3000,
     publishableKey = null,
   } = params;
+
+  const AUTH_TOKEN = TOKEN || api_token || '';
+
+  const getAuthHeaders = (extra = {}) => {
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...extra,
+    };
+    if (AUTH_TOKEN && AUTH_TOKEN.trim()) {
+      headers.Authorization = `Bearer ${AUTH_TOKEN}`;
+    }
+    return headers;
+  };
 
   const stripePublishableKey =
     publishableKey ||
@@ -156,6 +171,7 @@ export default function StripePay() {
 
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = pollingTimeoutMs, intervalMs = pollingIntervalMs) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
+    await ensureToken();
     const hostBase = (api_host || 'https://127.0.0.1').replace(/\/$/, '');
     const url = `${hostBase}/api/transacciones-pago/${encodeURIComponent(transactionId)}/splits`;
     const start = Date.now();
@@ -167,7 +183,7 @@ export default function StripePay() {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+          headers: getAuthHeaders(),
         });
 
         if (res.ok) {
@@ -211,15 +227,20 @@ export default function StripePay() {
     console.warn('Navigating to ErrorPago:', title, message, details);
     setProcessing(false);
     setLoading(false);
-    navigation.navigate('ErrorPago', { title: String(title || 'Error'), message: String(message || 'Ocurrió un problema procesando el pago.'), details: details ? String(details) : null });
+    navigation.navigate('ErrorPago', {
+      title: String(title || 'Error'),
+      message: String(message || 'Ocurrió un problema procesando el pago.'),
+      details: details ? String(details) : null,
+    });
   };
 
-  // ------------------- fetchSavedPaymentMethods (lee AsyncStorage en el momento) -------------------
   const fetchSavedPaymentMethods = async () => {
     if (!sucursal_id) {
       Alert.alert('Error', 'Falta sucursal_id para listar tarjetas.');
       return;
     }
+
+    await ensureToken();
 
     let usuarioAppIdToSend = null;
     try {
@@ -243,7 +264,7 @@ export default function StripePay() {
 
     console.warn('[DEBUG] fetchSavedPaymentMethods - url:', url);
     console.warn('[DEBUG] fetchSavedPaymentMethods - Idempotency-Key:', idKey);
-    console.warn('[DEBUG] fetchSavedPaymentMethods - Authorization present:', !!api_token);
+    console.warn('[DEBUG] fetchSavedPaymentMethods - Authorization present:', !!AUTH_TOKEN);
 
     try {
       const res = await fetch(url, {
@@ -251,7 +272,7 @@ export default function StripePay() {
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idKey,
-          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+          ...getAuthHeaders(),
         },
       });
 
@@ -277,7 +298,6 @@ export default function StripePay() {
         console.warn('fetchSavedPaymentMethods: tarjetas encontradas', arr.length);
       }
 
-      // normalizar
       const normalized = arr.map((pm) => ({
         id: pm.id ?? pm.mobile_payment_method_id ?? null,
         external_payment_method_id: pm.external_payment_method_id ?? pm.external_id ?? pm.external_pm_id ?? null,
@@ -301,8 +321,8 @@ export default function StripePay() {
     }
   };
 
-  // ------------------- SetupIntent & confirm -------------------
   const createSetupIntentOnServer = async () => {
+    await ensureToken();
     if (!sucursal_id) throw new Error('Falta sucursal_id para crear setup intent');
     const url = buildSetupIntentUrl(sucursal_id);
     let storedUserAppIdLocal = null;
@@ -312,7 +332,6 @@ export default function StripePay() {
       console.warn('Error leyendo user_usuario_app_id desde AsyncStorage', e);
     }
     const usuarioAppIdToSend = storedUserAppIdLocal || usuario_app_id || '';
-    // AÑADIDO: enviamos set_preferred según el switch del modal
     const body = { environment: environment || 'sandbox', usuario_app_id: usuarioAppIdToSend, set_preferred: Boolean(savePreferred) };
     const idKey = genIdempotencyKey();
     console.warn('[DEBUG] createSetupIntentOnServer - url:', url, 'idKey:', idKey, 'body:', body);
@@ -323,7 +342,7 @@ export default function StripePay() {
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idKey,
-          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify(body),
       });
@@ -366,10 +385,11 @@ export default function StripePay() {
     }
   };
 
-  // ------------------- processPaymentFlow (con corrección para tarjetas guardadas) -------------------
   const processPaymentFlow = async () => {
     setProcessing(true);
     setLoading(true);
+
+    await ensureToken();
 
     const monto_subtotal = Number(subtotalNum) || 0;
     const monto_propina = Number(propinaNum) || 0;
@@ -393,7 +413,6 @@ export default function StripePay() {
       flow: 'elements',
     };
 
-    // Si se usa tarjeta guardada, agregamos los 2 campos: usuario_app_uuid y mobile_payment_method_id
     if (usingSavedCard && selectedSavedCard) {
       try {
         const storedUuid = await AsyncStorage.getItem('user_usuario_app_id');
@@ -411,7 +430,7 @@ export default function StripePay() {
       const url = buildTransactionUrl();
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+        headers: getAuthHeaders(),
         body: JSON.stringify(body),
       });
 
@@ -464,7 +483,6 @@ export default function StripePay() {
         }
       }
 
-      // --- CORRECCIÓN CLAVE: si usamos tarjeta guardada, NO llamamos a confirmPayment en el cliente ---
       if (usingSavedCard && selectedSavedCard) {
         console.warn('[DEBUG] usando tarjeta guardada -> saltando confirmPayment en cliente; iniciando pollSplitsUntilPaid');
         const pollResult = await pollSplitsUntilPaid(transactionId, pollingTimeoutMs, pollingIntervalMs);
@@ -485,9 +503,7 @@ export default function StripePay() {
           return;
         }
       }
-      // --- fin corrección ---
 
-      // Si no usamos tarjeta guardada, seguimos con confirmPayment normal (Elements)
       if (clientSecret) {
         try {
           const billingDetails = { email: email || '', name: holder || '' };
@@ -548,7 +564,6 @@ export default function StripePay() {
     }
   };
 
-  // guardar tarjeta y luego pagar
   const handleSaveAndPay = async () => {
     setSaveModalVisible(false);
     setSavingCard(true);
@@ -605,13 +620,11 @@ export default function StripePay() {
       return;
     }
 
-    // Si está usando tarjeta guardada -> no preguntar por guardar, ir directo a processPaymentFlow
     if (usingSavedCard && selectedSavedCard) {
       await processPaymentFlow();
       return;
     }
 
-    // Si no usa tarjeta guardada, mostrar modal "Guardar y pagar"
     setSaveModalVisible(true);
   };
 
@@ -644,7 +657,6 @@ export default function StripePay() {
     };
   }, []);
 
-  // <-- NUEVO: cargar tarjetas guardadas al montar la pantalla y cuando la pantalla gana foco
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -655,7 +667,6 @@ export default function StripePay() {
       }
     })();
     const unsub = navigation.addListener('focus', () => {
-      // refrescar tarjetas cuando el usuario vuelve a la pantalla
       fetchSavedPaymentMethods().catch((e) => console.warn('refresh saved cards on focus error', e));
     });
     return () => {
@@ -663,13 +674,11 @@ export default function StripePay() {
       mounted = false;
     };
   }, [navigation]);
-  // <-- FIN del cambio mínimo y seguro
 
   const nativeLogoSource = logoUrl ? { uri: logoUrl } : DEFAULT_LOGO;
   const restaurantSrc = restaurantImage ? { uri: restaurantImage } : DEFAULT_RESTAURANT;
   const currentDateText = new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
 
-  // Saved card compact view used in form
   const SavedCardView = ({ card }) => {
     if (!card) return null;
     const mask = `**** **** **** ${card.last4 ?? ''}`;
@@ -689,13 +698,11 @@ export default function StripePay() {
     );
   };
 
-  // NUEVO: confirma que se quiere eliminar (abre modal)
   const confirmDeleteSavedCard = (card) => {
     setCardToDelete(card);
     setDeleteConfirmVisible(true);
   };
 
-  // NUEVO: muestra toast estilizado
   const showToast = (msg) => {
     setToastMessage(msg);
     setToastVisible(true);
@@ -709,17 +716,16 @@ export default function StripePay() {
     });
   };
 
-  // NUEVO: realiza la petición para eliminar la tarjeta
   const performDeleteSavedCard = async () => {
     if (!cardToDelete) return;
     setDeletingCard(true);
 
-    // construir URL según tu ejemplo
+    await ensureToken();
+
     const host = (String(api_host || 'https://127.0.0.1')).replace(/\/$/, '');
     const cardId = cardToDelete.id ?? cardToDelete.mobile_payment_method_id ?? cardToDelete.external_payment_method_id;
     const url = `${host}/api/mobileapp/sucursales/${encodeURIComponent(sucursal_id)}/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe&environment=${encodeURIComponent(environment)}`;
 
-    // obtener usuario_app_id desde AsyncStorage o param
     let usuarioAppUuid = null;
     try {
       usuarioAppUuid = await AsyncStorage.getItem('user_usuario_app_id');
@@ -736,7 +742,7 @@ export default function StripePay() {
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idKey,
-          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({ usuario_app_id: usuarioAppUuid }),
       });
@@ -753,12 +759,9 @@ export default function StripePay() {
         return;
       }
 
-      // éxito: actualizar lista en UI
       setSavedCards((prev) => (Array.isArray(prev) ? prev.filter((c) => String(c.id) !== String(cardToDelete.id)) : []));
-      // cerrar modal de confirmación
       setDeleteConfirmVisible(false);
       setCardToDelete(null);
-      // MOSTRAR TOAST (en lugar de alerta gris)
       showToast('Tarjeta eliminada correctamente');
     } catch (err) {
       console.warn('performDeleteSavedCard exception', err);
@@ -770,15 +773,13 @@ export default function StripePay() {
     }
   };
 
-  // modal sizing (AHORA DINÁMICO)
   const modalWidth = Math.min(700, winW - 24);
 
-  // Calculo dinámico de la altura del modal según cantidad de tarjetas
-  const maxVisibleItems = 4; // cuántas tarjetas mostrar antes de habilitar scroll dentro del modal
-  const approxItemHeight = 72; // aproximado por cada item (ajustable)
-  const headerHeight = 88; // espacio ocupado por el header del modal
-  const footerHeight = 64; // espacio del footer (botones)
-  const minModalHeight = 160; // tamaño mínimo aceptable
+  const maxVisibleItems = 4;
+  const approxItemHeight = 72;
+  const headerHeight = 88;
+  const footerHeight = 64;
+  const minModalHeight = 160;
   const computedListHeight = Math.min((savedCards?.length || 0) * approxItemHeight, maxVisibleItems * approxItemHeight);
   const modalHeight = Math.min(Math.max(headerHeight + computedListHeight + footerHeight, minModalHeight), winH - 80);
 
@@ -848,7 +849,6 @@ export default function StripePay() {
                       onBlur={() => setCardFieldFocused(false)}
                     />
 
-                    {/* Mostrar "Usar tarjeta guardada" SOLO si hay tarjetas cargadas en savedCards */}
                     {!cardFieldFocused && !usingSavedCard && Array.isArray(savedCards) && savedCards.length > 0 && (
                       <TouchableOpacity onPress={openSavedCardsModal} style={{ position: 'absolute', right: 8, top: 8, padding: 6 }}>
                         <Text style={{ color: '#0b58ff', fontWeight: '700' }}>Usar tarjeta guardada</Text>
@@ -882,14 +882,12 @@ export default function StripePay() {
           </View>
         )}
 
-        {/* Modal guardar tarjeta */}
         <Modal visible={saveModalVisible} transparent animationType="fade" onRequestClose={() => setSaveModalVisible(false)}>
           <View style={styles.autoModalBackdrop}>
             <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
               <Text style={{ fontSize: 16, fontWeight: '800', color: '#0b1220', marginBottom: 8 }}>¿Deseas guardar esta tarjeta?</Text>
               <Text style={{ fontSize: 13, color: '#334155', marginBottom: 14 }}>Puedes guardar la tarjeta en Stripe para futuros pagos. Elige una opción:</Text>
 
-              {/* NUEVO: switch preferida (igual estilo al OpenPay) */}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                 <Text style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: '700' }}>Marcar como preferida</Text>
                 <Switch
@@ -917,7 +915,6 @@ export default function StripePay() {
           </View>
         </Modal>
 
-        {/* Modal: lista tarjetas guardadas (AHORA altura dinámica según tarjetas) */}
         <Modal visible={savedCardsModalVisible} transparent animationType="fade" onRequestClose={() => setSavedCardsModalVisible(false)}>
           <View style={styles.autoModalBackdrop}>
             <View style={[styles.savedCardsModalBox, { width: modalWidth, height: modalHeight }]}>
@@ -947,7 +944,6 @@ export default function StripePay() {
                         </TouchableOpacity>
 
                         <View style={{ alignItems: 'flex-end', marginLeft: 12 }}>
-                          {/* Botón eliminar (esquina superior derecha del item) */}
                           <TouchableOpacity onPress={() => confirmDeleteSavedCard(item)} style={{ padding: 6 }}>
                             <Ionicons name="remove-circle-outline" size={22} color="#ef4444" />
                           </TouchableOpacity>
@@ -987,7 +983,6 @@ export default function StripePay() {
           </View>
         </Modal>
 
-        {/* Modal confirmación eliminar tarjeta (NUEVO) */}
         <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => { if (!deletingCard) setDeleteConfirmVisible(false); }}>
           <View style={styles.autoModalBackdrop}>
             <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
@@ -1021,7 +1016,6 @@ export default function StripePay() {
           </View>
         </Modal>
 
-        {/* NUEVO: Toast estilizado */}
         {toastVisible && (
           <Animated.View pointerEvents="none" style={[styles.toastBox, { opacity: toastOpacity }]}>
             <Text style={styles.toastText}>{toastMessage}</Text>
@@ -1081,7 +1075,6 @@ const styles = StyleSheet.create({
 
   savedCardRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, backgroundColor: '#fff', padding: 10, borderWidth: 1, borderColor: '#eef4ff' },
 
-  // NUEVO: estilos para el toast
   toastBox: {
     position: 'absolute',
     bottom: 80,

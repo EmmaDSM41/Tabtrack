@@ -16,9 +16,10 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ensureToken } from '../auth/tokenManager';
 
-const API_BASE = 'https://api.tab-track.com/api/mobileapp'; 
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
+const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 
 export default function SendEmail() {
   const navigation = useNavigation();
@@ -107,6 +108,17 @@ export default function SendEmail() {
     return re.test(String(e).toLowerCase());
   };
 
+  const getStoredToken = async () => {
+    try {
+      await ensureToken();
+      const stored = await AsyncStorage.getItem('api_token');
+      return stored ? String(stored).trim() : '';
+    } catch (err) {
+      console.warn('SendEmail token error:', err);
+      return '';
+    }
+  };
+
   const handleSend = async () => {
     if (!mail.trim()) {
       showToast('Ingresa tu correo');
@@ -119,14 +131,15 @@ export default function SendEmail() {
 
     setLoading(true);
     try {
-      const url = `${API_BASE}/usuarios/forgot-password`; 
+      const token = await getStoredToken();
+      const url = `${API_BASE}/usuarios/forgot-password`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ mail: mail.trim() }), 
+        body: JSON.stringify({ mail: mail.trim() }),
       });
 
       const text = await res.text();

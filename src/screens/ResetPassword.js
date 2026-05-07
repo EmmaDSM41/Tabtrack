@@ -16,9 +16,10 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ensureToken } from '../auth/tokenManager';
 
-const API_BASE = 'https://api.tab-track.com/api/mobileapp'; 
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';  
+const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 
 export default function ResetPasswordCodeScreen() {
   const navigation = useNavigation();
@@ -26,7 +27,7 @@ export default function ResetPasswordCodeScreen() {
 
   const paramMail = route?.params?.mail ?? '';
 
-  const [mail] = useState(paramMail); 
+  const [mail] = useState(paramMail);
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,6 +123,17 @@ export default function ResetPasswordCodeScreen() {
     return typeof p === 'string' && p.length >= 6;
   };
 
+  const getStoredToken = async () => {
+    try {
+      await ensureToken();
+      const token = await AsyncStorage.getItem('api_token');
+      return token ? String(token).trim() : '';
+    } catch (err) {
+      console.warn('ResetPasswordCodeScreen token error:', err);
+      return '';
+    }
+  };
+
   const handleUpdate = async () => {
     if (!mail || !mail.trim()) {
       showToast('Correo no disponible. Regresa y envía el correo primero.');
@@ -146,12 +158,13 @@ export default function ResetPasswordCodeScreen() {
 
     setLoading(true);
     try {
+      const token = await getStoredToken();
       const url = `${API_BASE}/usuarios/reset-password`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           mail: mail.trim(),

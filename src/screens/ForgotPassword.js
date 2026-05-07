@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react'; 
 import {
   View,
   Text,
@@ -16,9 +16,9 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const PRIMARY = '#FEFFFFFF';
 
 export default function ForgotPasswordRecovery() {
@@ -126,12 +126,14 @@ export default function ForgotPasswordRecovery() {
     setLoading(true);
 
     try {
+      await ensureToken();
+
       const url = `${API_BASE}/usuarios/change-password`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
         body: JSON.stringify({
           mail: mail.trim(),

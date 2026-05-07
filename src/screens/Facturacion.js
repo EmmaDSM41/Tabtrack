@@ -22,9 +22,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from '@react-native-documents/picker';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const initialMethods = [
   { key: 'card1', label: 'Razon Social' },
@@ -146,7 +146,7 @@ export default function Facturacion({ navigation }) {
 
   const getAuthHeaders = (extra = {}) => {
     const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
-    if (API_TOKEN && API_TOKEN.trim()) base['Authorization'] = `Bearer ${API_TOKEN}`;
+    if (TOKEN && TOKEN.trim()) base['Authorization'] = `Bearer ${TOKEN}`;
     return base;
   };
 
@@ -180,6 +180,9 @@ export default function Facturacion({ navigation }) {
         setLoading(false);
         return;
       }
+
+      await ensureToken();
+
       const endpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal`;
       let res;
       try {
@@ -263,6 +266,9 @@ export default function Facturacion({ navigation }) {
         setSaving(false);
         return;
       }
+
+      await ensureToken();
+
       const endpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal`;
       const payload = {
         cp: cp,
@@ -396,6 +402,8 @@ export default function Facturacion({ navigation }) {
         showToast('Usuario no encontrado (no se encontró id).', 'error');
         return;
       }
+
+      await ensureToken();
 
       // Selección del PDF
       let doc;

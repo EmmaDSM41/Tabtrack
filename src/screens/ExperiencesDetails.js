@@ -19,11 +19,11 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const VISITS_STORAGE_KEY = 'user_visits';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const WHATSAPP_URL_DIRECT = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
 
@@ -204,8 +204,12 @@ export default function DetailScreen({ navigation, route }) {
       const day = todayIso();
       const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
 
-      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-      if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) headers['Authorization'] = `Bearer ${API_AUTH_TOKEN}`;
+      await ensureToken();
+      const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+      };
 
       let res = null;
       try {
@@ -296,13 +300,13 @@ export default function DetailScreen({ navigation, route }) {
       }
 
       if (added) {
-        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        const uniq = Array.from(storedById.values()).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
         await saveSeenIds(email, seenSet);
         await saveStoredNotifications(email, uniq);
         if (isMountedRef.current) setNotifications(uniq);
       } else {
         if (isMountedRef.current) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
           setNotifications(sorted);
         }
       }
@@ -457,12 +461,13 @@ export default function DetailScreen({ navigation, route }) {
 
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/transacciones-pago/sucursal/${encodeURIComponent(sucursalId)}/ventas/${encodeURIComponent(saleId)}/splits`;
+      await ensureToken();
       const res = await fetch(url, {
         method: 'GET',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) {
@@ -661,12 +666,13 @@ export default function DetailScreen({ navigation, route }) {
       const desde = formatDateYMD(new Date(dateForRange));
       const hasta = formatDateYMD(new Date(dateForRange));
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?venta_id=${encodeURIComponent(saleId)}&sucursal_id=${encodeURIComponent(sucursalId)}&desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+      await ensureToken();
       const res = await fetch(url, {
         method: 'GET',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) {
@@ -807,36 +813,38 @@ export default function DetailScreen({ navigation, route }) {
       Alert.alert('Error', 'No se pudo abrir WhatsApp. Revisa la URL.');
     }
   };
-function normalizeVisitData(v) {
-  if (!v) return null;
 
-  const cleanName = (x) => {
-    const s = String(x ?? '').trim();
-    if (!s) return '';
-    if (s.toLowerCase() === 'restaurante') return '';
-    return s;
-  };
+  function normalizeVisitData(v) {
+    if (!v) return null;
 
-  return {
-    ...v,
-    nombre: cleanName(v.nombre) || cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || '',
-    restaurantName: cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || cleanName(v.nombre) || '',
-    nombre_restaurante: cleanName(v.nombre_restaurante) || cleanName(v.restaurantName) || cleanName(v.nombre) || '',
-    branchName: v.branchName ?? v.nombre_sucursal ?? '',
-    nombre_sucursal: v.nombre_sucursal ?? v.branchName ?? '',
-    restaurantImage: v.restaurantImage ?? v.imagen_logo_url ?? v.logo_url ?? null,
-    bannerImage: v.bannerImage ?? v.imagen_banner_url ?? null,
-  };
-}
+    const cleanName = (x) => {
+      const s = String(x ?? '').trim();
+      if (!s) return '';
+      if (s.toLowerCase() === 'restaurante') return '';
+      return s;
+    };
+
+    return {
+      ...v,
+      nombre: cleanName(v.nombre) || cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || '',
+      restaurantName: cleanName(v.restaurantName) || cleanName(v.nombre_restaurante) || cleanName(v.nombre) || '',
+      nombre_restaurante: cleanName(v.nombre_restaurante) || cleanName(v.restaurantName) || cleanName(v.nombre) || '',
+      branchName: v.branchName ?? v.nombre_sucursal ?? '',
+      nombre_sucursal: v.nombre_sucursal ?? v.branchName ?? '',
+      restaurantImage: v.restaurantImage ?? v.imagen_logo_url ?? v.logo_url ?? null,
+      bannerImage: v.bannerImage ?? v.imagen_banner_url ?? null,
+    };
+  }
+
   useEffect(() => {
     (async () => {
-if (route?.params?.visit) {
-  const normalizedVisit = normalizeVisitData(route.params.visit);
-  setVisit(normalizedVisit);
-  setLoading(false);
-  try { await tryFetchSplits(normalizedVisit); } catch (e) { /* noop */ }
-  return;
-}
+      if (route?.params?.visit) {
+        const normalizedVisit = normalizeVisitData(route.params.visit);
+        setVisit(normalizedVisit);
+        setLoading(false);
+        try { await tryFetchSplits(normalizedVisit); } catch (e) { /* noop */ }
+        return;
+      }
 
       const id = route?.params?.visitId ?? route?.params?.id ?? null;
       if (id) {
@@ -866,7 +874,7 @@ if (route?.params?.visit) {
       if (emailRef.current) {
         const stored = await loadStoredNotifications(emailRef.current);
         if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
           setNotifications(sorted);
         }
       }
@@ -879,7 +887,7 @@ if (route?.params?.visit) {
     })();
 
     const focusUnsub = navigation?.addListener ? navigation.addListener('focus', () => {
-      fetchTodayNotificationsOnce().catch(()=>{});
+      fetchTodayNotificationsOnce().catch(() => {});
     }) : null;
 
     return () => {
@@ -997,9 +1005,9 @@ if (route?.params?.visit) {
   const computeFullTotals = () => {
     if (!Array.isArray(fullItems) || fullItems.length === 0) return { subtotal: 0, iva: 0, total: 0 };
     const totalFromItems = fullItems.reduce((s, it) => s + safeNum(it.lineTotal ?? (it.qty * (it.unitPrice ?? 0))), 0);
-    const iva = +( (totalFromItems / 1.16) * 0.16 ).toFixed(2);
+    const iva = +(((totalFromItems / 1.16) * 0.16)).toFixed(2);
     const subtotal = +(totalFromItems - iva).toFixed(2);
-    return { subtotal, iva, total: +( (subtotal + iva) ).toFixed(2) };
+    return { subtotal, iva, total: +((subtotal + iva)).toFixed(2) };
   };
   const fullTotals = computeFullTotals();
 
@@ -1070,7 +1078,7 @@ if (route?.params?.visit) {
             <View style={styles.modalListHeader}>
               <Text style={styles.modalListHeaderText}>Últimas notificaciones</Text>
               <TouchableOpacity onPress={markAllRead}>
-{/*                 <Text style={styles.markAllText}>Marcar todo leído</Text>*/}
+                {/* <Text style={styles.markAllText}>Marcar todo leído</Text> */}
               </TouchableOpacity>
             </View>
 
@@ -1097,7 +1105,7 @@ if (route?.params?.visit) {
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { fontSize: clamp(rf(4.0), 18, 24) }]}>Experiencias</Text>
         <View style={styles.headerIcons}>
-{/*           <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 16 }]}>
+          {/*           <TouchableOpacity onPress={() => setShowNotifications(true)} style={[styles.headerButton, { marginLeft: 16 }]}>
             <Ionicons name="notifications-outline" size={clamp(rf(3.6), 20, 28)} color="#0051c9" />
             {unreadCount > 0 && (<View style={styles.badge}><Text style={styles.badgeText}>{unreadCount}</Text></View>)}
           </TouchableOpacity> */}
@@ -1294,7 +1302,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '600', color: BLUE },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   logo: { resizeMode: 'contain' },
-  scrollContent: {  },
+  scrollContent: { },
   sectionHeading: { fontWeight: '600', color: BLUE, marginBottom: 16 },
   totalRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   totalLogoWrapper: { borderWidth: 1, borderColor: BLUE, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
@@ -1304,7 +1312,7 @@ const styles = StyleSheet.create({
   totalAmount: { fontWeight: '700', color: BLUE },
   totalSubtitle: { color: '#555' },
   dottedDivider: { borderBottomWidth: 1, borderStyle: 'dotted', borderColor: '#aaa', marginVertical: 12 },
-  tableInfo: { fontWeight: '600', marginBottom: 12, color:'#000000' },
+  tableInfo: { fontWeight: '600', marginBottom: 12, color: '#000000' },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   itemName: { color: '#000' },
   itemPrice: { color: '#000', fontWeight: '700' },

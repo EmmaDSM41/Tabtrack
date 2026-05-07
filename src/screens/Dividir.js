@@ -21,8 +21,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TOKEN, ensureToken } from '../auth/tokenManager';
+
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const formatMoney = (n) => {
   const value = Number(n);
@@ -57,7 +58,7 @@ export default function Dividir() {
     Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0))
   );
   const bottomSafe = Math.round(insets?.bottom ?? 0);
-  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36)); 
+  const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
 
   const isNarrow = width < 420;
   const contentMaxWidth = Math.round(Math.min(width - Math.round(wp(8)), 960));
@@ -235,13 +236,15 @@ export default function Dividir() {
 
       setLoading(true);
       try {
+        await ensureToken();
+
         const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
         const res = await fetch(url, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
 
@@ -293,6 +296,8 @@ export default function Dividir() {
 
     const applyPaymentsLockIfPossible = async (currentItems = [], consumoJson = null) => {
       try {
+        await ensureToken();
+
         const useSale = saleId || (route?.params?.saleId ?? route?.params?.sale_id ?? route?.params?.venta_id ?? (consumoJson && (consumoJson.sale_id ?? consumoJson.venta_id ?? consumoJson.id)));
         const useRest = restauranteId || (route?.params?.restauranteId ?? route?.params?.restaurante_id ?? (consumoJson && consumoJson.restaurante_id));
         const useSuc = sucursalId || (route?.params?.sucursalId ?? route?.params?.sucursal_id ?? (consumoJson && consumoJson.sucursal_id));
@@ -318,7 +323,7 @@ export default function Dividir() {
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
 
@@ -475,13 +480,15 @@ export default function Dividir() {
 
         if (!restauranteId || !sucursalId) return;
 
+        await ensureToken();
+
         const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(String(restauranteId))}/sucursales`;
         const res = await fetch(url, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
 
@@ -653,7 +660,7 @@ export default function Dividir() {
 
   const handleOneExhibicion = () => {
     if (equalsSplitPaid) {
-      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar este método.' );
+      showStyledAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales para esta venta — no puedes usar este método.');
       return;
     }
 
@@ -729,7 +736,7 @@ export default function Dividir() {
   const whiteContentWidth = contentMaxWidth;
   const modalBoxWidth = Math.round(Math.min(width - 48, 420));
 
-  const whiteContentPad = Math.round(wp(4)) * 2; 
+  const whiteContentPad = Math.round(wp(4)) * 2;
   const shareBtnWidth = Math.round(
     Math.max(
       120,
@@ -784,7 +791,7 @@ export default function Dividir() {
               <Text style={[styles.divideTitle]}>{'Selecciona\ntus productos'}</Text>
 
               <View style={styles.stackButtons}>
-                { !hideEqualButtonFlag && (
+                {!hideEqualButtonFlag && (
                   <TouchableOpacity style={styles.ghostButton} onPress={handlePartesIguales} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Text style={styles.ghostButtonText}>Partes iguales</Text>
                   </TouchableOpacity>
@@ -872,7 +879,7 @@ export default function Dividir() {
             </TouchableOpacity>
           </LinearGradient>
 
-{/*           <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          {/*           <TouchableOpacity style={[styles.shareButton, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]} onPress={handleShare} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.shareButtonText}>Compartir cuenta</Text>
           </TouchableOpacity> */}
 
@@ -928,7 +935,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
 
     leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
-    tabtrackLogo: { },
+    tabtrackLogo: {},
     logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
     restaurantImage: { backgroundColor: '#fff' },
 

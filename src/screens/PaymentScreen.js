@@ -21,6 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const logoTabTrack = require('../../assets/images/logo2.png');
 const placeholderMerchant = require('../../assets/images/restaurante.jpeg');
@@ -29,7 +30,6 @@ const formatMoney = (n) =>
   Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
-const API_TOKEN_CONST = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const AS_KEYS = {
   USER_EMAIL: 'user_email',
@@ -56,7 +56,6 @@ const splitAmountByIndex = (amount, parts, index) => {
   const base = Math.floor(totalCents / safeParts);
   const remainder = totalCents % safeParts;
 
-  // el centavo sobrante se queda para los últimos pagos
   const extra = safeIndex >= (safeParts - remainder) ? 1 : 0;
   return fromCents(base + extra);
 };
@@ -272,7 +271,7 @@ export default function PaymentScreen() {
   const mesero = params.mesero ?? params.waiter ?? null;
 
   const apiHost = params.api_host ?? API_HOST_CONST;
-  const apiToken = params.api_token ?? API_TOKEN_CONST;
+  const apiToken = params.api_token ?? TOKEN;
   const environment = params.environment ?? 'sandbox';
   const providedReturnUrl = params.return_url ?? params.returnUrl ?? null;
   const providedCancelUrl = params.cancel_url ?? params.cancelUrl ?? null;
@@ -280,7 +279,6 @@ export default function PaymentScreen() {
   const comingFromEqualSplit = params.groupPeople !== undefined && params.groupPeople !== null;
   const groupPeopleCount = Math.max(1, Number(params.groupPeople ?? params.people ?? 1) || 1);
 
-  // Para partes iguales, la base real debe salir del total del grupo, no del total por persona que llega en params.total.
   const splitBaseForCharge = comingFromEqualSplit
     ? Number(totalFromItems || params.groupTotal || params.group_total || totalSinPropina || 0)
     : Number(totalSinPropina || 0);
@@ -348,6 +346,7 @@ export default function PaymentScreen() {
 
   const checkGatewayAvailable = async (gateway) => {
     try {
+      await ensureToken();
       if (!sucursal_id) return null;
       const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
       const checkUrl = `${hostBase}/api/sucursales/${encodeURIComponent(sucursal_id)}/gateways`;
@@ -356,7 +355,7 @@ export default function PaymentScreen() {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) return null;
@@ -376,6 +375,7 @@ export default function PaymentScreen() {
 
   const fetchStripeCredentials = async (restId, sucId) => {
     try {
+      await ensureToken();
       if (!restId || !sucId) return null;
       const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
       const url = `${hostBase}/api/restaurantes/${encodeURIComponent(restId)}/sucursales/${encodeURIComponent(sucId)}/payment-gateways`;
@@ -385,7 +385,7 @@ export default function PaymentScreen() {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) {
@@ -474,6 +474,7 @@ export default function PaymentScreen() {
     }
 
     try {
+      await ensureToken();
       const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
       const url = `${hostBase}/api/transacciones-pago/sucursal/${encodeURIComponent(String(sucursal_id))}/ventas/${encodeURIComponent(String(sale_id))}/splits`;
       const res = await fetch(url, {
@@ -481,7 +482,7 @@ export default function PaymentScreen() {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
 
@@ -571,6 +572,11 @@ export default function PaymentScreen() {
 
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120 * 1000, intervalMs = 3000) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
+    try {
+      await ensureToken();
+    } catch (e) {
+      console.warn('pollSplitsUntilPaid ensureToken error', e);
+    }
     const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
     const url = `${hostBase}/api/transacciones-pago/${encodeURIComponent(transactionId)}/splits`;
     const start = Date.now();
@@ -584,7 +590,7 @@ export default function PaymentScreen() {
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
         if (res.ok) {
@@ -659,6 +665,7 @@ export default function PaymentScreen() {
     let resolvedPaymentMethodId = 1;
     try {
       if (restaurante_id) {
+        await ensureToken();
         const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
         const restUrl = `${hostBase}/api/restaurantes/${encodeURIComponent(restaurante_id)}`;
         const restRes = await fetch(restUrl, {
@@ -666,7 +673,7 @@ export default function PaymentScreen() {
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
         if (restRes.ok) {
@@ -721,11 +728,12 @@ export default function PaymentScreen() {
     console.log('createTransaction -> body (envío):', JSON.stringify(body, null, 2), 'POST ->', url);
 
     try {
+      await ensureToken();
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
         body: JSON.stringify(body),
       });
@@ -880,6 +888,7 @@ export default function PaymentScreen() {
 
   const fetchCardPaymentMethods = async (restId, sucId) => {
     try {
+      await ensureToken();
       if (!restId || !sucId) return { creditId: null, debitId: null, singleCardId: null, raw: [] };
       const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
       const url = `${hostBase}/api/restaurantes/${encodeURIComponent(restId)}/sucursales/${encodeURIComponent(sucId)}/metodos-pago`;
@@ -888,7 +897,7 @@ export default function PaymentScreen() {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) {
@@ -899,7 +908,6 @@ export default function PaymentScreen() {
       const arr = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
       if (!arr || !Array.isArray(arr)) return { creditId: null, debitId: null, singleCardId: null, raw: [] };
 
-      // keywords para detectar crédito/débito
       const strictCreditKeywords = ['credito', 'crédito', 'credit', 'visa', 'mastercard', 'amex', 'american express', 'tarjeta crédito', 'tarj crédito', 'tarj. crédito'];
       const strictDebitKeywords = ['debito', 'débito', 'debit', 'deb', 'déb', 'debit card', 'debitcard', 'tarjeta débito', 'tarj débito', 'tarj. débito'];
 
@@ -910,7 +918,6 @@ export default function PaymentScreen() {
         const nameRaw = String(m.nombre ?? m.name ?? '').toLowerCase();
         const candidate = (m.id !== undefined && m.id !== null) ? m.id : (m.external_id ?? null);
 
-        // OMITIR explícitamente 'cash' para no asignarla
         if (nameRaw.includes('cash') || nameRaw === 'cash') {
           continue;
         }
@@ -934,13 +941,11 @@ export default function PaymentScreen() {
         if (creditId && debitId) break;
       }
 
-      // fallback heuristics si falta alguno
       if (!creditId || !debitId) {
         for (const m of arr) {
           const nameRaw = String(m.nombre ?? m.name ?? '').toLowerCase();
           const candidate = (m.id !== undefined && m.id !== null) ? m.id : (m.external_id ?? null);
 
-          // ignorar cash
           if (nameRaw.includes('cash') || nameRaw === 'cash') continue;
 
           if (nameRaw.includes('tarj') || nameRaw.includes('tarjeta') || nameRaw.includes('card')) {
@@ -956,20 +961,17 @@ export default function PaymentScreen() {
         }
       }
 
-      // --- nueva detección: casos tipo EposNow donde solo hay "Card" y "Cash"
       let singleCardId = null;
       for (const m of arr) {
         const nameRaw = String(m.nombre ?? m.name ?? '').toLowerCase().trim();
         const platformRaw = String(m.plataforma ?? m.platform ?? '').toLowerCase();
         const candidate = (m.id !== undefined && m.id !== null) ? m.id : (m.external_id ?? null);
-        // detectar exactamente "card" y plataforma que contenga 'epos' (según tu ejemplo)
         if (nameRaw === 'card' && platformRaw.includes('epos')) {
           singleCardId = candidate;
           break;
         }
       }
 
-      // Normalizar a número si aplica
       if (creditId !== null) creditId = Number(creditId);
       if (debitId !== null) debitId = Number(debitId);
       if (singleCardId !== null) singleCardId = Number(singleCardId);
@@ -1146,6 +1148,7 @@ export default function PaymentScreen() {
 
   async function fetchOpenpayCredentials(restId, sucId) {
     try {
+      await ensureToken();
       if (!restId || !sucId) return null;
       const hostBase = (apiHost || API_HOST_CONST).replace(/\/$/, '');
       const url = `${hostBase}/api/restaurantes/${encodeURIComponent(restId)}/sucursales/${encodeURIComponent(sucId)}/payment-gateways`;
@@ -1155,7 +1158,7 @@ export default function PaymentScreen() {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
       });
       if (!res.ok) {
@@ -1259,7 +1262,6 @@ export default function PaymentScreen() {
           stripe_public_key: creds.public_key,
           payment_method_id: chosenId,
           restaurantImage: restaurantImage,
-
         });
       } catch (err) {
         setLoadingKey(null);
@@ -1309,7 +1311,6 @@ export default function PaymentScreen() {
           userEmail,
           payment_method_id: chosenId,
           restaurantImage: restaurantImage,
-
         });
         return;
       } catch (err) {

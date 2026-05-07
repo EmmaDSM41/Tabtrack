@@ -23,6 +23,7 @@ import Toast from 'react-native-root-toast';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 function useResponsive() {
   const { width, height } = useWindowDimensions();
@@ -49,7 +50,6 @@ const CARD_SLIDE_HEIGHT = 100;
 const BLUE = '#0046ff';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 function safeJsonParse(raw, fallback = null) {
   if (!raw) return fallback;
@@ -71,7 +71,7 @@ function getCacheBustedUrl(url) {
 }
 function getAuthHeaders(extra = {}) {
   const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
-  if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) base.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+  if (TOKEN && TOKEN.trim()) base.Authorization = `Bearer ${TOKEN}`;
   return base;
 }
 
@@ -256,6 +256,7 @@ export default function VisitsScreen(props) {
       const day = todayIso();
       const url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${day}&hasta=${day}`;
 
+      await ensureToken();
       const headers = getAuthHeaders();
       let res = null;
       try {
@@ -346,13 +347,13 @@ export default function VisitsScreen(props) {
       }
 
       if (added) {
-        const uniq = Array.from(storedById.values()).sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+        const uniq = Array.from(storedById.values()).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
         await saveSeenIds(email, seenSet);
         await saveStoredNotifications(email, uniq);
         if (isMountedRef.current) setNotifications(uniq);
       } else {
         if (isMountedRef.current) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, MAX_STORE);
           setNotifications(sorted);
         }
       }
@@ -469,6 +470,7 @@ export default function VisitsScreen(props) {
       const email = await AsyncStorage.getItem('user_email');
       if (!email) return;
       const endpoint = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios?mail=${encodeURIComponent(email)}&presign_ttl=30`;
+      await ensureToken();
       const headers = getAuthHeaders();
       let res;
       try {
@@ -519,6 +521,7 @@ export default function VisitsScreen(props) {
     } catch (e) { /* ignore */ }
 
     try {
+      await ensureToken();
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(restId)}/sucursales`;
       const res = await fetch(url, {
         method: 'GET',
@@ -548,6 +551,7 @@ export default function VisitsScreen(props) {
     const key = String(restId);
     if (!forceNetwork && restaurantsMemRef.current[key]) return restaurantsMemRef.current[key];
     try {
+      await ensureToken();
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(restId)}`;
       const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
       if (!res.ok) return null;
@@ -629,6 +633,7 @@ export default function VisitsScreen(props) {
       const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
       let resVentas;
       try {
+        await ensureToken();
         resVentas = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
       } catch (err) {
         console.warn('fetch ventas network err', err);
@@ -653,6 +658,7 @@ export default function VisitsScreen(props) {
         const last30Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last30DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
 
         try {
+          await ensureToken();
           const resLast30 = await fetch(last30Url, { method: 'GET', headers: getAuthHeaders() });
           if (resLast30 && resLast30.ok) {
             const jsonLast = await resLast30.json().catch(() => ({}));
@@ -682,6 +688,7 @@ export default function VisitsScreen(props) {
           const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
           if (!ventaId || !sucursalId) continue;
           const urlDetalle = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?venta_id=${encodeURIComponent(ventaId)}&sucursal_id=${encodeURIComponent(sucursalId)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
+          await ensureToken();
           const resDetalle = await fetch(urlDetalle, { method: 'GET', headers: getAuthHeaders() });
           if (!resDetalle.ok) {
             console.warn('detalle http not ok', resDetalle.status);
@@ -823,7 +830,7 @@ export default function VisitsScreen(props) {
       if (emailRef.current) {
         const stored = await loadStoredNotifications(emailRef.current);
         if (isMountedRef.current && Array.isArray(stored) && stored.length > 0) {
-          const sorted = stored.slice().sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+          const sorted = stored.slice().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
           setNotifications(sorted);
         }
       }
@@ -901,6 +908,7 @@ export default function VisitsScreen(props) {
     } catch (e) { /* ignore */ }
 
     try {
+      await ensureToken();
       const base = API_BASE_URL.replace(/\/$/, '');
       const url = `${base}/api/encuestas/${SURVEY_FIXED_ID}/reportes?sucursal_id=${encodeURIComponent(String(sucursalId))}`;
       const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
@@ -957,7 +965,7 @@ export default function VisitsScreen(props) {
       return norm;
     } catch (err) {
       console.warn('fetchSurveyForBranch err', err);
-      try { surveysMemRef.current[String(sucursalId)] = { ts: Date.now(), value: null }; } catch(e){}
+      try { surveysMemRef.current[String(sucursalId)] = { ts: Date.now(), value: null }; } catch (e) {}
       return null;
     }
   }
@@ -1075,7 +1083,7 @@ export default function VisitsScreen(props) {
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={{ marginRight: 8, color: '#666' }}>Desde:</Text>
           <TouchableOpacity onPress={onPressDesde} style={{ backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#eee' }}>
-            <Text style= {{ color: "#000"}}>{formatDateYMD(desdeDate)}</Text>
+            <Text style={{ color: "#000" }}>{formatDateYMD(desdeDate)}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1099,7 +1107,7 @@ export default function VisitsScreen(props) {
           <FlatList
             data={visits}
             keyExtractor={item => String(item.id ?? `${item.sale_id ?? ''}_${item.sucursal_id ?? ''}`)}
-            renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} /> }
+            renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} />}
             contentContainerStyle={{ paddingBottom: 24 + bottomSafe }}
             initialNumToRender={6}
             maxToRenderPerBatch={12}
@@ -1246,7 +1254,7 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
         </ScrollView>
 
         <View style={styles.infoContainer}>
-          <Text style={{ fontSize: Math.max(14, Math.round(slideWidth * 0.045)), fontWeight: '700', marginBottom: 4, color:'#000' }} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+          <Text style={{ fontSize: Math.max(14, Math.round(slideWidth * 0.045)), fontWeight: '700', marginBottom: 4, color: '#000' }} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
           {branchName ? <Text style={{ fontSize: Math.max(12, Math.round(slideWidth * 0.032)), color: '#666', marginBottom: 6 }} numberOfLines={1} ellipsizeMode="tail">{branchName}</Text> : null}
 
           <View style={styles.infoRow}>
@@ -1274,7 +1282,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', paddingVertical: 12 },
   headerButton: { padding: 8 },
-  title: { fontWeight: '600', color: '#0046ff',  marginLeft: 120,  },
+  title: { fontWeight: '600', color: '#0046ff', marginLeft: 120, },
   iconsRight: { flexDirection: 'row', alignItems: 'center' },
   tabLogo: { resizeMode: 'contain' },
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
@@ -1326,7 +1334,7 @@ const styles = StyleSheet.create({
   avatarWrapper: { position: 'absolute', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   avatar: { resizeMode: 'cover' },
   initialsContainer: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  greetingContainer: { },
+  greetingContainer: {},
   greeting: { color: '#fff' },
   username: { color: '#fff' },
   content: { flex: 1, marginTop: 16 },
@@ -1340,7 +1348,7 @@ const styles = StyleSheet.create({
   starFilled: { color: '#FFD700' },
   starEmpty: { color: '#CCC' },
   cardRight: { flex: 1, backgroundColor: '#fff' },
-  slider: { },
+  slider: {},
   slideImage: { marginHorizontal: 4, borderRadius: 8, resizeMode: 'cover' },
   infoContainer: { padding: 8 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },

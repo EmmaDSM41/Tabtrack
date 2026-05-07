@@ -18,9 +18,9 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const sampleNotifications = [
   { id: 'n1', text: 'Tu reserva en La Pizzería fue confirmada.', read: false },
@@ -104,13 +104,14 @@ export default function OpinionScreen({ navigation, route }) {
       }
       setLoadingSurveys(true);
       try {
+        await ensureToken();
         const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/restaurantes/${encodeURIComponent(restauranteId)}/sucursales/${encodeURIComponent(sucursalId)}/encuestas/activas`;
         const res = await fetch(url, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
         if (!res.ok) {
@@ -158,6 +159,7 @@ export default function OpinionScreen({ navigation, route }) {
               const encuestaId = encuesta?.id ?? encuesta?.encuesta_id ?? encuesta?.uuid ?? null;
               if (!encuestaId) continue;
 
+              await ensureToken();
               const repUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/encuestas/${encodeURIComponent(encuestaId)}/reportes?usuario_app_id=${encodeURIComponent(userId)}&sale_id=${encodeURIComponent(saleId)}&sucursal_id=${encodeURIComponent(sucursalId)}`;
 
               try {
@@ -166,7 +168,7 @@ export default function OpinionScreen({ navigation, route }) {
                   headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
-                    ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+                    ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
                   },
                 });
 
@@ -362,6 +364,7 @@ export default function OpinionScreen({ navigation, route }) {
           respuestas,
         };
 
+        await ensureToken();
         const url = `${API_BASE_URL.replace(/\/$/, '')}/api/encuestas/${encodeURIComponent(encuestaId)}/respuestas`;
         try {
           const res = await fetch(url, {
@@ -369,7 +372,7 @@ export default function OpinionScreen({ navigation, route }) {
             headers: {
               Accept: 'application/json',
               'Content-Type': 'application/json',
-              ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+              ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
             },
             body: JSON.stringify(payload),
           });
@@ -471,7 +474,7 @@ export default function OpinionScreen({ navigation, route }) {
             </View>
           </View>
 
-          <View style={[styles.slider, { height: styles.slideHeight }]}>
+          <View style={[styles.slider, { height: styles.slideHeight }]}>{/* ... */}
             {bannerFromVisit ? (
               <Image source={{ uri: bannerFromVisit }} style={[styles.slideImage, { height: styles.slideHeight, width: '100%' }]} />
             ) : restaurantLogoFromVisit ? (
@@ -514,7 +517,6 @@ export default function OpinionScreen({ navigation, route }) {
                     {(encuesta.preguntas || []).map((p, i) => {
                       const pid = p.id ?? p.pregunta_id ?? `p_${i}`;
                       const tipo = (p.tipo ?? '').toUpperCase();
-                      // si esta encuesta ya está respondida, bloqueamos edición para todas sus preguntas
                       if (tipo === 'ESTRELLAS') {
                         return (
                           <View key={pid} style={[styles.questionBlock, { paddingLeft: styles.basePadding }]}>
@@ -522,7 +524,6 @@ export default function OpinionScreen({ navigation, route }) {
                             <View style={styles.starsRow}>
                               {[1, 2, 3, 4, 5].map(s => {
                                 const filled = (ratingsMap[pid] ?? 0) >= s;
-                                // Si encuestaAnswered true, no permitimos onPress
                                 return (
                                   <TouchableOpacity
                                     key={s}

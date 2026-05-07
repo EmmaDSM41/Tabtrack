@@ -27,9 +27,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -112,8 +112,13 @@ export default function ExperiencesScreen() {
       const path = `/api/residence/departamentos/${encodeURIComponent(String(dept))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo_desde)}&periodo_hasta=${encodeURIComponent(periodo_hasta)}&detalle=false&tz_offset_minutes=${encodeURIComponent(String(tzOffset))}`;
       const url = `${base}${path}`;
 
-      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+      await ensureToken();
+
+      const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+      };
 
       const res = await fetch(url, { method: 'GET', headers });
       let json = null;
@@ -238,8 +243,13 @@ export default function ExperiencesScreen() {
       const base = API_BASE_FALLBACK.replace(/\/$/, '');
       const path = `/api/residence/departamentos/${encodeURIComponent(String(deptId))}/consumptions/history?periodo_desde=${encodeURIComponent(periodo)}&periodo_hasta=${encodeURIComponent(periodo)}&detalle=true&tz_offset_minutes=${encodeURIComponent(String(-360))}`;
       const url = `${base}${path}`;
-      const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+      await ensureToken();
+
+      const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+      };
 
       const res = await fetch(url, { method: 'GET', headers });
       let json = null;
@@ -1053,13 +1063,6 @@ export default function ExperiencesScreen() {
                     {formatMoney(selectedAssignedBalance, { currencySign: '$' })}
                   </Text>
                 </View>
-
-                {/*                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={{ color: '#6B7280', fontWeight: '700' }}>Disponible mensual</Text>
-                  <Text style={{ color: selectedAvailableBalance < 0 ? '#DC2626' : '#111827', fontWeight: '800' }}>
-                    {formatMoney(Math.max(0, selectedAvailableBalance), { currencySign: '$' })}
-                  </Text>
-                </View> */}
 
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ color: '#6B7280', fontWeight: '700' }}>Exceso del saldo mensual</Text>

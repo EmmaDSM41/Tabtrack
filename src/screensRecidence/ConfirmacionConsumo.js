@@ -14,9 +14,9 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.residence.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 export default function ConfirmacionConsumo() {
   const navigation = useNavigation();
@@ -44,16 +44,16 @@ export default function ConfirmacionConsumo() {
       if (!edificioIdFromParams) return;
 
       try {
+        await ensureToken();
+
         const base = String(API_BASE_URL || '').replace(/\/$/, '');
         const url = `${base}/api/residence/edificios/${encodeURIComponent(String(edificioIdFromParams))}/restaurantes/${encodeURIComponent(String(restauranteId))}`;
 
         const headers = {
           Accept: 'application/json',
           'Content-Type': 'application/json',
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         };
-        if (API_AUTH_TOKEN && String(API_AUTH_TOKEN).trim()) {
-          headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
-        }
 
         const res = await fetch(url, { method: 'GET', headers });
         if (!mounted) return;
@@ -309,12 +309,10 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       width: checkShadowSize,
       height: checkShadowSize,
       borderRadius: Math.round(checkShadowSize / 2),
-      backgroundColor: 'rgba(0,0,0,0.12)', // sombra uniforme y suave
+      backgroundColor: 'rgba(0,0,0,0.12)',
       alignItems: 'center',
       justifyContent: 'center',
-      // desplazamiento ligero para simular sombra
       transform: [{ translateY: checkShadowOffsetY }],
-      // para iOS, además pueden aplicarse estas propiedades (no dañan en Android)
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.12,
@@ -331,10 +329,8 @@ function makeStyles({ width, height, clamp, wp, hp, rf }) {
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: 'rgba(255,255,255,0.18)',
-      // quitamos elevation (provoca outline distinto en algunos Android OEM)
       ...Platform.select({
         ios: {
-          // en iOS puedes mantener sombra "real" si quieres
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 6 },
           shadowOpacity: 0.06,

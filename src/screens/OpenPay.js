@@ -27,6 +27,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const lastTransactionKeyForSale = (saleId) => `last_transaction_${saleId}`;
 const safeNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -36,9 +37,8 @@ const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
 
 // --- Logos oficiales: coloca estos archivos en ../../assets/images/
 // openpay.png, visa.png, mastercard.png, paypal.png
- const LOGO_OPENPAY = require('../../assets/images/openpay.png');
- const LOGO_PAYNET = require('../../assets/images/paynet.png');
-
+const LOGO_OPENPAY = require('../../assets/images/openpay.png');
+const LOGO_PAYNET = require('../../assets/images/paynet.png');
 
 export default function OpenPay() {
   const webviewRef = useRef(null);
@@ -100,7 +100,6 @@ export default function OpenPay() {
   // params defaults
   const {
     api_host = 'https://api.tab-track.com',
-    api_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78',
     sucursal_id = null,
     sale_id = null,
     usuario_app_id = null,
@@ -141,6 +140,7 @@ export default function OpenPay() {
   // polling helper (igual que antes)
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120000, intervalMs = 3000) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
+    await ensureToken();
     const hostBase = (api_host || 'https://127.0.0.1').replace(/\/$/, '');
     const url = `${hostBase}/api/transacciones-pago/${encodeURIComponent(transactionId)}/splits`;
     const start = Date.now();
@@ -148,7 +148,11 @@ export default function OpenPay() {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+          },
         });
         if (res.ok) {
           const json = await res.json().catch(() => null);
@@ -241,6 +245,7 @@ export default function OpenPay() {
   // -----------------------
   const saveOpenpayCardOnServer = async ({ token_id, device_session_id, set_preferred }) => {
     if (!sucursal_id) throw new Error('Falta sucursal_id');
+    await ensureToken();
     const hostBase = (api_host || 'https://127.0.0.1').replace(/\/$/, '');
     const url = `${hostBase}/api/mobileapp/sucursales/${encodeURIComponent(sucursal_id)}/payment-methods/openpay/cards?environment=${encodeURIComponent(environment)}`;
     const idKey = genIdempotencyKey();
@@ -260,7 +265,11 @@ export default function OpenPay() {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idKey, ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idKey,
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
         body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => null);
@@ -335,10 +344,14 @@ export default function OpenPay() {
     console.warn('[DEBUG] processPaymentWithToken - body (pay token):', { openpay_source_id, device_session_id });
 
     try {
+      await ensureToken();
       const url = buildTransactionUrl();
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
         body: JSON.stringify(body),
       });
 
@@ -432,10 +445,14 @@ export default function OpenPay() {
     console.warn('[DEBUG] processPaymentWithSavedCard - body:', body);
 
     try {
+      await ensureToken();
       const url = buildTransactionUrl();
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
         body: JSON.stringify(body),
       });
 
@@ -624,14 +641,18 @@ export default function OpenPay() {
       }
 
       try {
+        await ensureToken();
         const hostBase = (api_host || 'https://127.0.0.1').replace(/\/$/, '');
         const res = await fetch(`${hostBase}/api/openpay-credentials`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+          },
           body: JSON.stringify({ sucursal_id }),
         });
         if (!res.ok) {
-          const txt = await res.text().catch(()=>null);
+          const txt = await res.text().catch(() => null);
           throw new Error(`Error ${res.status} obteniendo credenciales: ${txt || res.statusText}`);
         }
         const json = await res.json();
@@ -667,7 +688,7 @@ export default function OpenPay() {
   const requestTokenFromWebView = (cardData) => {
     try {
       setLastCardInput(cardData);
-      console.log('[requestTokenFromWebView] create_token request (masked): holder=', cardData.holder_name, 'last4=', (cardData.card_number||'').slice(-4));
+      console.log('[requestTokenFromWebView] create_token request (masked): holder=', cardData.holder_name, 'last4=', (cardData.card_number || '').slice(-4));
       webviewRef.current && webviewRef.current.postMessage(JSON.stringify({ type: 'create_token', cardData }));
     } catch (e) {
       console.warn('postMessage create_token failed', e);
@@ -690,6 +711,7 @@ export default function OpenPay() {
       try { usuarioAppUuid = await AsyncStorage.getItem('user_usuario_app_id'); } catch (e) { console.warn('read user_usuario_app_id failed', e); }
       usuarioAppUuid = usuarioAppUuid || usuario_app_id || '';
 
+      await ensureToken();
       const hostBase = (api_host || 'https://127.0.0.1').replace(/\/$/, '');
       const url = `${hostBase}/api/mobileapp/sucursales/${encodeURIComponent(sucursal_id)}/payment-methods?gateway=openpay&environment=${encodeURIComponent(environment)}&usuario_app_id=${encodeURIComponent(usuarioAppUuid)}`;
       const idKey = genIdempotencyKey();
@@ -698,7 +720,11 @@ export default function OpenPay() {
 
       const res = await fetch(url, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idKey, ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idKey,
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
       });
       const json = await res.json().catch(() => null);
       console.warn('[fetchSavedCards] status=', res.status, 'json=', json);
@@ -719,7 +745,6 @@ export default function OpenPay() {
         raw: pm,
       }));
       setSavedCards(normalized);
-      // sólo abrir modal si se pidió explícitamente (comportamiento previo)
       if (openModal) setSavedCardsModalVisible(true);
     } catch (err) {
       console.warn('fetchSavedCards exception', err);
@@ -806,10 +831,9 @@ export default function OpenPay() {
   // -----------------------
   // DYNAMIC modal height calculation (adjust to content)
   // -----------------------
-  // approximate heights (px)
-  const ITEM_ROW_HEIGHT = 72; // estimated per tarjeta row (padding + text)
-  const MODAL_HEADER_HEIGHT = 72; // title + subtitle area
-  const MODAL_FOOTER_HEIGHT = 72; // footer buttons area
+  const ITEM_ROW_HEIGHT = 72;
+  const MODAL_HEADER_HEIGHT = 72;
+  const MODAL_FOOTER_HEIGHT = 72;
   const cardCount = (Array.isArray(savedCards) && savedCards.length > 0) ? savedCards.length : (loadingSavedCards ? 1 : 0);
   const contentNeeded = Math.max(120, cardCount * ITEM_ROW_HEIGHT);
   const computedModalHeight = Math.min(maxModalHeight, MODAL_HEADER_HEIGHT + contentNeeded + MODAL_FOOTER_HEIGHT);
@@ -855,12 +879,13 @@ export default function OpenPay() {
     const idKey = genIdempotencyKey();
 
     try {
+      await ensureToken();
       const res = await fetch(url, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idKey,
-          ...(api_token ? { Authorization: `Bearer ${api_token}` } : {}),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         },
         body: JSON.stringify({ usuario_app_id: usuarioAppUuid }),
       });
@@ -877,12 +902,9 @@ export default function OpenPay() {
         return;
       }
 
-      // éxito: actualizar lista en UI
       setSavedCards((prev) => (Array.isArray(prev) ? prev.filter((c) => String(c.id) !== String(cardToDelete.id)) : []));
-      // cerrar modal de confirmación
       setDeleteConfirmVisible(false);
       setCardToDelete(null);
-      // mostrar toast
       showToast('Tarjeta eliminada correctamente');
     } catch (err) {
       console.warn('performDeleteSavedCard exception', err);
@@ -901,7 +923,7 @@ export default function OpenPay() {
     let mounted = true;
     (async () => {
       try {
-        await fetchSavedCards(false); // silent load: no modal open
+        await fetchSavedCards(false);
       } catch (e) {
         console.warn('silent fetchSavedCards error', e);
       }
@@ -935,7 +957,8 @@ export default function OpenPay() {
       <LinearGradient
         colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-        style={[ styles.gradientHeader, { height: GRADIENT_HEIGHT, paddingHorizontal: H_PADDING, borderBottomRightRadius: 28, borderBottomLeftRadius: 0 }]}>
+        style={[ styles.gradientHeader, { height: GRADIENT_HEIGHT, paddingHorizontal: H_PADDING, borderBottomRightRadius: 28, borderBottomLeftRadius: 0 }]}
+      >
         <View style={styles.gradientInner}>
           <View style={[styles.gradientLeftColumn]}>
             <Image source={nativeLogoSource} style={[styles.gradientLogo, { width: LOGO_W }]} resizeMode="contain" />
@@ -961,7 +984,6 @@ export default function OpenPay() {
           <View style={[styles.form, { padding: Math.max(12, Math.round(winW * 0.03)) }]}>
             <Text style={styles.formLabel}>Pagar con tarjeta</Text>
 
-            {/* Logos area: ahora con imágenes oficiales */}
             <View style={styles.logosRow}>
               <Image source={LOGO_OPENPAY} style={styles.brandLogo} resizeMode="contain" />
               <Image source={LOGO_PAYNET} style={styles.brandLogo} resizeMode="contain" />
@@ -990,29 +1012,28 @@ export default function OpenPay() {
                 maxLength={23}
                 placeholderTextColor="#96a0b8"
               />
-              {/* SOLO mostrar el texto si ya hay tarjetas cargadas */}
-              { Array.isArray(savedCards) && savedCards.length > 0 ? (
+              {Array.isArray(savedCards) && savedCards.length > 0 ? (
                 <TouchableOpacity onPress={() => fetchSavedCards(true)} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
                   <Text style={{ color: '#0b58ff', fontWeight: '700' }}>Usar tarjeta guardada</Text>
                 </TouchableOpacity>
-              ) : null }
+              ) : null}
             </View>
 
             {showCardFields && (
               <View style={styles.rowSmall}>
                 <View style={styles.inputWrapSmall}>
                   <Ionicons name="calendar-outline" size={16} color="#6b7280" style={styles.inputIconSmall} />
-                  <TextInput style={styles.inputSmall} placeholder="MM" value={mm} onChangeText={(t)=>setMm(t.replace(/\D/g,'').slice(0,2))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
+                  <TextInput style={styles.inputSmall} placeholder="MM" value={mm} onChangeText={(t) => setMm(t.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
                 </View>
 
                 <View style={styles.inputWrapSmall}>
                   <Ionicons name="calendar-outline" size={16} color="#6b7280" style={styles.inputIconSmall} />
-                  <TextInput style={styles.inputSmall} placeholder="AA" value={yy} onChangeText={(t)=>setYy(t.replace(/\D/g,'').slice(0,2))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
+                  <TextInput style={styles.inputSmall} placeholder="AA" value={yy} onChangeText={(t) => setYy(t.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
                 </View>
 
                 <View style={styles.inputWrapSmall}>
                   <Ionicons name="keypad-outline" size={16} color="#6b7280" style={styles.inputIconSmall} />
-                  <TextInput style={styles.inputSmall} placeholder="CVV" value={cvv} onChangeText={(t)=>setCvv(t.replace(/\D/g,'').slice(0,4))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
+                  <TextInput style={styles.inputSmall} placeholder="CVV" value={cvv} onChangeText={(t) => setCvv(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" placeholderTextColor="#96a0b8" />
                 </View>
               </View>
             )}
@@ -1040,7 +1061,6 @@ export default function OpenPay() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* WebView hidden */}
       <View style={{ height: 0, width: 0, opacity: 0 }}>
         <WebView
           ref={webviewRef}
@@ -1054,7 +1074,6 @@ export default function OpenPay() {
         />
       </View>
 
-      {/* Modal: Guardar tarjeta (responsive & compact - MATCHES stripe modal style) */}
       <Modal visible={saveCardModalVisible} transparent animationType="fade" onRequestClose={() => { if (!savingCard) setSaveCardModalVisible(false); }}>
         <View style={styles.autoModalBackdrop}>
           <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
@@ -1078,7 +1097,6 @@ export default function OpenPay() {
         </View>
       </Modal>
 
-      {/* Modal: Tarjetas guardadas (responsive & compact; altura dinámica + scroll interno) */}
       <Modal visible={savedCardsModalVisible} transparent animationType="fade" onRequestClose={() => setSavedCardsModalVisible(false)}>
         <View style={styles.autoModalBackdrop}>
           <View style={[styles.savedCardsModalBox, { width: modalWidth, height: computedModalHeight }]}>
@@ -1108,7 +1126,6 @@ export default function OpenPay() {
                       </TouchableOpacity>
 
                       <View style={{ alignItems: 'flex-end' }}>
-                        {/* delete button */}
                         <TouchableOpacity onPress={() => confirmDeleteSavedCard(item)} style={{ padding: 6 }}>
                           <Ionicons name="remove-circle-outline" size={22} color="#ef4444" />
                         </TouchableOpacity>
@@ -1138,7 +1155,6 @@ export default function OpenPay() {
         </View>
       </Modal>
 
-      {/* Modal confirmación eliminar tarjeta */}
       <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => { if (!deletingCard) setDeleteConfirmVisible(false); }}>
         <View style={styles.autoModalBackdrop}>
           <View style={[styles.autoModalBox, { width: Math.min(360, winW - 48), flexDirection: 'column', padding: 18 }]}>
@@ -1169,7 +1185,6 @@ export default function OpenPay() {
         </View>
       )}
 
-      {/* Toast estilizado (nuevo) */}
       {toastVisible && (
         <Animated.View pointerEvents="none" style={[styles.toastBox, { opacity: toastOpacity }]}>
           <Text style={styles.toastText}>{toastMessage}</Text>
@@ -1243,7 +1258,6 @@ const styles = StyleSheet.create({
   },
   formLabel: { fontSize: 16, fontWeight: '800', color: '#0b1220', marginBottom: 8 },
 
-  // logosRow ahora con imágenes
   logosRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' },
   brandLogo: { width: 64, height: 28, marginRight: 12 },
 
@@ -1263,7 +1277,6 @@ const styles = StyleSheet.create({
   processingBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 14, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 12 },
   processingText: { fontWeight: '700', fontSize: 16, color: '#0b1220' },
 
-  /* --- estilos para los modales (estilo compacto como Stripe) --- */
   autoModalBackdrop: { flex: 1, backgroundColor: '#2E020617', justifyContent: 'center', alignItems: 'center', padding: 18 },
   autoModalBox: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#fff', borderRadius: 12, width: Math.min(360, 360), shadowColor: '#14000000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 10 },
   autoModalTitle: { fontSize: 18, fontWeight: '800', color: '#0b1220' },
@@ -1276,7 +1289,6 @@ const styles = StyleSheet.create({
 
   savedCardRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eef2ff', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 
-  // NEW: toast styles
   toastBox: {
     position: 'absolute',
     bottom: 80,

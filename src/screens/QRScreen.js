@@ -27,9 +27,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_FALLBACK = 'https://api.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const STORAGE_KEYS = {
   API_HOST: 'api_host',
@@ -102,7 +102,9 @@ const resolveApiHost = async (raw) => {
 };
 
 const buildHeaders = async () => {
-  let token = API_TOKEN_FALLBACK;
+  await ensureToken();
+
+  let token = TOKEN;
   try {
     const storedToken = await AsyncStorage.getItem(STORAGE_KEYS.API_TOKEN);
     if (storedToken) token = storedToken;
@@ -220,7 +222,6 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
     </Modal>
   );
 }
-
 
 export default function QRScreen({ navigation }) {
   const { width, height } = useWindowDimensions();
@@ -403,6 +404,8 @@ export default function QRScreen({ navigation }) {
     showStatusModal({ ok: null, message: 'Consultando estado de la mesa…' }, token, true);
 
     try {
+      await ensureToken();
+
       const host = await resolveApiHost(raw);
       if (!host) {
         setStatusLoading(false);
@@ -588,7 +591,6 @@ export default function QRScreen({ navigation }) {
     </SafeAreaView>
   );
 }
-
 
 const modalStyles = StyleSheet.create({
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, elevation: 9999, zIndex: 9999 },

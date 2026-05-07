@@ -12,9 +12,9 @@ import {
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
-const API_URL = 'https://api.tab-track.com'; 
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
+const API_URL = 'https://api.tab-track.com';
 
 function getAuthHeaders(extra = {}) {
   const base = { 'Content-Type': 'application/json', ...extra };
@@ -34,7 +34,7 @@ export default function SaleDetail() {
   const {
     saleId: routeSaleId = null,
     branchId: routeBranchId = null,
-    branchName: routeBranchNameParam = null, 
+    branchName: routeBranchNameParam = null,
   } = route.params || {};
 
   const routeBranchFallback = route.params?.branch ?? null;
@@ -56,6 +56,9 @@ export default function SaleDetail() {
     try {
       setLoading(true);
       setError(null);
+
+      await ensureToken();
+
       const base = API_URL.replace(/\/$/, '');
       const url = `${base}/api/transacciones-pago/sucursal/${encodeURIComponent(branchId)}/ventas/${encodeURIComponent(saleId)}/splits`;
       const headers = getAuthHeaders();

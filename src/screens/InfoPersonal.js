@@ -24,11 +24,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ToastLib from 'react-native-root-toast';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const BLUE = '#0046ff';
 const DOT_COLOR = '#ccc';
 const API_BASE_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 const FOOD_TYPES_ENDPOINT = 'https://api.tab-track.com/api/catalogos/tipos-comida';
 
@@ -171,9 +171,12 @@ export default function InfoPersonal({ navigation }) {
         try {
           const mailToQuery = mail || '';
           if (mailToQuery) {
+            await ensureToken();
+            const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : null;
+
             const endpoint = `${API_BASE_URL}?mail=${encodeURIComponent(mailToQuery)}&presign_ttl=30`;
             const headers = { Accept: 'application/json' };
-            if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+            if (token) headers.Authorization = `Bearer ${token}`;
 
             let resp;
             try {
@@ -356,6 +359,9 @@ export default function InfoPersonal({ navigation }) {
     setSaving(true);
     const id = await AsyncStorage.getItem('user_usuario_app_id');
     try {
+      await ensureToken();
+      const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : null;
+
       const apiUrl = `${API_BASE_URL}/${id}`;
 
       // Antes de enviar al API, convertimos cumpleanos a YYYY-MM-DD
@@ -365,7 +371,7 @@ export default function InfoPersonal({ navigation }) {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_AUTH_TOKEN}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });
@@ -402,8 +408,11 @@ export default function InfoPersonal({ navigation }) {
     setFoodLoading(true);
     setFoodFetchError(null);
     try {
+      await ensureToken();
+      const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : null;
+
       const headers = { Accept: 'application/json' };
-      if (API_AUTH_TOKEN && API_AUTH_TOKEN.trim()) headers.Authorization = `Bearer ${API_AUTH_TOKEN}`;
+      if (token) headers.Authorization = `Bearer ${token}`;
 
       const resp = await fetch(FOOD_TYPES_ENDPOINT, { method: 'GET', headers });
       if (!resp.ok) {

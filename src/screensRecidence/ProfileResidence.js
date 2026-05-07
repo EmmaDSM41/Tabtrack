@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ScrollView,
   View,
@@ -22,12 +22,12 @@ import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const staticWidth = Dimensions.get('window').width;
 
 const API_URL = 'https://api.tab-track.com';
 const API_URL_2 = 'https://api.residence.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 export default function ProfileResidence({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
@@ -269,6 +269,7 @@ export default function ProfileResidence({ navigation }) {
       }
 
       await ensureSeenMarkersLoaded(deptId);
+      await ensureToken();
 
       const now = new Date();
       const year = now.getFullYear();
@@ -655,6 +656,7 @@ export default function ProfileResidence({ navigation }) {
   const loadProfileFromApi = async () => {
     try {
       setProfileLoading(true);
+      await ensureToken();
       const email = await AsyncStorage.getItem('user_email');
       if (!email) {
         setProfileLoading(false);
@@ -725,6 +727,7 @@ export default function ProfileResidence({ navigation }) {
   const uploadProfilePhoto = async (asset) => {
     try {
       setUploading(true);
+      await ensureToken();
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
       if (!uid) {
         Toast.show('No se encontró usuario', { duration: Toast.durations.SHORT });
@@ -809,6 +812,7 @@ export default function ProfileResidence({ navigation }) {
   const removeProfilePhoto = async () => {
     try {
       setUploading(true);
+      await ensureToken();
 
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
       if (!uid) {

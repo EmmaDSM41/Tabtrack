@@ -19,8 +19,10 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// AJUSTA LA RUTA SEGÚN DONDE ESTÉ ESTE ARCHIVO
+import { TOKEN, ensureToken } from '../auth/tokenManager';
+
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const PRIMARY = '#FEFFFFFF';
 
 export default function ChangePassword() {
@@ -36,7 +38,6 @@ export default function ChangePassword() {
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-  // pass insets to styles generator so toast & paddings consider safe area
   const styles = makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets });
 
   const [oldPassword, setOldPassword] = useState('');
@@ -88,7 +89,6 @@ export default function ChangePassword() {
       setNewPassword('');
     });
 
-    // Obtener el email desde AsyncStorage al montar el componente
     const getEmail = async () => {
       try {
         const storedEmail = await AsyncStorage.getItem('user_mail');
@@ -119,7 +119,9 @@ export default function ChangePassword() {
     setLoading(true);
 
     try {
-      // leer email e id guardados en login
+      // Esto fuerza a que el token exista y, si ya toca, se renueve antes de hacer requests
+      await ensureToken();
+
       const storedUserId = await AsyncStorage.getItem('user_id');
 
       if (!email && !storedUserId) {
@@ -128,14 +130,14 @@ export default function ChangePassword() {
         return;
       }
 
-      // Primero intento endpoint por email (PUT /usuarios/change_password)
+      // Primer intento: por email
       if (email) {
         const urlEmail = `${API_BASE}/usuarios/change-password`;
         const resEmail = await fetch(urlEmail, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_TOKEN}`,
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
           body: JSON.stringify({
             mail: email,
@@ -157,25 +159,23 @@ export default function ChangePassword() {
           setLoading(false);
           return;
         } else {
-          // si falla y no hay userId para fallback, mostrar error
           if (!storedUserId) {
             const errMsg = dataEmail?.error || dataEmail?.message || 'No se pudo actualizar';
             showToast(errMsg);
             setLoading(false);
             return;
           }
-          // si hay userId, hacemos fallback abajo
         }
       }
 
-      // Fallback: endpoint por id (PUT /usuarios/{id}/change_password)
+      // Fallback por ID
       if (storedUserId) {
         const urlId = `${API_BASE}/usuarios/${storedUserId}/change-password`;
         const resId = await fetch(urlId, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_TOKEN}`,
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
           body: JSON.stringify({
             password: oldPassword,
@@ -203,7 +203,6 @@ export default function ChangePassword() {
         }
       }
 
-      // Caso extremo
       showToast('No se pudo cambiar la contraseña');
     } catch (err) {
       console.warn('ChangePassword error:', err);
@@ -213,7 +212,6 @@ export default function ChangePassword() {
     }
   };
 
-  // ensure top safe area padding so content doesn't get cut on iOS notch or Android status bar
   const topPadding = Math.max(insets.top ?? 0, StatusBar.currentHeight ?? 0);
 
   return (

@@ -19,9 +19,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ensureToken } from '../auth/tokenManager';
 
 const API_HOST = 'https://api.tab-track.com';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
 
 export default function QuickLoginScreen() {
@@ -64,12 +64,25 @@ export default function QuickLoginScreen() {
     return `${base}/api/mobileapp/usuarios/validate-password`;
   };
 
+  const getStoredToken = async () => {
+    try {
+      await ensureToken();
+      const stored = await AsyncStorage.getItem('api_token');
+      return stored ? String(stored).trim() : '';
+    } catch (err) {
+      console.warn('QuickLogin getStoredToken error', err);
+      return '';
+    }
+  };
+
   const callValidatePassword = async (mailToSend, pwd) => {
     const url = buildValidateUrl();
     try {
+      const token = await getStoredToken();
+
       const headers = { 'Content-Type': 'application/json' };
-      if (API_TOKEN && String(API_TOKEN).trim()) {
-        headers['Authorization'] = `Bearer ${String(API_TOKEN).trim()}`;
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
       const res = await fetch(url, {
@@ -107,10 +120,13 @@ export default function QuickLoginScreen() {
     try {
       const usuario = result.data?.usuario ?? result.data?.user ?? null;
 
-      if (API_TOKEN && String(API_TOKEN).trim()) {
-        await AsyncStorage.setItem('api_token', String(API_TOKEN).trim());
-      }
-      try { await AsyncStorage.setItem('api_host', String(API_HOST)); } catch (_) {}
+      try {
+        const token = await getStoredToken();
+        if (token) {
+          await AsyncStorage.setItem('api_token', token);
+        }
+        await AsyncStorage.setItem('api_host', String(API_HOST));
+      } catch (_) {}
 
       if (usuario && typeof usuario === 'object') {
         for (const [key, value] of Object.entries(usuario)) {

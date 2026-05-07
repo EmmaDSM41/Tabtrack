@@ -6,9 +6,9 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_URL = 'https://api.tab-track.com';
-const API_AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 const formatMoney = (n) => {
   const value = Number(n);
   if (!Number.isFinite(value)) return '0.00';
@@ -82,6 +82,13 @@ export default function Consumo() {
     let mounted = true;
     const fetchIfNeeded = async () => {
       if (items && Array.isArray(items)) return;
+
+      try {
+        await ensureToken();
+      } catch (e) {
+        console.warn('No se pudo asegurar token:', e);
+      }
+
       if (!token) {
         openError('Error', 'No hay items ni token para obtener la información.');
         return;
@@ -94,7 +101,7 @@ export default function Consumo() {
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
-            ...(API_AUTH_TOKEN ? { Authorization: `Bearer ${API_AUTH_TOKEN}` } : {}),
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
           },
         });
         if (!mounted) return;
@@ -129,12 +136,12 @@ export default function Consumo() {
     }
     if (incomingTotal !== null) {
       const t = round2(incomingTotal);
-      const i = round2(t /1.16 * 0.16);
+      const i = round2(t / 1.16 * 0.16);
       const s = round2(t - i);
       return { iva: i, subtotal: s, total: t };
     }
     const t = round2(itemsSum);
-    const i = round2(t /1.16 * 0.16);
+    const i = round2(t / 1.16 * 0.16);
     const s = round2(t - i);
     return { iva: i, subtotal: s, total: t };
   }, [incomingSubtotal, incomingIva, incomingTotal, itemsSum]);
@@ -285,7 +292,7 @@ export default function Consumo() {
 }
 
 const stylesBase = StyleSheet.create({
-  loaderWrap: { flex:1, justifyContent:'center', alignItems:'center' },
+  loaderWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });
 
 function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
@@ -294,7 +301,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
 
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f5f7fb', paddingTop: topSafe },
-    loaderWrap: { flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#f5f7fb' },
+    loaderWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f7fb' },
 
     topBar: {
       width: '100%',
@@ -327,7 +334,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
 
     tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 37, 48)), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.6)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
-    restaurantImage: { width: Math.round(clamp(wp(15), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96)/8), backgroundColor: '#fff' },
+    restaurantImage: { width: Math.round(clamp(wp(15), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
 
     rightCol: {
       alignItems: 'flex-end',

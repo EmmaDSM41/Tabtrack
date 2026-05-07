@@ -21,11 +21,11 @@ import Toast from 'react-native-root-toast';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const staticWidth = Dimensions.get('window').width;
 
 const API_URL = 'https://api.tab-track.com';
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';
 
 export default function ProfileScreen({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
@@ -112,14 +112,12 @@ export default function ProfileScreen({ navigation }) {
       }, pollSeconds * 1000);
     })();
 
-    // Listener: notificationOpened -> handleIncomingNotification
     const deviceListener = DeviceEventEmitter.addListener('notificationOpened', (payload) => {
       try {
         handleIncomingNotification(payload).catch(err => console.warn('device notificationOpened handler err', err));
       } catch (e) { console.warn('device listener callback err', e); }
     });
 
-    // Listener: profileUpdated -> recarga imagen inmediatamente
     const profileListener = DeviceEventEmitter.addListener('profileUpdated', (url) => {
       try {
         if (url) {
@@ -149,7 +147,7 @@ export default function ProfileScreen({ navigation }) {
         emailRef.current = await AsyncStorage.getItem('user_email');
       }
       await fetchTodayNotificationsOnce();
-      await loadProfileFromApi(); // refresca cada vez que entra la pantalla
+      await loadProfileFromApi();
     })();
     return () => { };
   }, []));
@@ -168,12 +166,14 @@ export default function ProfileScreen({ navigation }) {
       return new Set();
     }
   }
+
   async function saveSeenIds(email, setOfIds) {
     if (!email) return;
     try {
       await AsyncStorage.setItem(`notifications_seen_${email}`, JSON.stringify(Array.from(setOfIds)));
     } catch (e) { console.warn('saveSeenIds err', e); }
   }
+
   async function loadStoredNotifications(email) {
     if (!email) return [];
     try {
@@ -186,6 +186,7 @@ export default function ProfileScreen({ navigation }) {
       return [];
     }
   }
+
   async function saveStoredNotifications(email, arr) {
     if (!email) return;
     try {
@@ -206,7 +207,6 @@ export default function ProfileScreen({ navigation }) {
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  // ---------- REEMPLAZADA: parseApiDate ----------
   function parseApiDate(value) {
     try {
       if (value === undefined || value === null) return null;
@@ -215,7 +215,6 @@ export default function ProfileScreen({ navigation }) {
         return null;
       }
 
-      // números (epoch en segundos o ms)
       if (typeof value === 'number') {
         const s = String(Math.abs(Math.floor(value)));
         const ms = (s.length <= 10) ? value * 1000 : value;
@@ -227,7 +226,6 @@ export default function ProfileScreen({ navigation }) {
         const raw = value.trim();
         if (!raw) return null;
 
-        // 1) si es un número en string -> tratar como epoch
         if (/^\d+$/.test(raw)) {
           const n = Number(raw);
           const ms = (raw.length <= 10) ? n * 1000 : n;
@@ -235,36 +233,30 @@ export default function ProfileScreen({ navigation }) {
           if (!Number.isNaN(d.getTime())) return d;
         }
 
-        // 2) ISO con zona explícita (ej "2025-10-02T00:26:36Z" o "2025-10-02T00:26:36+02:00")
-        //    new Date(...) entiende bien estos y los respeta como UTC o con offset.
-        //    Pero cuidado: some engines treat 'YYYY-MM-DDTHH:mm:ss' as UTC; we must detect absence of zone
         const isoWithZone = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+(?:Z|[+\-][0-9]{2}:[0-9]{2})$/i;
         if (isoWithZone.test(raw)) {
           const d = new Date(raw);
           if (!Number.isNaN(d.getTime())) return d;
         }
 
-        // 3) patrón 'YYYY-MM-DD HH:MM:SS' o 'YYYY-MM-DDTHH:MM:SS' (sin zona) -> interpretarlo **como hora local**
         const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
         if (m) {
           const year = Number(m[1]);
-          const month = Number(m[2]) - 1; // months 0..11
+          const month = Number(m[2]) - 1;
           const day = Number(m[3]);
           const hour = Number(m[4]);
           const minute = Number(m[5]);
           const second = Number(m[6] ?? 0);
-          const msPart = Number((m[7] ?? '0').padEnd(3, '0')); // milliseconds if present
-          const dLocal = new Date(year, month, day, hour, minute, second, msPart); // construye en hora local
+          const msPart = Number((m[7] ?? '0').padEnd(3, '0'));
+          const dLocal = new Date(year, month, day, hour, minute, second, msPart);
           if (!Number.isNaN(dLocal.getTime())) return dLocal;
         }
 
-        // 4) fallback: intentar new Date(raw) (acepta varios formatos en engines modernos)
         try {
           const d2 = new Date(raw);
           if (!Number.isNaN(d2.getTime())) return d2;
         } catch (e) { /* noop */ }
 
-        // 5) último recurso: intentar agregar 'Z' (interpreta como UTC)
         try {
           const tUtc = raw.replace(' ', 'T') + 'Z';
           const d3 = new Date(tUtc);
@@ -276,7 +268,6 @@ export default function ProfileScreen({ navigation }) {
     }
     return null;
   }
-  // ---------- FIN parseApiDate ----------
 
   function buildNotificationText({ branch, amount, date, saleId }) {
     const parsed = parseApiDate(date);
@@ -286,6 +277,8 @@ export default function ProfileScreen({ navigation }) {
 
   async function fetchTodayNotificationsOnce() {
     try {
+      await ensureToken();
+
       const email = emailRef.current ?? await AsyncStorage.getItem('user_email');
       if (!email) return;
       emailRef.current = email;
@@ -594,8 +587,6 @@ export default function ProfileScreen({ navigation }) {
     return false;
   }
 
-  // IMPORTANTE: ahora sí intenta completar nombre/logo del restaurante y sucursal
-  // usando restaurante_id + sucursal_id del payload o del caché.
   function cleanName(v) {
     const s = String(v ?? '').trim();
     if (!s) return '';
@@ -606,6 +597,8 @@ export default function ProfileScreen({ navigation }) {
   async function enrichVisitWithBranchLogo(visit, fallbackMeta = {}) {
     try {
       if (!visit) return visit;
+
+      await ensureToken();
 
       const restauranteId = visit?.restaurante_id ?? visit?.restaurant_id ?? visit?.restauranteId ?? visit?.restaurantId ?? fallbackMeta?.restauranteId ?? fallbackMeta?.restaurantId ?? null;
       const sucursalId = visit?.sucursal_id ?? visit?.branch_id ?? visit?.sucursalId ?? visit?.branchId ?? fallbackMeta?.sucursalId ?? fallbackMeta?.branchId ?? null;
@@ -720,11 +713,6 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
-  // HANDLE incoming notification:
-  // 1) try cache -> navigate ExperiencesDetails with cached visit
-  // 2) else build candidate from payload fields we actually have and navigate ExperiencesDetails with it
-  // 3) if not enough info but saleId+branchId exist, try open Experiences screen with params so it can reload
-  // 4) fallback to SaleDetail only if nothing else possible
   async function handleIncomingNotification(payload) {
     try {
       if (!payload) {
@@ -732,7 +720,6 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
       const data = payload.data ?? payload;
-      // try many possible keys for saleId/branchId (some payloads you showed use weird keys)
       const saleId = data?.saleId ?? data?.venta_id ?? data?.sale_id ?? data?.sale ?? data?.venta ?? data?.saleld ?? data?.saleld ?? null;
       const branchId = data?.branchId ?? data?.sucursal_id ?? data?.sucursal ?? data?.branch_id ?? data?.branch ?? data?.branchld ?? data?.branchld ?? null;
       const restaurantId = data?.restaurante_id ?? data?.restaurant_id ?? data?.restauranteId ?? data?.restaurantId ?? null;
@@ -742,7 +729,6 @@ export default function ProfileScreen({ navigation }) {
         try { await markNotificationAsRead(notifId); } catch (e) { /**/ }
       }
 
-      // 1) buscar en cache local
       try {
         const cached = await loadCachedVisits();
         const found = findVisitBySaleBranchLocal(cached, saleId, branchId);
@@ -761,8 +747,6 @@ export default function ProfileScreen({ navigation }) {
         console.warn('error buscando visita en cache local', e);
       }
 
-      // 2) Build candidate from payload fields we *do* have (no network calls)
-      // Use sensible fallbacks: amount, branch name, possible image fields, date, items/pagos if present
       const maybeAmount = data?.amount ?? data?.monto ?? data?.precio ?? data?.subtotal ?? data?.monto_total ?? null;
       const maybeBranchName = data?.branchName ?? data?.nombre_sucursal ?? data?.branch ?? data?.branch_name ?? data?.nombre ?? null;
       const maybeRestaurantName = data?.restaurantName ?? data?.nombre_restaurante ?? data?.restaurante ?? null;
@@ -794,11 +778,9 @@ export default function ProfileScreen({ navigation }) {
           moneda: data?.currency ?? data?.moneda ?? 'MXN',
           items: Array.isArray(data?.items) ? data.items : (Array.isArray(data?.items_consumidos) ? data.items_consumidos : []),
           pagos: Array.isArray(data?.pagos) ? data.pagos : [],
-          // allow whatever extra fields are in payload for ExperiencesDetails to use
           __raw_notification: data,
         };
 
-        // Completar nombre/logo desde API de restaurantes/sucursales cuando haga falta
         const candidateReady = await enrichVisitWithBranchLogo(candidate, {
           restaurantId,
           branchId,
@@ -811,7 +793,6 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
 
-      // 3) If we have saleId+branchId but no payload extras, try to signal Experiences to reload by opening it with params
       try {
         if (saleId && branchId) {
           setShowNotifications(false);
@@ -822,7 +803,6 @@ export default function ProfileScreen({ navigation }) {
         console.warn('navigate to Experiences failed', e);
       }
 
-      // 4) fallback: SaleDetail only if we at least have saleId+branchId
       if (saleId && branchId) {
         setShowNotifications(false);
         navigation.navigate('SaleDetail', { saleId: String(saleId), branchId: String(branchId), branchName: data?.branch ?? data?.nombre_sucursal ?? '' });
@@ -850,6 +830,8 @@ export default function ProfileScreen({ navigation }) {
 
   const loadProfileFromApi = async () => {
     try {
+      await ensureToken();
+
       setProfileLoading(true);
       const email = await AsyncStorage.getItem('user_email');
       if (!email) {
@@ -920,6 +902,8 @@ export default function ProfileScreen({ navigation }) {
 
   const uploadProfilePhoto = async (asset) => {
     try {
+      await ensureToken();
+
       setUploading(true);
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
       if (!uid) {
@@ -1004,6 +988,8 @@ export default function ProfileScreen({ navigation }) {
 
   const removeProfilePhoto = async () => {
     try {
+      await ensureToken();
+
       setUploading(true);
 
       const uid = await AsyncStorage.getItem('user_usuario_app_id');

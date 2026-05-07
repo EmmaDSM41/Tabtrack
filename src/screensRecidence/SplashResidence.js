@@ -11,11 +11,11 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const SPLASH_DURATION_MS = 6500;
 
 const DEFAULT_API_BASE = 'https://api.tab-track.com';
-const DEFAULT_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78';               
 
 let FastImage = null;
 try {
@@ -143,6 +143,9 @@ export default function SplashResidence() {
   const fetchUserFromApi = async (mail) => {
     try {
       if (!mail) return null;
+
+      await ensureToken();
+
       let base = getApiHost();
       if (Platform.OS === 'android' && base.includes('127.0.0.1')) {
         base = base.replace('127.0.0.1', '10.0.2.2');
@@ -150,9 +153,8 @@ export default function SplashResidence() {
       const url = `${base}/api/mobileapp/usuarios?mail=${encodeURIComponent(mail)}&presign_ttl=30`;
       console.warn('Splash fetch ->', url);
 
-      const token = DEFAULT_API_TOKEN;
       const headers = { Accept: 'application/json' };
-      if (token && token.length > 0) headers.Authorization = `Bearer ${token}`;
+      if (TOKEN && String(TOKEN).trim()) headers.Authorization = `Bearer ${TOKEN}`;
 
       const res = await fetch(url, { method: 'GET', headers });
       if (!res.ok) {

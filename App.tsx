@@ -1,7 +1,11 @@
 // App.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+// Token manager
+import { ensureToken } from './src/auth/tokenManager';
 
 // Pantallas sin barra (Auth)
 import SplashScreen from './src/screens/SplashScreen';
@@ -36,8 +40,31 @@ const linking = {
   },
 };
 
-
 export default function App() {
+  useEffect(() => {
+    const validateToken = async () => {
+      try {
+        await ensureToken();
+      } catch (error) {
+        console.log('Error asegurando token:', error);
+      }
+    };
+
+    // Al abrir la app
+    validateToken();
+
+    // Cuando la app regresa al frente
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        validateToken();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   return (
     <NavigationContainer linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -55,7 +82,6 @@ export default function App() {
         <Stack.Screen name="Recent" component={RecentAccounts} />
         <Stack.Screen name="QuickLogin" component={QuickLogin} />
         <Stack.Screen name="SelectDefaultHome" component={SelectDefaultHome} />
-        
 
         <Stack.Screen name="CodeResidence" component={CodeResidence} />
         <Stack.Screen name="SplashResidence" component={SplashResidence} />

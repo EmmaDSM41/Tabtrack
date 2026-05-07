@@ -27,9 +27,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
-const API_TOKEN_FALLBACK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc3NTUxMjcwNSwianRpIjoiNzA1NjU2YjgtZGFiZS00M2NlLTk2MjUtZmE5ODdmY2FiY2ZiIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3NzU1MTI3MDUsImV4cCI6MTc3ODEwNDcwNSwicm9sIjoiRWRpdG9yIn0.03LJs1TRZzehSXSh5Cdez2e5NFSrANijsS4H6gUjm78'; 
 
 const STORAGE_KEYS = {
   API_HOST: 'api_host',
@@ -102,8 +102,9 @@ const resolveApiHost = async (raw) => {
 };
 
 const buildHeaders = async () => {
+  await ensureToken();
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-  if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+  if (TOKEN && String(TOKEN).trim()) headers.Authorization = `Bearer ${TOKEN}`;
   return headers;
 };
 
@@ -127,8 +128,10 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
     let loopAnim;
     if (active) {
       loopAnim = Animated.loop(
-        Animated.sequence([ Animated.timing(scale, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-                            Animated.timing(scale, { toValue: 1.0, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }) ])
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 1.0, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
+        ])
       );
       loopAnim.start();
     } else {
@@ -223,7 +226,7 @@ export default function QrResidence({ navigation }) {
   const [deptHistoryLoading, setDeptHistoryLoading] = useState(false);
   const [deptIdStored, setDeptIdStored] = useState(null);
 
-  const [scanTarget, setScanTarget] = useState(null); 
+  const [scanTarget, setScanTarget] = useState(null);
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
 
@@ -236,17 +239,14 @@ export default function QrResidence({ navigation }) {
   const gradientInnerPad = Math.round(Math.max(12, width * 0.04));
   const gradientSeparation = -5;
 
-  // base holeTop (antes de reajustar)
   const holeGap = clamp(rf(45), 45, 90);
   const holeTopBase = headerHeight + gradientCardHeight + holeGap;
 
-  // QR target size (un poco más pequeño que antes para evitar amontonar)
   const qrSizeRequested = Math.min(Math.round(width * 0.60), clamp(420, 180, 460));
 
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
 
-  // LOGO: más presencia
   const logoMaxWidth = Math.round(Math.min(300, width * 0.62));
   const desiredLogoWidth = Math.min(logoMaxWidth, Math.round(qrSizeRequested * 0.62));
   const desiredLogoHeight = Math.round(desiredLogoWidth * 0.55);
@@ -298,7 +298,7 @@ export default function QrResidence({ navigation }) {
       setScannerActive(true);
       setAllowScan(false);
       setAllowScanForStatus(false);
-      setScanTarget(null); 
+      setScanTarget(null);
       setTimeout(() => {
         try {
           if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
@@ -342,7 +342,7 @@ export default function QrResidence({ navigation }) {
     setScannerActive(false);
 
     const raw = e?.data ?? '';
-    const qr = extractTokenFromRaw(raw); 
+    const qr = extractTokenFromRaw(raw);
 
     if (!qr) {
       setStatusResult({ ok: false, message: 'No se encontró un token válido en el QR.' });
@@ -480,10 +480,12 @@ export default function QrResidence({ navigation }) {
         return;
       }
 
+      await ensureToken();
+
       const now = new Date();
       const periodo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      const tzOffset = -360; 
+      const tzOffset = -360;
 
       const baseHost = API_BASE_FALLBACK.replace(/\/$/, '');
 
@@ -491,7 +493,7 @@ export default function QrResidence({ navigation }) {
       const url = `${baseHost}${path}`;
 
       const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-      if (API_TOKEN_FALLBACK && String(API_TOKEN_FALLBACK).trim()) headers.Authorization = `Bearer ${API_TOKEN_FALLBACK}`;
+      if (TOKEN && String(TOKEN).trim()) headers.Authorization = `Bearer ${TOKEN}`;
 
       console.log('[dept-history] consultando URL:', url);
 
@@ -559,7 +561,6 @@ export default function QrResidence({ navigation }) {
     );
   }
 
-  // formato con comas
   const formatNumberWithCommas = (v) => {
     const num = Number(v) || 0;
     const parts = num.toFixed(2).split('.');
@@ -602,13 +603,11 @@ export default function QrResidence({ navigation }) {
   const availableTextColor = deptHistoryLoading ? '#fff' : (availableIsNegative ? '#FF3B30' : '#fff');
   const utilizationDisplay = deptHistoryLoading ? '…' : `${utilization}%`;
 
-  // ------------------ New layout logic (overlay + logo + hole + buttons) ------------------
   const gradientBottom = insets.top + headerHeight + gradientSeparation + gradientCardHeight;
-  const preferredGap = Math.round(Math.max(18, width * 0.06)); // separación mayor entre degradado y logo
-  const innerGap = Math.round(Math.max(10, width * 0.03)); // separación mínima entre logo y hole
+  const preferredGap = Math.round(Math.max(18, width * 0.06));
+  const innerGap = Math.round(Math.max(10, width * 0.03));
   const logoTopDefault = gradientBottom + preferredGap;
 
-  // calcular tamaño del logo (intentar desired, si no reducir)
   let computedLogoHeight = desiredLogoHeight;
   let computedLogoWidth = desiredLogoWidth;
 
@@ -628,60 +627,45 @@ export default function QrResidence({ navigation }) {
 
   let computedLogoTop = logoTopDefault;
 
-  // Sitio que queremos entre logo y el hueco
   const gapLogoToHoleDesired = Math.round(Math.max(14, width * 0.04));
   const logoBottom = computedLogoTop + computedLogoHeight;
 
-  // Inicial dynamicHoleTop (si el logo requiere empujar)
   let dynamicHoleTop = holeTopBase;
   if (logoBottom + gapLogoToHoleDesired >= holeTopBase) {
     dynamicHoleTop = logoBottom + gapLogoToHoleDesired;
   }
 
-  // Ahora calculamos si hay espacio para el QR y los botones; si no, reducimos QR y/o logo.
-  const gapButtonsBelowHole = Math.round(Math.max(14, width * 0.06)); // espacio entre hole y botones
-  // altura reservada aproximada para botones + padding
+  const gapButtonsBelowHole = Math.round(Math.max(14, width * 0.06));
   const reservedForButtons = insets.bottom + 140;
 
-  // máximo tamaño vertical disponible para el QR: desde dynamicHoleTop hasta height - reservedForButtons
   const maxQrVerticalSpace = Math.max(140, height - dynamicHoleTop - reservedForButtons);
-  // final QR size ajustado para caber
   let finalQrSize = Math.min(qrSizeRequested, maxQrVerticalSpace);
-  finalQrSize = Math.max(140, finalQrSize); // no demasiado pequeño
+  finalQrSize = Math.max(140, finalQrSize);
 
-  // si tuvimos que reducir mucho el QR, intentar reducir también levemente el logo (evitar solape)
   if (finalQrSize < qrSizeRequested && computedLogoHeight > minLogoHeight) {
     const reduceLogoBy = Math.min(Math.round((qrSizeRequested - finalQrSize) * 0.28), Math.round(computedLogoHeight * 0.35));
     if (reduceLogoBy > 0) {
       computedLogoHeight = Math.max(minLogoHeight, computedLogoHeight - reduceLogoBy);
       computedLogoWidth = Math.max(40, Math.round(computedLogoHeight / 0.55));
-      // recompute logoBottom and dynamicHoleTop
       const newLogoBottom = computedLogoTop + computedLogoHeight;
       dynamicHoleTop = Math.max(holeTopBase, newLogoBottom + gapLogoToHoleDesired);
     }
   }
 
-  // recompute holeLeft para centrar con finalQrSize
   const holeLeft = Math.round((width - finalQrSize) / 2);
 
-  // corner and thickness based on finalQrSize
   const cornerArc = clamp(Math.round(finalQrSize * 0.18), 30, 96);
   const cornerThickness = Math.max(6, Math.round((width / 375) * 8));
   const cornerOuterRadius = Math.round(Math.min(finalQrSize, 320) * 0.06);
 
-  // position buttons container under the hole
   const buttonsTop = dynamicHoleTop + finalQrSize + gapButtonsBelowHole;
 
-  // small safety: if buttons would go off screen, push them up a little or reduce qr (very rare now)
   const buttonsBottomOverflow = (buttonsTop + 140) - (height - insets.bottom);
   if (buttonsBottomOverflow > 0) {
-    // reduce finalQrSize to create espacio
     finalQrSize = Math.max(140, finalQrSize - Math.min(80, buttonsBottomOverflow + 10));
   }
 
-  // ------------------ END layout logic ------------------
-
-  const bottomButtonsOffset = insets.bottom + 44; // fallback if needed
+  const bottomButtonsOffset = insets.bottom + 44;
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: 'transparent', paddingTop: insets.top }} edges={['left','right','top']}>
@@ -715,22 +699,13 @@ export default function QrResidence({ navigation }) {
           />
         )}
 
-        {/* DRAW MASK: top, left, right, bottom overlays — de forma absoluta y consistente */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
-          {/* top overlay (desde top hasta dynamicHoleTop) */}
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: dynamicHoleTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
-
-          {/* left overlay (lado izquierdo del hole) */}
           <View style={{ position: 'absolute', top: dynamicHoleTop, left: 0, width: holeLeft, height: finalQrSize, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
-
-          {/* right overlay (lado derecho del hole) */}
           <View style={{ position: 'absolute', top: dynamicHoleTop, left: holeLeft + finalQrSize, right: 0, height: finalQrSize, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
-
-          {/* bottom overlay */}
           <View style={{ position: 'absolute', top: dynamicHoleTop + finalQrSize, left: 0, right: 0, bottom: 0, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }} />
         </View>
 
-        {/* Logo: absolutamente posicionado (entre degradado y hole) */}
         <View style={{
           position: 'absolute',
           top: computedLogoTop,
@@ -755,9 +730,7 @@ export default function QrResidence({ navigation }) {
           />
         </View>
 
-        {/* HOLE: absolutamente posicionado (top/dynamicHoleTop, left/holeLeft) */}
         <View style={{ position: 'absolute', top: dynamicHoleTop, left: holeLeft, width: finalQrSize, height: finalQrSize, alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
-          {/* inner pale panel */}
           <View style={{
             position: 'absolute',
             width: finalQrSize - 8,
@@ -767,14 +740,12 @@ export default function QrResidence({ navigation }) {
             zIndex: 71,
           }} />
 
-          {/* corner accents */}
           <View style={{ position: 'absolute', top: 0, left: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderTopLeftRadius: cornerOuterRadius, zIndex: 72 }} />
           <View style={{ position: 'absolute', top: 0, right: 0, width: cornerArc, height: cornerArc, borderTopWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderTopRightRadius: cornerOuterRadius, zIndex: 72 }} />
           <View style={{ position: 'absolute', bottom: 0, left: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderLeftWidth: cornerThickness, borderColor: '#fff', borderBottomLeftRadius: cornerOuterRadius, zIndex: 72 }} />
           <View style={{ position: 'absolute', bottom: 0, right: 0, width: cornerArc, height: cornerArc, borderBottomWidth: cornerThickness, borderRightWidth: cornerThickness, borderColor: '#fff', borderBottomRightRadius: cornerOuterRadius, zIndex: 72 }} />
         </View>
 
-        {/* Botones: posicionados debajo del HOLE (TOP controlado para que no queden pegados) */}
         <View pointerEvents="box-none" style={{ position: 'absolute', top: buttonsTop, left: 0, right: 0, alignItems: 'center', zIndex: 80 }}>
           <TouchableOpacity activeOpacity={1} onPress={() => startManualScan('Cuenta')} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
             <View style={styles.actionContent}>
@@ -798,7 +769,6 @@ export default function QrResidence({ navigation }) {
         </View>
       </View>
 
-      {/* Header (sin cambios funcionales) */}
       <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
         <TouchableOpacity onPress={openWhatsApp} style={styles.iconBtn} activeOpacity={0.8}>
           <MaterialCommunityIcons name="face-agent" size={rf(22)} color="#ffffff" />
@@ -811,7 +781,6 @@ export default function QrResidence({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Degradado (card) */}
       <View
         pointerEvents="box-none"
         style={{
@@ -860,7 +829,7 @@ export default function QrResidence({ navigation }) {
         onClose={hideStatusModal}
         onScan={() => {
           hideStatusModal();
-          if (statusQr) navigation.navigate('Escanear', { qr: statusQr }); 
+          if (statusQr) navigation.navigate('Escanear', { qr: statusQr });
         }}
         headerHeight={headerHeight}
       />
