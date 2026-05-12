@@ -16,8 +16,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ensureToken } from '../auth/tokenManager';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 
@@ -126,8 +125,8 @@ export default function ResetPasswordCodeScreen() {
   const getStoredToken = async () => {
     try {
       await ensureToken();
-      const token = await AsyncStorage.getItem('api_token');
-      return token ? String(token).trim() : '';
+      const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : '';
+      return token;
     } catch (err) {
       console.warn('ResetPasswordCodeScreen token error:', err);
       return '';

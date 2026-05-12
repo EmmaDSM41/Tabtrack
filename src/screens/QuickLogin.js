@@ -19,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ensureToken } from '../auth/tokenManager';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST = 'https://api.tab-track.com';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
@@ -67,8 +67,8 @@ export default function QuickLoginScreen() {
   const getStoredToken = async () => {
     try {
       await ensureToken();
-      const stored = await AsyncStorage.getItem('api_token');
-      return stored ? String(stored).trim() : '';
+      const stored = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : '';
+      return stored;
     } catch (err) {
       console.warn('QuickLogin getStoredToken error', err);
       return '';

@@ -17,7 +17,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ensureToken } from '../auth/tokenManager';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 
@@ -111,8 +111,8 @@ export default function SendEmail() {
   const getStoredToken = async () => {
     try {
       await ensureToken();
-      const stored = await AsyncStorage.getItem('api_token');
-      return stored ? String(stored).trim() : '';
+      const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : '';
+      return token;
     } catch (err) {
       console.warn('SendEmail token error:', err);
       return '';

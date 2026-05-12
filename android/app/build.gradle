@@ -27,8 +27,8 @@ android {
         applicationId "com.tabtrack"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.9"
+        versionCode 16
+        versionName "2.5"
         missingDimensionStrategy 'react-native-camera', 'general'
         multiDexEnabled true
     }
