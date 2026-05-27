@@ -1122,7 +1122,8 @@ export default function ProfileScreen({ navigation }) {
           'user_valid',
           'user_fullname',
           'user_profile_url',
-          'user_default_home'
+          'user_default_home',
+          'user_environment'
         ]);
       } catch (e) {
         console.warn('Error removing persistent auth keys on logout', e);

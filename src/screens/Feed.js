@@ -35,9 +35,15 @@ const API_URL_2 = 'https://api.tab-track.com/api/encuestas';
 const SURVEY_ID = '8916180a-95fd-46af-bde4-60635cc7e1ab';
 const FAVORITES_OBJS_KEY = 'favorites_objs';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
+const USER_ENVIRONMENT_KEY = 'user_environment';
 
 const STAR_COLOR = '#ffbf00';
 const BLUE = '#0046ff';
+
+const normalizeEnvironment = (value) => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().toLowerCase();
+};
 
 const getAuthHeaders = (extra = {}) => {
   const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
@@ -56,6 +62,7 @@ const getUserIdentifier = async () => {
     return 'guest';
   }
 };
+
 const userFavoritesObjsKey = async () => `favorites_objs_${await getUserIdentifier()}`;
 
 /* ------------------ Responsive helper (no deps) ------------------ */
@@ -100,7 +107,6 @@ const parsePriceRange = (raw) => {
 };
 
 /* ------------------ Permisos / Geolocalización ------------------ */
-/* Reutilicé la misma lógica que usas en GPSScreen */
 async function hasLocationPermission() {
   try {
     if (Platform.OS === 'android') {
@@ -120,10 +126,11 @@ async function hasLocationPermission() {
 /* Haversine — distancia en km entre dos coordenadas */
 function haversineKm(lat1, lon1, lat2, lon2) {
   const toRad = (v) => (v * Math.PI) / 180;
-  const R = 6371; // km
+  const R = 6371;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
@@ -251,6 +258,7 @@ export default function RestaurantsScreen() {
   const [filteredData, setFilteredData] = useState([]);
   const [cities, setCities] = useState(['Todos']);
   const [favorites, setFavorites] = useState([]);
+  const [environment, setEnvironment] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [minRating, setMinRating] = useState(0);
@@ -307,14 +315,21 @@ export default function RestaurantsScreen() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => runHideToast(), 3500);
   };
+
   const runHideToast = () => {
     Animated.timing(toastAnim, {
       toValue: 0,
       duration: 220,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
-    }).start(() => { setToastVisible(false); setToastMessage(''); });
-    if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); toastTimerRef.current = null; }
+    }).start(() => {
+      setToastVisible(false);
+      setToastMessage('');
+    });
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
   };
 
   const requestLocationAndActivate = async () => {
@@ -363,38 +378,86 @@ export default function RestaurantsScreen() {
 
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       try {
         setLoading(true);
-
         await ensureToken();
 
+        const rawEnvironment = await AsyncStorage.getItem(USER_ENVIRONMENT_KEY);
+        const normalizedEnvironment = normalizeEnvironment(rawEnvironment);
+        setEnvironment(normalizedEnvironment);
+
+        console.warn('[RestaurantsScreen] user_environment desde AsyncStorage:', {
+          rawEnvironment,
+          normalizedEnvironment,
+        });
+
         const list = await fetchAllRestaurants();
+        console.warn('[RestaurantsScreen] restaurantes recibidos desde API:', Array.isArray(list) ? list.length : list);
+
         if (!Array.isArray(list)) {
-          console.warn('fetchAllRestaurants returned non-array', list);
+          console.warn('[RestaurantsScreen] fetchAllRestaurants no devolvió un array:', list);
         }
         if (!mounted) return;
 
+        const allRestaurants = Array.isArray(list) ? list : [];
+
         const restNameMap = {};
-        const restDetailPromises = list.map(async (rest) => {
+        const restEnvironmentMap = {};
+
+        const restDetailPromises = allRestaurants.map(async (rest) => {
           try {
-            if (!rest || (rest.id === undefined || rest.id === null)) return;
+            if (!rest || rest.id === undefined || rest.id === null) return;
+
             await ensureToken();
             const restUrl = `${API_URL.replace(/\/$/, '')}/${encodeURIComponent(rest.id)}`;
             const rr = await fetch(restUrl, {
               headers: getAuthHeaders(),
             });
-            if (!rr.ok) return;
-            const rjson = await rr.json();
-            const nombre = rjson?.nombre ?? rjson?.name ?? null;
+
+            if (!rr.ok) {
+              console.warn('[RestaurantsScreen] detalle de restaurante falló:', {
+                id: rest.id,
+                status: rr.status,
+              });
+              return;
+            }
+
+            const rjson = await rr.json().catch(() => null);
+
+            const nombre = rjson?.nombre ?? rjson?.name ?? rest?.nombre ?? rest?.name ?? null;
             if (nombre) restNameMap[String(rest.id)] = String(nombre);
-          } catch (e) { console.warn('Error fetching restaurant detail for id', rest?.id, e); }
+
+            const restEnv = normalizeEnvironment(
+              rjson?.environment ??
+              rest?.environment ??
+              rest?.raw?.environment ??
+              rest?.environment_type ??
+              ''
+            );
+
+            if (restEnv) {
+              restEnvironmentMap[String(rest.id)] = restEnv;
+            } else {
+              console.warn('[RestaurantsScreen] restaurante sin environment detectable:', {
+                id: rest?.id,
+                nombre: nombre || rest?.nombre || rest?.name,
+                apiListEnvironment: rest?.environment,
+                detailEnvironment: rjson?.environment,
+              });
+            }
+          } catch (e) {
+            console.warn('[RestaurantsScreen] Error fetching restaurant detail for id:', rest?.id, e);
+          }
         });
+
         await Promise.allSettled(restDetailPromises);
 
-        const branchPromises = list.map(async (rest) => {
+        const branchPromises = allRestaurants.map(async (rest) => {
           try {
-            if (!rest || (rest.id === undefined || rest.id === null)) return [];
+            if (!rest || rest.id === undefined || rest.id === null) return [];
+
             await ensureToken();
             const url = `${API_URL.replace(/\/$/, '')}/${encodeURIComponent(rest.id)}/sucursales`;
             const r = await fetch(url, {
@@ -402,12 +465,18 @@ export default function RestaurantsScreen() {
             });
 
             if (!r.ok) {
-              console.warn(`sucursales request failed for rest ${rest.id} status ${r.status}`);
+              console.warn(`[RestaurantsScreen] sucursales request failed para rest ${rest.id}`, {
+                status: r.status,
+                url,
+              });
               return [];
             }
 
             const j = await r.json().catch(() => null);
-            if (!j) return [];
+            if (!j) {
+              console.warn('[RestaurantsScreen] respuesta vacía en sucursales para rest:', rest.id);
+              return [];
+            }
 
             let branches = [];
             if (Array.isArray(j.sucursales)) branches = j.sucursales;
@@ -419,8 +488,16 @@ export default function RestaurantsScreen() {
             else branches = [];
 
             if (!branches || branches.length === 0) {
+              console.warn('[RestaurantsScreen] sin sucursales para restaurant:', rest.id);
               return [];
             }
+
+            const parentEnv = normalizeEnvironment(
+              restEnvironmentMap[String(rest.id)] ??
+              rest?.environment ??
+              rest?.raw?.environment ??
+              ''
+            );
 
             const mappedPromises = branches.map(async (b) => {
               const rangoRaw = b.rango_precios ?? b.price_range ?? b.price_range_raw ?? null;
@@ -435,9 +512,6 @@ export default function RestaurantsScreen() {
               } else if (parsedRange) {
                 priceMin = parsedRange.min;
                 priceMax = parsedRange.max;
-              } else {
-                priceMin = null;
-                priceMax = null;
               }
 
               const tipo_comida_raw = b.tipo_comida ?? b.tipo ?? b.category ?? b.cuisine ?? '';
@@ -478,22 +552,38 @@ export default function RestaurantsScreen() {
                 url_tiktok: b.url_tiktok ?? b.tiktok ?? null,
                 url_whatsapp: b.url_whatsapp ?? b.whatsapp ?? null,
                 url_opentable: url_opentable,
+                environment: parentEnv,
                 raw: b,
               };
 
+              const itemEnv = normalizeEnvironment(mapped.environment);
+
+              if (normalizedEnvironment && itemEnv && itemEnv !== normalizedEnvironment) {
+                console.warn('[RestaurantsScreen] sucursal con environment distinto al esperado:', {
+                  restaurantId: rest.id,
+                  branchId: mapped.id,
+                  branchName: mapped.name,
+                  itemEnv,
+                  expected: normalizedEnvironment,
+                });
+              }
+
               try {
                 const mostrarFlag =
-                  !!(b.mostrar_rating === true ||
+                  !!(
+                    b.mostrar_rating === true ||
                     (b.mostrar_rating && String(b.mostrar_rating).toLowerCase() === 'true') ||
                     (mapped.raw && (mapped.raw.mostrar_rating === true || (String(mapped.raw.mostrar_rating || '').toLowerCase() === 'true'))) ||
                     mapped.mostrar_rating === true ||
-                    (mapped.mostrar_rating && String(mapped.mostrar_rating).toLowerCase() === 'true'));
+                    (mapped.mostrar_rating && String(mapped.mostrar_rating).toLowerCase() === 'true')
+                  );
+
                 if (mostrarFlag) {
                   const surveyAvg = await fetchSurveyAvgForSucursal(mapped.id);
                   mapped.avg_rating = surveyAvg;
                 }
               } catch (e) {
-                console.warn('Error calculando surveyAvg para sucursal', b.id, e);
+                console.warn('[RestaurantsScreen] Error calculando surveyAvg para sucursal:', b.id, e);
               }
 
               return mapped;
@@ -503,7 +593,7 @@ export default function RestaurantsScreen() {
             const values = resolved.filter(s => s.status === 'fulfilled').map(s => s.value);
             return values;
           } catch (err) {
-            console.warn('Error fetching branches for restaurant', rest.id, err);
+            console.warn('[RestaurantsScreen] Error fetching branches for restaurant:', rest.id, err);
             return [];
           }
         });
@@ -514,23 +604,63 @@ export default function RestaurantsScreen() {
           .map(s => s.value)
           .flat();
 
+        console.warn('[RestaurantsScreen] sucursales total antes de filtrar environment:', branchesArrays.length);
+
+        const filteredByEnvironment = branchesArrays.filter((item) => {
+          if (!normalizedEnvironment) return true;
+
+          const itemEnv = normalizeEnvironment(
+            item?.environment ??
+            item?.raw?.environment ??
+            ''
+          );
+
+          const ok = itemEnv === normalizedEnvironment;
+
+          if (!ok) {
+            console.warn('[RestaurantsScreen] sucursal descartada por environment:', {
+              id: item?.id,
+              name: item?.name,
+              itemEnv,
+              expected: normalizedEnvironment,
+            });
+          }
+
+          return ok;
+        });
+
+        console.warn('[RestaurantsScreen] sucursales después del filtro environment:', filteredByEnvironment.length);
+
+        if (normalizedEnvironment && allRestaurants.length > 0 && filteredByEnvironment.length === 0) {
+          console.warn('[RestaurantsScreen] No quedó ninguna sucursal visible. Revisa:', {
+            asyncEnvironment: rawEnvironment,
+            normalizedEnvironment,
+            restaurantsReceived: allRestaurants.length,
+            restaurantsWithEnvSample: allRestaurants.slice(0, 5).map(r => ({
+              id: r?.id,
+              nombre: r?.nombre ?? r?.name,
+              environment: r?.environment,
+            })),
+          });
+        }
+
         if (!mounted) return;
 
-        setRestaurants(branchesArrays);
-        setFilteredData(branchesArrays);
+        setRestaurants(filteredByEnvironment);
+        setFilteredData(filteredByEnvironment);
 
-        const uniqueCitiesFromApi = Array.from(new Set(branchesArrays.map(i => i.city).filter(Boolean)));
+        const uniqueCitiesFromApi = Array.from(new Set(filteredByEnvironment.map(i => i.city).filter(Boolean)));
         const sampleCities = ['Ciudad de México', 'Polanco', 'Roma'];
         const mergedCities = Array.from(new Set(['Todos', ...sampleCities, ...uniqueCitiesFromApi]));
         setCities(mergedCities);
       } catch (err) {
-        console.warn('Error al cargar restaurantes/sucursales:', err);
+        console.warn('[RestaurantsScreen] Error al cargar restaurantes/sucursales:', err);
       } finally {
         if (mounted) setLoading(false);
       }
     })();
 
-    return () => { /* cleanup */ };
+    return () => { };
   }, []);
 
   const loadFavoritesFromStorage = async () => {
@@ -543,7 +673,12 @@ export default function RestaurantsScreen() {
         const globalObjs = globalRaw ? JSON.parse(globalRaw) : [];
         if (Array.isArray(globalObjs) && globalObjs.length > 0) objs = globalObjs;
       }
-      setFavorites(Array.isArray(objs) ? objs : []);
+
+      const visibleOnly = Array.isArray(objs)
+        ? objs.filter(f => restaurants.some(r => String(r.id) === String(f.id)))
+        : [];
+
+      setFavorites(visibleOnly);
     } catch (e) {
       console.warn('loadFavoritesFromStorage error', e);
     }
@@ -553,11 +688,15 @@ export default function RestaurantsScreen() {
     loadFavoritesFromStorage();
     const unsub = navigation.addListener('focus', () => loadFavoritesFromStorage());
     return unsub;
-  }, [navigation]);
+  }, [navigation, restaurants]);
 
   const applyFilters = () => {
     const q = searchQuery.trim().toLowerCase();
+
     const filtered = restaurants.filter(item => {
+      const itemEnv = normalizeEnvironment(item?.environment ?? item?.raw?.environment ?? '');
+      const matchEnvironment = !environment || itemEnv === environment;
+
       const matchSearch = q.length === 0 || (item.name || '').toLowerCase().includes(q);
       const matchRating = (item.avg_rating ?? 0) >= minRating;
       const matchCity = city === 'Todos' || (item.city ?? '').toString() === city;
@@ -571,6 +710,7 @@ export default function RestaurantsScreen() {
           (item.raw?.tipo_comida ?? ''),
           (item.tipo_comida_raw ?? '')
         ].filter(Boolean);
+
         const cuisineField = cuisineFieldParts.join(',').toString().toLowerCase();
         const needle = cuisine.toString().toLowerCase();
         matchCuisine = cuisineField.includes(needle) || (item.name ?? '').toLowerCase().includes(needle);
@@ -579,6 +719,7 @@ export default function RestaurantsScreen() {
       let matchPrice = true;
       let pMin = null;
       let pMax = null;
+
       if (item.price_min != null && item.price_max != null && Number.isFinite(Number(item.price_min)) && Number.isFinite(Number(item.price_max))) {
         pMin = Number(item.price_min);
         pMax = Number(item.price_max);
@@ -613,6 +754,7 @@ export default function RestaurantsScreen() {
           const lonA = Number(userLocation.longitude);
           const latB = Number(item.latitude ?? item.latitud ?? item.raw?.latitud ?? item.raw?.latitude ?? 0);
           const lonB = Number(item.longitude ?? item.longitud ?? item.raw?.longitud ?? item.raw?.longitude ?? 0);
+
           if (!isFinite(latB) || !isFinite(lonB) || (latB === 0 && lonB === 0)) {
             matchLocation = false;
           } else {
@@ -622,7 +764,7 @@ export default function RestaurantsScreen() {
         }
       }
 
-      return matchSearch && matchRating && matchCity && matchCuisine && matchPrice && matchLocation;
+      return matchEnvironment && matchSearch && matchRating && matchCity && matchCuisine && matchPrice && matchLocation;
     });
 
     setFilteredData(filtered);
@@ -631,7 +773,7 @@ export default function RestaurantsScreen() {
   useEffect(() => {
     applyFilters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, minRating, city, restaurants, cuisine, minPrice, maxPrice, useLocation, userLocation, searchRadiusKm]);
+  }, [searchQuery, minRating, city, restaurants, cuisine, minPrice, maxPrice, useLocation, userLocation, searchRadiusKm, environment]);
 
   const toggleFavorite = async (item) => {
     try {
@@ -642,22 +784,25 @@ export default function RestaurantsScreen() {
         const globalRaw = await AsyncStorage.getItem(GLOBAL_FAVORITES_OBJS_KEY);
         current = globalRaw ? JSON.parse(globalRaw) : [];
       }
+
       const sid = String(item.id);
       let updated;
+
       if (Array.isArray(current) && current.some(c => String(c.id) === sid)) {
         updated = current.filter(c => String(c.id) !== sid);
         await AsyncStorage.setItem(favObjsKey, JSON.stringify(updated));
-        setFavorites(updated);
+        setFavorites(updated.filter(f => restaurants.some(r => String(r.id) === String(f.id))));
         runShowToast('Eliminado de favoritos');
       } else {
         const toSave = {
           ...item,
           id: sid,
+          environment: item.environment ?? environment ?? null,
           _saved_at: Date.now(),
         };
         updated = [...(Array.isArray(current) ? current : []), toSave];
         await AsyncStorage.setItem(favObjsKey, JSON.stringify(updated));
-        setFavorites(updated);
+        setFavorites(updated.filter(f => restaurants.some(r => String(r.id) === String(f.id))));
         runShowToast('Agregado a favoritos');
       }
     } catch (e) {
@@ -674,6 +819,7 @@ export default function RestaurantsScreen() {
     );
   }
 
+  const visibleFavorites = favorites.filter(f => restaurants.some(r => String(r.id) === String(f.id)));
   const horizPad = Math.max(10, wp(3.5));
   const headerHeight = clamp(hp(7.5), 58, 92);
   const logoW = clamp(wp(23), 72, 140);
@@ -693,7 +839,12 @@ export default function RestaurantsScreen() {
         const globalObjs = globalRaw ? JSON.parse(globalRaw) : [];
         if (Array.isArray(globalObjs) && globalObjs.length > 0) objs = globalObjs;
       }
-      navigation.navigate('Favorites', { favorites: Array.isArray(objs) ? objs : [] });
+
+      const visibleOnly = Array.isArray(objs)
+        ? objs.filter(f => restaurants.some(r => String(r.id) === String(f.id)))
+        : [];
+
+      navigation.navigate('Favorites', { favorites: visibleOnly });
     } catch (e) {
       console.warn('openFavoritesFromHeader error', e);
       navigation.navigate('Favorites', { favorites: [] });
@@ -722,7 +873,7 @@ export default function RestaurantsScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={openFavoritesFromHeader} style={{ marginLeft: 10, padding: 6 }}>
-          <Ionicons name="heart-outline" size={iconSize + 2} color={favorites && favorites.length > 0 ? '#e0245e' : '#444'} />
+          <Ionicons name="heart-outline" size={iconSize + 2} color={visibleFavorites && visibleFavorites.length > 0 ? '#e0245e' : '#444'} />
         </TouchableOpacity>
       </View>
 
@@ -735,7 +886,7 @@ export default function RestaurantsScreen() {
             restaurant={item}
             imageSource={item.image ? { uri: item.image } : defaultImage}
             onPress={() => navigation.navigate('Restaurant', { restaurant: item, id: item.id })}
-            isFavorite={favorites.some(f => String(f.id) === String(item.id))}
+            isFavorite={visibleFavorites.some(f => String(f.id) === String(item.id))}
             onToggleFavorite={() => toggleFavorite(item)}
             cardImageH={cardImageH}
             cardRadius={cardRadius}
@@ -813,7 +964,19 @@ export default function RestaurantsScreen() {
                 <View style={styles.pickerWrapper}>
                   <ScrollView horizontal contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 6 }} showsHorizontalScrollIndicator={false}>
                     {sampleTypes.map(t => (
-                      <TouchableOpacity key={t.id} onPress={() => setCuisine(t.id)} style={{ marginRight: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: cuisine === t.id ? '#eef7ff' : '#fff', borderWidth: 1, borderColor: '#eee' }}>
+                      <TouchableOpacity
+                        key={t.id}
+                        onPress={() => setCuisine(t.id)}
+                        style={{
+                          marginRight: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          backgroundColor: cuisine === t.id ? '#eef7ff' : '#fff',
+                          borderWidth: 1,
+                          borderColor: '#eee',
+                        }}
+                      >
                         <Text style={{ color: '#333', fontWeight: cuisine === t.id ? '800' : '600' }}>{t.label}</Text>
                       </TouchableOpacity>
                     ))}
@@ -848,14 +1011,29 @@ export default function RestaurantsScreen() {
               </ScrollView>
 
               <View style={styles.modalFooter}>
-                <TouchableOpacity onPress={() => {
-                  setCity('Todos'); setMinRating(0); setCuisine('todos'); setMinPrice(0); setMaxPrice(500);
-                  setUseLocation(false); setUserLocation(null); setSearchRadiusKm(5);
-                }} style={styles.clearButton}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setCity('Todos');
+                    setMinRating(0);
+                    setCuisine('todos');
+                    setMinPrice(0);
+                    setMaxPrice(500);
+                    setUseLocation(false);
+                    setUserLocation(null);
+                    setSearchRadiusKm(5);
+                  }}
+                  style={styles.clearButton}
+                >
                   <Text style={styles.clearText}>Limpiar</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={() => { applyFilters(); setShowFilterModal(false); }} style={styles.applyButton}>
+                <TouchableOpacity
+                  onPress={() => {
+                    applyFilters();
+                    setShowFilterModal(false);
+                  }}
+                  style={styles.applyButton}
+                >
                   <Text style={styles.applyText}>Aplicar</Text>
                 </TouchableOpacity>
               </View>
@@ -874,7 +1052,8 @@ export default function RestaurantsScreen() {
               transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) }],
               opacity: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
             }
-          ]}>
+          ]}
+        >
           <View style={styles.toast}>
             <Text style={styles.toastText}>{toastMessage}</Text>
             <TouchableOpacity onPress={() => { runHideToast(); navigation.navigate('Favorites'); }}>
@@ -933,7 +1112,11 @@ function RestaurantCard({
           <Text style={styles.name} numberOfLines={1}>{mainName}</Text>
           {secondName ? <Text style={styles.name} numberOfLines={1}>{secondName}</Text> : null}
           {restaurant.city ? <Text style={styles.sub}>{restaurant.city}</Text> : null}
-          {restaurant.tipo_comida_raw ? <Text style={styles.shortDesc}>{restaurant.tipo_comida_raw}</Text> : (restaurant.short_description ? <Text style={styles.shortDesc}>{restaurant.short_description}</Text> : null)}
+          {restaurant.tipo_comida_raw ? (
+            <Text style={styles.shortDesc}>{restaurant.tipo_comida_raw}</Text>
+          ) : (
+            restaurant.short_description ? <Text style={styles.shortDesc}>{restaurant.short_description}</Text> : null
+          )}
         </View>
 
         <View style={{ justifyContent: 'center', alignItems: 'flex-end' }}>
@@ -947,7 +1130,9 @@ function RestaurantCard({
           ) : null}
 
           <View style={{ height: 8 }} />
-          <Text style={styles.price}>{restaurant.avg_price ? `${restaurant.avg_price} MXN` : (restaurant.price_range_raw ? restaurant.price_range_raw : '')}</Text>
+          <Text style={styles.price}>
+            {restaurant.avg_price ? `${restaurant.avg_price} MXN` : (restaurant.price_range_raw ? restaurant.price_range_raw : '')}
+          </Text>
           <View style={{ height: 6 }} />
         </View>
       </TouchableOpacity>

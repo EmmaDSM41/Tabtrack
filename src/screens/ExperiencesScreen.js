@@ -532,11 +532,13 @@ export default function VisitsScreen(props) {
         return [];
       }
       const json = await res.json();
+
       let arr = [];
       if (Array.isArray(json)) arr = json;
       else if (Array.isArray(json.sucursales)) arr = json.sucursales;
       else if (Array.isArray(json.data)) arr = json.data;
       else arr = [];
+
       branchesMemRef.current[key] = arr;
       try { await AsyncStorage.setItem(`branches_cache_${key}`, JSON.stringify({ data: arr, ts: Date.now() })); } catch (e) { /* ignore */ }
       return arr;
@@ -725,7 +727,10 @@ export default function VisitsScreen(props) {
             try {
               if (candidate.restaurante_id) {
                 const restInfo = await ensureRestaurantInfo(candidate.restaurante_id, false);
-                const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, false);
+
+                // IMPORTANTE: siempre consultar en red para no arrastrar URLs viejas
+                const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, true);
+
                 let matchedBranch = null;
                 if (Array.isArray(branches) && branches.length > 0) {
                   for (const b of branches) {
@@ -741,17 +746,27 @@ export default function VisitsScreen(props) {
                   }
                   if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
                 }
+
                 if (matchedBranch) {
-                  candidate.restaurantImage = branchGetLogoUrl(matchedBranch) ? getCacheBustedUrl(branchGetLogoUrl(matchedBranch)) : candidate.restaurantImage;
-                  candidate.bannerImage = branchGetBannerUrl(matchedBranch) ? getCacheBustedUrl(branchGetBannerUrl(matchedBranch)) : candidate.bannerImage;
+                  const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
+                  const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
+
+                  if (logoUrl) {
+                    candidate.restaurantImage = getCacheBustedUrl(logoUrl);
+                  }
+                  if (bannerUrl) {
+                    candidate.bannerImage = getCacheBustedUrl(bannerUrl);
+                  }
+
                   if (!candidate.branchName) candidate.branchName = branchGetName(matchedBranch);
                 }
+
                 if (!candidate.restaurantImage && restInfo) {
                   const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
                   if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
                 }
               }
-            } catch (e) {  }
+            } catch (e) { }
 
             if (visitsMap.has(key)) {
               const existing = visitsMap.get(key);
@@ -1139,6 +1154,9 @@ function getInitials(name) {
 
 function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, logoSize = 64, cardRadius = 12 }) {
   const [idx, setIdx] = useState(0);
+  const [logoError, setLogoError] = useState(false);
+  const [bannerError, setBannerError] = useState(false);
+
   let lastVisitText = '—';
   try {
     if (item.fecha) {
@@ -1241,7 +1259,18 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
     <View style={[styles.card, { borderRadius: cardRadius }]}>
       <View style={[styles.cardLeft, { width: cardLeftWidth, paddingVertical: Math.max(10, Math.round(cardLeftWidth * 0.12)) }]}>
         <View style={[styles.logoWrapper, { width: logoSize, height: logoSize, borderRadius: Math.round(logoSize / 2) }]}>
-          {logoUri ? <Image source={{ uri: logoUri }} style={[styles.logoImage, { width: logoSize, height: logoSize }]} /> : <Image source={require('../../assets/images/restaurante.jpeg')} style={[styles.logoImage, { width: logoSize, height: logoSize }]} />}
+          {logoUri && !logoError ? (
+            <Image
+              source={{ uri: logoUri }}
+              style={[styles.logoImage, { width: logoSize, height: logoSize }]}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <Image
+              source={require('../../assets/images/restaurante.jpeg')}
+              style={[styles.logoImage, { width: logoSize, height: logoSize }]}
+            />
+          )}
         </View>
         <View style={styles.ratingRow}>
           {stars}
@@ -1250,7 +1279,20 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
 
       <View style={[styles.cardRight, { paddingHorizontal: Math.max(8, Math.round(cardLeftWidth * 0.12)) }]}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={[styles.slider, { height: CARD_SLIDE_HEIGHT, width: slideWidth }]} onScroll={e => setIdx(Math.round(e.nativeEvent.contentOffset.x / (slideWidth || 1)))} scrollEventThrottle={16}>
-          {bannerUri ? <Image key={'banner'} source={{ uri: bannerUri }} style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]} /> : <Image key={'fallback'} source={logoUri ? { uri: logoUri } : require('../../assets/images/restaurante.jpeg')} style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]} />}
+          {bannerUri && !bannerError ? (
+            <Image
+              key={'banner'}
+              source={{ uri: bannerUri }}
+              style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]}
+              onError={() => setBannerError(true)}
+            />
+          ) : (
+            <Image
+              key={'fallback'}
+              source={logoUri && !logoError ? { uri: logoUri } : require('../../assets/images/restaurante.jpeg')}
+              style={[styles.slideImage, { width: slideWidth, height: CARD_SLIDE_HEIGHT }]}
+            />
+          )}
         </ScrollView>
 
         <View style={styles.infoContainer}>

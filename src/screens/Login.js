@@ -247,10 +247,11 @@ export default function Login() {
           console.warn('Error guardando residence meta en AsyncStorage', e);
         }
 
-        // NUEVO: guardar admin_id_actual y edificio_id_actual
+        // NUEVO: guardar admin_id_actual, edificio_id_actual y environment
         try {
           let adminIdActual = null;
           let edificioIdActual = null;
+          let environmentVal = null;
 
           if (usuario && usuario.admin_id_actual !== undefined && usuario.admin_id_actual !== null) {
             adminIdActual = usuario.admin_id_actual;
@@ -264,6 +265,12 @@ export default function Login() {
             edificioIdActual = data.edificio_id_actual;
           }
 
+          if (usuario && usuario.environment !== undefined && usuario.environment !== null) {
+            environmentVal = usuario.environment;
+          } else if (data && data.environment !== undefined && data.environment !== null) {
+            environmentVal = data.environment;
+          }
+
           if (adminIdActual !== null && adminIdActual !== undefined) {
             await AsyncStorage.setItem('user_admin_id_actual', String(adminIdActual));
           }
@@ -271,8 +278,12 @@ export default function Login() {
           if (edificioIdActual !== null && edificioIdActual !== undefined) {
             await AsyncStorage.setItem('user_edificio_id_actual', String(edificioIdActual));
           }
+
+          if (environmentVal !== null && environmentVal !== undefined) {
+            await AsyncStorage.setItem('user_environment', String(environmentVal));
+          }
         } catch (e) {
-          console.warn('Error guardando admin_id_actual / edificio_id_actual en AsyncStorage', e);
+          console.warn('Error guardando admin_id_actual / edificio_id_actual / environment en AsyncStorage', e);
         }
 
         const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);

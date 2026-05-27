@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
-const DEFAULT_API_BASE = 'https://api.tab-track.com';
+const DEFAULT_API_BASE = 'https://api.residence.tab-track.com';
 
 export default function CodeResidence(props) {
   const navigation = useNavigation();
