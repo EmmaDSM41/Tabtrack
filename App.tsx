@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { initOneSignal } from './src/services/oneSignalService';
 
 // Token manager
 import { ensureToken } from './src/auth/tokenManager';
@@ -49,6 +50,9 @@ export default function App() {
         console.log('Error asegurando token:', error);
       }
     };
+
+    // Inicializa OneSignal y pide permiso de notificaciones remotas
+    initOneSignal();
 
     // Al abrir la app
     validateToken();

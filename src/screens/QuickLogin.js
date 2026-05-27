@@ -20,6 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { setOneSignalExternalUserId, sendOneSignalTags } from '../services/oneSignalService';
 
 const API_HOST = 'https://api.tab-track.com';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
@@ -134,7 +135,10 @@ export default function QuickLoginScreen() {
             try { await AsyncStorage.setItem(`user_${key}`, String(value)); } catch (_) {}
           }
         }
-        if (usuario.usuario_app_id) await AsyncStorage.setItem('user_usuario_app_id', String(usuario.usuario_app_id));
+          if (usuario.usuario_app_id) {
+          await AsyncStorage.setItem('user_usuario_app_id', String(usuario.usuario_app_id));
+          await setOneSignalExternalUserId(usuario.usuario_app_id);
+        }        
         const fullname = `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim();
         if (fullname) await AsyncStorage.setItem('user_fullname', fullname);
         if (usuario.mail) await AsyncStorage.setItem('user_email', usuario.mail);

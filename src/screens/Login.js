@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { setOneSignalExternalUserId, sendOneSignalTags } from '../services/oneSignalService';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 const PRIMARY = '#FEFFFFFF';
@@ -194,6 +195,7 @@ export default function Login() {
 
         if (usuario.usuario_app_id) {
           await AsyncStorage.setItem('user_usuario_app_id', String(usuario.usuario_app_id));
+          await setOneSignalExternalUserId(usuario.usuario_app_id);
         }
 
         await AsyncStorage.setItem('user_valid', String(data.valid));
@@ -215,6 +217,7 @@ export default function Login() {
 
           if (residenceActivo !== null && residenceActivo !== undefined) {
             await AsyncStorage.setItem('user_residence_activo', String(residenceActivo));
+            await sendOneSignalTags({ residence_activo: String(residenceActivo) });
           }
         } catch (e) {
           console.warn('Error guardando user_residence_activo', e);

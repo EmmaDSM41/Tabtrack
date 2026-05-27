@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 /**
  * Configuración React Native
@@ -108,6 +109,9 @@ dependencies {
 project.ext.react = [
     enableHermes: false
 ]
+
+// Apply the Google services plugin to enable Firebase config values from google-services.json
+apply plugin: 'com.google.gms.google-services'
 
 // vectores de iconos RN
 //apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

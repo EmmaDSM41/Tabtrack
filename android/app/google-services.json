@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "649139690290",
+    "project_id": "tabtracknotifications",
+    "storage_bucket": "tabtracknotifications.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649139690290:android:9bd60fb3f376fae958552b",
+        "android_client_info": {
+          "package_name": "com.tabtrack"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAc4066wajLnu8A7CdnGBS9N-CUV0Q_Es4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
