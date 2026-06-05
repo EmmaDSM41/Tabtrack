@@ -147,6 +147,52 @@ const getRestauranteIdFromResolveJson = (json) => {
   return found !== undefined ? found : null;
 };
 
+const groupConsumptionItems = (flatItems = []) => {
+  const grouped = [];
+  const lastParentByCode = new Map();
+
+  flatItems.forEach((it) => {
+    if (!it) return;
+
+    const raw = it.raw ?? {};
+    const isSubitem = !!raw.is_subitem;
+    const itemCode = String(it.codigo_item ?? raw.codigo_item ?? raw.codigo ?? '').trim();
+    const parentCode = String(raw.parent_codigo_item ?? '').trim();
+
+    if (!isSubitem) {
+      const parentEntry = {
+        ...it,
+        isSubitem: false,
+        subitems: [],
+      };
+
+      grouped.push(parentEntry);
+
+      if (itemCode) {
+        lastParentByCode.set(itemCode, parentEntry);
+      }
+    } else {
+      const subEntry = {
+        ...it,
+        isSubitem: true,
+        parent_codigo_item: parentCode || null,
+        subitems: [],
+      };
+
+      const parent = parentCode ? lastParentByCode.get(parentCode) : null;
+
+      if (parent) {
+        parent.subitems = parent.subitems || [];
+        parent.subitems.push(subEntry);
+      } else {
+        grouped.push(subEntry);
+      }
+    }
+  });
+
+  return grouped;
+};
+
 export default function CuentaResidence() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -766,6 +812,8 @@ export default function CuentaResidence() {
     }
   }, [items, originalTotalConsumo, totalConsumo]);
 
+  const displayItems = useMemo(() => groupConsumptionItems(items), [items]);
+
   const layoutWidth = Math.min(width - (sidePad * 2), 420);
   const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
@@ -917,13 +965,13 @@ export default function CuentaResidence() {
             <View style={styles.desgloseSeparator} />
 
             <View style={styles.items}>
-              {items.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
-              {items.map((it, i) => (
+              {displayItems.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
+              {displayItems.map((it, i) => (
                 <View key={it.id ?? i} style={styles.itemBlock}>
                   <View style={styles.itemRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                       <Text style={[styles.itemName, it.canceled && styles.itemCanceled, (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' }, { fontSize: itemNameFont }]} numberOfLines={1}>
-                        {it.name}
+                        {it.isSubitem ? `• ${it.name}` : it.name}
                       </Text>
                     </View>
 
@@ -934,6 +982,29 @@ export default function CuentaResidence() {
 
                   {it.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14) }]}>Cancelado</Text> : null}
                   {it.paid && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, fontSize: clamp(rf(2.6), 12, 14) }}>Pagado</Text> : it.paidPartial && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, fontSize: clamp(rf(2.6), 12, 14) }}>Parcial: {formatMoney(it.paidAmount)} pagado</Text> : null}
+
+                  {Array.isArray(it.subitems) && it.subitems.length > 0 ? (
+                    <View style={{ marginTop: 8, marginLeft: 14, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' }}>
+                      {it.subitems.map((sub, j) => (
+                        <View key={sub.id ?? `${i}-${j}`} style={[styles.itemBlock, { marginBottom: 8 }]}>
+                          <View style={styles.itemRow}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                              <Text style={[styles.itemName, sub.canceled && styles.itemCanceled, (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }, { fontSize: Math.max(itemNameFont - 1, 11), color: '#4b5563' }]} numberOfLines={1}>
+                                {`• ${sub.name}`}
+                              </Text>
+                            </View>
+
+                            <Text style={[styles.itemPrice, sub.canceled && styles.itemCanceled, (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }, { width: itemPriceWidth, fontSize: clamp(rf(2.6), 11, 15), color: '#4b5563' }]}>
+                              {formatMoney(sub.lineTotal)} {moneda ?? 'MXN'}
+                            </Text>
+                          </View>
+
+                          {sub.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.4), 10, 13) }]}>Cancelado</Text> : null}
+                          {sub.paid && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, fontSize: clamp(rf(2.4), 11, 13) }}>Pagado</Text> : sub.paidPartial && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, fontSize: clamp(rf(2.4), 11, 13) }}>Parcial: {formatMoney(sub.paidAmount)} pagado</Text> : null}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))}
 
