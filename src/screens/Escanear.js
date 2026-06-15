@@ -154,6 +154,52 @@ function looksClosedOrPaidFlag(v) {
   } catch (e) { return false; }
 }
 
+function groupConsumptionItems(flatItems = []) {
+  const grouped = [];
+  const lastParentByCode = new Map();
+
+  flatItems.forEach((it) => {
+    if (!it) return;
+
+    const raw = it.raw ?? {};
+    const isSubitem = !!(raw.is_subitem ?? it.is_subitem);
+    const itemCode = String(it.codigo_item ?? raw.codigo_item ?? raw.codigo ?? '').trim();
+    const parentCode = String(raw.parent_codigo_item ?? it.parent_codigo_item ?? '').trim();
+
+    if (!isSubitem) {
+      const parentEntry = {
+        ...it,
+        isSubitem: false,
+        subitems: [],
+      };
+
+      grouped.push(parentEntry);
+
+      if (itemCode) {
+        lastParentByCode.set(itemCode, parentEntry);
+      }
+    } else {
+      const subEntry = {
+        ...it,
+        isSubitem: true,
+        parent_codigo_item: parentCode || null,
+        subitems: [],
+      };
+
+      const parent = parentCode ? lastParentByCode.get(parentCode) : null;
+
+      if (parent) {
+        parent.subitems = parent.subitems || [];
+        parent.subitems.push(subEntry);
+      } else {
+        grouped.push(subEntry);
+      }
+    }
+  });
+
+  return grouped;
+}
+
 export default function Escanear() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -757,6 +803,8 @@ export default function Escanear() {
     }
   }, [items, originalTotalConsumo, totalConsumo]);
 
+  const displayItems = useMemo(() => groupConsumptionItems(items), [items]);
+
   const layoutWidth = Math.min(width - (sidePad * 2), 420);
   const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
@@ -823,8 +871,7 @@ export default function Escanear() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
-          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}> 
-
+          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
                 <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
@@ -860,23 +907,78 @@ export default function Escanear() {
             <View style={styles.desgloseSeparator} />
 
             <View style={styles.items}>
-              {items.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
-              {items.map((it, i) => (
+              {displayItems.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
+              {displayItems.map((it, i) => (
                 <View key={it.id ?? i} style={styles.itemBlock}>
-                  <View style={styles.itemRow}>
+                  <View style={[styles.itemRow, it.isSubitem ? { marginLeft: 14 } : null]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Text style={[styles.itemName, it.canceled && styles.itemCanceled, (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' }, { fontSize: itemNameFont }]} numberOfLines={1}>
-                        {it.name}
+                      <Text
+                        style={[
+                          styles.itemName,
+                          it.isSubitem ? { color: '#4b5563', marginLeft: 10 } : null,
+                          it.canceled && styles.itemCanceled,
+                          (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
+                          { fontSize: it.isSubitem ? Math.max(itemNameFont - 1, 11) : itemNameFont }
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {it.isSubitem ? `• ${it.name}` : it.name}
                       </Text>
                     </View>
 
-                    <Text style={[styles.itemPrice, it.canceled && styles.itemCanceled, (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' }, { width: itemPriceWidth, fontSize: clamp(rf(2.8), 12, 16) }]}>
+                    <Text
+                      style={[
+                        styles.itemPrice,
+                        it.isSubitem ? { color: '#4b5563', paddingLeft: 8 } : null,
+                        it.canceled && styles.itemCanceled,
+                        (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
+                        { width: itemPriceWidth, fontSize: it.isSubitem ? clamp(rf(2.6), 11, 15) : clamp(rf(2.8), 12, 16) }
+                      ]}
+                    >
                       {formatMoney(it.lineTotal)} {moneda ?? 'MXN'}
                     </Text>
                   </View>
 
-                  {it.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14) }]}>Cancelado</Text> : null}
-                  {it.paid && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, fontSize: clamp(rf(2.6), 12, 14) }}>Pagado</Text> : it.paidPartial && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, fontSize: clamp(rf(2.6), 12, 14) }}>Parcial: {formatMoney(it.paidAmount)} pagado</Text> : null}
+                  {it.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14), marginLeft: it.isSubitem ? 14 : 0 }]}>Cancelado</Text> : null}
+                  {it.paid && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Pagado</Text> : it.paidPartial && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Parcial: {formatMoney(it.paidAmount)} pagado</Text> : null}
+
+                  {Array.isArray(it.subitems) && it.subitems.length > 0 ? (
+                    <View style={{ marginTop: 8, marginLeft: 16, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' }}>
+                      {it.subitems.map((sub, j) => (
+                        <View key={sub.id ?? `${i}-${j}`} style={[styles.itemBlock, { marginBottom: 8 }]}>
+                          <View style={[styles.itemRow, { marginLeft: 10 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.itemName,
+                                  { color: '#4b5563', marginLeft: 10, fontSize: Math.max(itemNameFont - 1, 11) },
+                                  sub.canceled && styles.itemCanceled,
+                                  (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {`• ${sub.name}`}
+                              </Text>
+                            </View>
+
+                            <Text
+                              style={[
+                                styles.itemPrice,
+                                { color: '#4b5563', width: itemPriceWidth, fontSize: clamp(rf(2.6), 11, 15) },
+                                sub.canceled && styles.itemCanceled,
+                                (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
+                              ]}
+                            >
+                              {formatMoney(sub.lineTotal)} {moneda ?? 'MXN'}
+                            </Text>
+                          </View>
+
+                          {sub.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.4), 10, 13), marginLeft: 24 }]}>Cancelado</Text> : null}
+                          {sub.paid && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Pagado</Text> : sub.paidPartial && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Parcial: {formatMoney(sub.paidAmount)} pagado</Text> : null}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))}
 
@@ -995,10 +1097,16 @@ export default function Escanear() {
                 showConflictAlert('Pago por partes iguales en curso', 'Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.');
                 return;
               }
+const itemsForDividir = (items || []).map((it) => ({
+  ...it,
+  is_subitem: Boolean(it.raw?.is_subitem ?? it.is_subitem),
+  parent_codigo_item: it.raw?.parent_codigo_item ?? it.parent_codigo_item ?? null,
+  codigo_item: it.raw?.codigo_item ?? it.codigo_item ?? null,
+}));
 
               const paramsDividir = {
                 token,
-                items,
+                items: itemsForDividir,
                 total_consumo: originalTotalConsumo,
                 total_comensales: totalComensales ?? null,
                 sale_id: saleId ?? null,

@@ -885,7 +885,13 @@ export default function RestaurantsScreen() {
           <RestaurantCard
             restaurant={item}
             imageSource={item.image ? { uri: item.image } : defaultImage}
-            onPress={() => navigation.navigate('Restaurant', { restaurant: item, id: item.id })}
+            onPress={() =>
+              navigation.navigate('Restaurant', {
+                restaurant: item,
+                id: item.id,
+                isFavorite: visibleFavorites.some(f => String(f.id) === String(item.id)),
+              })
+            }
             isFavorite={visibleFavorites.some(f => String(f.id) === String(item.id))}
             onToggleFavorite={() => toggleFavorite(item)}
             cardImageH={cardImageH}
