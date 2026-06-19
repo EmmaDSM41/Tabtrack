@@ -20,7 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
-import { setOneSignalExternalUserId, sendOneSignalTags } from '../services/oneSignalService';
+import { setOneSignalEmail, setOneSignalExternalUserId } from '../services/oneSignalService';
 
 const API_HOST = 'https://api.tab-track.com';
 const DEFAULT_AVATAR = require('../../assets/images/logo.png');
@@ -127,24 +127,31 @@ export default function QuickLoginScreen() {
           await AsyncStorage.setItem('api_token', token);
         }
         await AsyncStorage.setItem('api_host', String(API_HOST));
-      } catch (_) {}
+      } catch (_) { }
 
       if (usuario && typeof usuario === 'object') {
         for (const [key, value] of Object.entries(usuario)) {
           if (value !== null && value !== undefined) {
-            try { await AsyncStorage.setItem(`user_${key}`, String(value)); } catch (_) {}
+            try { await AsyncStorage.setItem(`user_${key}`, String(value)); } catch (_) { }
           }
         }
-          if (usuario.usuario_app_id) {
+        if (usuario.usuario_app_id) {
           await AsyncStorage.setItem('user_usuario_app_id', String(usuario.usuario_app_id));
           await setOneSignalExternalUserId(usuario.usuario_app_id);
-        }        
+        }
         const fullname = `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim();
         if (fullname) await AsyncStorage.setItem('user_fullname', fullname);
-        if (usuario.mail) await AsyncStorage.setItem('user_email', usuario.mail);
+        const userEmail = usuario.mail || email;
+        if (userEmail) {
+          await AsyncStorage.setItem('user_email', String(userEmail));
+          await setOneSignalEmail(userEmail);
+        }
         if (usuario.foto_perfil_url) await AsyncStorage.setItem('user_profile_url', usuario.foto_perfil_url);
       } else {
-        if (email) await AsyncStorage.setItem('user_email', String(email));
+        if (email) {
+          await AsyncStorage.setItem('user_email', String(email));
+          await setOneSignalEmail(email);
+        }
       }
     } catch (e) {
       console.warn('QuickLogin save auth error', e);
@@ -255,7 +262,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 6,
   },
-  avatarImage: { width: '100%', height: '100%', borderRadius: 999, resizeMode: 'cover', color:'#000'},
+  avatarImage: { width: '100%', height: '100%', borderRadius: 999, resizeMode: 'cover', color: '#000' },
 
   emailText: { marginTop: 12, fontWeight: '400', fontSize: 16, color: '#111', textAlign: 'center' },
 

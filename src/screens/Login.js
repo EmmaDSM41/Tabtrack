@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
-import { setOneSignalExternalUserId, sendOneSignalTags } from '../services/oneSignalService';
+import { setOneSignalEmail, setOneSignalExternalUserId, sendOneSignalTags } from '../services/oneSignalService';
 
 const API_BASE = 'https://api.tab-track.com/api/mobileapp';
 const PRIMARY = '#FEFFFFFF';
@@ -203,8 +203,10 @@ export default function Login() {
         const fullname = `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim();
         await AsyncStorage.setItem('user_fullname', fullname);
 
-        if (usuario.mail) {
-          await AsyncStorage.setItem('user_email', usuario.mail);
+        const userEmail = usuario.mail || mail.trim();
+        if (userEmail) {
+          await AsyncStorage.setItem('user_email', userEmail);
+          await setOneSignalEmail(userEmail);
         }
 
         try {

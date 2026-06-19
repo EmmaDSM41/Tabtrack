@@ -67,3 +67,17 @@ export async function sendOneSignalTags(tags = {}) {
     console.warn('OneSignal sendTags error', error);
   }
 }
+
+export async function setOneSignalEmail(email) {
+  if (!email) return;
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes('@')) return;
+
+  try {
+    OneSignal.User.addEmail(normalizedEmail);
+    console.log('OneSignal email set', normalizedEmail);
+  } catch (error) {
+    console.warn('OneSignal setEmail error', error);
+  }
+}
