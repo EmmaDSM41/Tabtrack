@@ -31,8 +31,7 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 const DEFAULT_LOGO = require('../../assets/images/logo2.png');
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
 
-// PON AQUI TU PUBLIC KEY FIJA DE STRIPE.
-// Ya no se toma desde el restaurante ni desde params.
+ 
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
 
 export default function StripePruebas() {
