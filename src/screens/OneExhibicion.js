@@ -492,7 +492,7 @@ function makeStyles({ width, height, wp, hp, rf, clamp, insets }) {
     headerGradient: { width: '100%', paddingHorizontal: Math.round(wp(4)), paddingTop: headerPaddingV, paddingBottom: Math.round(hp(3.2)), borderBottomRightRadius: Math.round(Math.min(56, width * 0.12)), overflow: 'hidden' },
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
 
-    leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+    leftCol: { flexDirection: 'column', alignItems: 'center' },
     tabtrackLogo: { width: logoW, height: Math.round(logoW * 0.32), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(1)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: 10 },
     restaurantImage: { width: restaurantImageSize, height: restaurantImageSize, borderRadius: Math.round(Math.min(16, restaurantImageSize * 0.18)), backgroundColor: '#fff' },

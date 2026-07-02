@@ -330,7 +330,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
       overflow: 'hidden',
     },
     gradientRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-    leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+    leftCol: { flexDirection: 'column', alignItems: 'center' },
 
     tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 37, 48)), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.6)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },

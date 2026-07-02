@@ -7,23 +7,23 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-  Platform,
-  PermissionsAndroid,
   Modal,
   ActivityIndicator,
   Animated,
   Easing,
-  TouchableWithoutFeedback,
   Linking,
   PixelRatio,
   Image,
   useWindowDimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import QRCodeScanner from 'react-native-qrcode-scanner';
-import { RNCamera } from 'react-native-camera';
-import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
-import { useFocusEffect } from '@react-navigation/native';
+import {
+  Camera,
+  useCameraDevice,
+  useCameraPermission,
+  useCodeScanner,
+} from 'react-native-vision-camera';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -65,10 +65,13 @@ const openWhatsApp = async () => {
 
 const extractTokenFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
+
   const m1 = raw.match(/\/r\/([^\/?#]+)/i);
   if (m1 && m1[1]) return m1[1];
+
   const m2 = raw.match(/[?&]token=([^&]+)/i);
   if (m2 && m2[1]) return m2[1];
+
   try {
     const u = new URL(raw);
     const parts = u.pathname.split('/').filter(Boolean);
@@ -77,11 +80,13 @@ const extractTokenFromRaw = (raw) => {
     const m3 = raw.match(/([^\/?#]+)$/);
     if (m3 && m3[1]) return m3[1];
   }
+
   return null;
 };
 
 const deriveHostFromRaw = (raw) => {
   if (!raw || typeof raw !== 'string') return null;
+
   try {
     const u = new URL(raw);
     return `${u.protocol}//${u.host}`;
@@ -93,11 +98,12 @@ const deriveHostFromRaw = (raw) => {
 const resolveApiHost = async (raw) => {
   const hostFromQr = deriveHostFromRaw(raw);
   if (hostFromQr) return hostFromQr.replace(/\/$/, '');
+
   try {
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.API_HOST);
     if (stored) return stored.replace(/\/$/, '');
-  } catch (err) {
-  }
+  } catch (err) {}
+
   return API_BASE_FALLBACK.replace(/\/$/, '');
 };
 
@@ -108,17 +114,17 @@ const buildHeaders = async () => {
   try {
     const storedToken = await AsyncStorage.getItem(STORAGE_KEYS.API_TOKEN);
     if (storedToken) token = storedToken;
-  } catch (err) {
-  }
+  } catch (err) {}
 
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 };
 
 const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
+
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
@@ -134,17 +140,33 @@ function AnimatedIconPulse({ name, size = 28, color = '#1e8e3e', active = false 
 
   useEffect(() => {
     let loopAnim;
+
     if (active) {
       loopAnim = Animated.loop(
         Animated.sequence([
-          Animated.timing(scale, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-          Animated.timing(scale, { toValue: 1.0, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(scale, {
+            toValue: 1.12,
+            duration: 600,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 1.0,
+            duration: 600,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
         ])
       );
       loopAnim.start();
     } else {
-      Animated.timing(scale, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
     }
+
     return () => {
       if (loopAnim) loopAnim.stop();
     };
@@ -164,13 +186,31 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
   useEffect(() => {
     if (visible) {
       Animated.parallel([
-        Animated.timing(translateY, { toValue: headerHeight + 8, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(translateY, {
+          toValue: headerHeight + 8,
+          duration: 360,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(translateY, { toValue: -280, duration: 260, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+        Animated.timing(translateY, {
+          toValue: -280,
+          duration: 260,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
       ]).start();
     }
   }, [visible, headerHeight, translateY, opacity]);
@@ -184,14 +224,31 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
   return (
     <Modal transparent visible animationType="none">
       <SafeAreaView pointerEvents="box-none" style={modalStyles.overlayContainer}>
-        <Animated.View style={[modalStyles.card, { transform: [{ translateY }], opacity, backgroundColor: bg, borderLeftColor: accent }]}>
+        <Animated.View
+          style={[
+            modalStyles.card,
+            {
+              transform: [{ translateY }],
+              opacity,
+              backgroundColor: bg,
+              borderLeftColor: accent,
+            },
+          ]}
+        >
           <View style={modalStyles.rowTop}>
             <View style={modalStyles.iconCol}>
-              <AnimatedIconPulse name={ok ? 'checkmark-circle' : 'alert-circle'} size={34} color={accent} active={ok} />
+              <AnimatedIconPulse
+                name={ok ? 'checkmark-circle' : 'alert-circle'}
+                size={34}
+                color={accent}
+                active={ok}
+              />
             </View>
 
             <View style={modalStyles.contentCol}>
-              <Text style={[modalStyles.title, { color: accent }]}>{ok ? 'Venta activa' : (loading ? 'Estado' : 'Estado')}</Text>
+              <Text style={[modalStyles.title, { color: accent }]}>
+                {ok ? 'Venta activa' : loading ? 'Estado' : 'Estado'}
+              </Text>
               <Text style={modalStyles.message} numberOfLines={2}>
                 {result?.message ?? (loading ? 'Buscando...' : 'No hay información disponible')}
               </Text>
@@ -214,7 +271,7 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
           {loading ? (
             <View style={modalStyles.loaderRow}>
               <ActivityIndicator size="small" color={accent} />
-              <Text style={modalStyles.loadingText}>Consultando…</Text>
+              <Text style={modalStyles.loadingText}>Consultando...</Text>
             </View>
           ) : null}
         </Animated.View>
@@ -226,11 +283,13 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
 export default function QRScreen({ navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  const device = useCameraDevice('back');
+  const { hasPermission, requestPermission } = useCameraPermission();
 
   const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  const [hasPermission, setHasPermission] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [allowScan, setAllowScan] = useState(false);
@@ -242,6 +301,7 @@ export default function QRScreen({ navigation }) {
 
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
+  const scanLockRef = useRef(false);
 
   const baseHeader = 56;
   const headerHeight = clamp(rf(baseHeader), 100, 110);
@@ -254,8 +314,6 @@ export default function QRScreen({ navigation }) {
   const overlayAlpha = 0.26;
   const innerPanelOpacity = 0.04;
 
-  const CAMERA_HEIGHT = height;
-
   const logoMaxWidth = Math.round(Math.min(160, width * 0.36));
   const logoWidth = Math.min(logoMaxWidth, Math.round(qrSize * 0.38));
   const logoHeight = Math.round(logoWidth * 0.5);
@@ -264,23 +322,8 @@ export default function QRScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       try {
-        let granted = false;
-        if (Platform.OS === 'android') {
-          const res = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.CAMERA,
-            {
-              title: 'Permiso de cámara',
-              message: 'Necesitamos acceso a la cámara para escanear QR',
-              buttonPositive: 'Aceptar',
-              buttonNegative: 'Cancelar',
-            }
-          );
-          granted = res === PermissionsAndroid.RESULTS.GRANTED;
-        } else {
-          const res = await request(PERMISSIONS.IOS.CAMERA);
-          granted = res === RESULTS.GRANTED;
-        }
-        setHasPermission(granted);
+        const granted = await requestPermission();
+
         if (!granted) {
           Alert.alert('Permiso denegado', 'Sin cámara no podemos escanear QR', [
             { text: 'OK', onPress: () => navigation.goBack?.() },
@@ -288,50 +331,123 @@ export default function QRScreen({ navigation }) {
         }
       } catch (err) {
         console.warn('Error al solicitar permiso de cámara', err);
-        setHasPermission(false);
       }
     })();
-  }, [navigation]);
+  }, [navigation, requestPermission]);
 
   useFocusEffect(
     useCallback(() => {
       setScannerActive(true);
       setAllowScan(false);
       setAllowScanForStatus(false);
-      setTimeout(() => {
-        try {
-          if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
-            scannerRef.current.reactivate();
-          }
-        } catch (err) {}
-      }, 300);
+      scanLockRef.current = false;
 
       return () => {
         setAllowScan(false);
         setAllowScanForStatus(false);
-        if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
+        scanLockRef.current = false;
+
+        if (statusTimeoutRef.current) {
+          clearTimeout(statusTimeoutRef.current);
+          statusTimeoutRef.current = null;
+        }
       };
     }, [])
   );
 
   const reactivateScanner = (allow = false) => {
+    scanLockRef.current = false;
     setScannerActive(true);
     if (allow) setAllowScan(true);
-    setTimeout(() => {
-      try {
-        if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
-          scannerRef.current.reactivate();
-        }
-      } catch (err) {}
-    }, 250);
   };
 
   const startManualScan = () => reactivateScanner(true);
   const toggleFlash = () => setFlashEnabled((p) => !p);
 
+  const showStatusModal = (resultObj, token = null, loading = false) => {
+    if (statusTimeoutRef.current) {
+      clearTimeout(statusTimeoutRef.current);
+      statusTimeoutRef.current = null;
+    }
+
+    setStatusResult(resultObj);
+    setStatusToken(token);
+    setStatusLoading(loading);
+    setStatusModalVisible(true);
+  };
+
+  const handleStatusFetchForToken = async (raw, token) => {
+    setStatusLoading(true);
+    showStatusModal({ ok: null, message: 'Consultando estado de la mesa...' }, token, true);
+
+    try {
+      await ensureToken();
+
+      const host = await resolveApiHost(raw);
+      if (!host) {
+        setStatusLoading(false);
+        showStatusModal(
+          {
+            ok: false,
+            message: 'No se pudo determinar la URL del servidor desde el QR. Escanea con "Escanear QR" para ver detalles.',
+          },
+          token,
+          false
+        );
+        return;
+      }
+
+      const apiUrl = `${host}/api/mesas/r/${encodeURIComponent(token)}`;
+      const headers = await buildHeaders();
+
+      const res = await fetchWithTimeout(apiUrl, { headers }, 10000);
+
+      let json = null;
+      try {
+        json = await res.json();
+      } catch (e) {
+        json = null;
+      }
+
+      setStatusLoading(false);
+
+      if (!res.ok) {
+        const msg = json && (json.error || json.message) ? json.error || json.message : `Error del servidor (${res.status})`;
+        showStatusModal({ ok: false, message: msg }, token, false);
+        return;
+      }
+
+      const summaryParts = [];
+      if (json && typeof json === 'object') {
+        if (json.venta_id || json.id) summaryParts.push(`Venta: ${json.venta_id ?? json.id}`);
+        if (json.total) summaryParts.push(`Total: ${json.total}`);
+        if (json.items && Array.isArray(json.items)) summaryParts.push(`Items: ${json.items.length}`);
+      }
+
+      const summary = summaryParts.length ? summaryParts.join(' • ') : 'Hay una venta activa para esta mesa.';
+
+      showStatusModal(
+        {
+          ok: true,
+          message: 'Existe una venta activa.',
+          details: summary,
+          payload: json,
+        },
+        token,
+        false
+      );
+    } catch (err) {
+      console.warn('Status fetch error', err);
+      setStatusLoading(false);
+      showStatusModal({ ok: false, message: 'Error al conectar con el servidor. Intenta de nuevo.' }, token, false);
+    }
+  };
+
   const onSuccess = async (e) => {
     if (!allowScan && !allowScanForStatus) return;
+    if (scanLockRef.current) return;
 
+    scanLockRef.current = true;
     setAllowScan(false);
     setAllowScanForStatus(false);
     setScannerActive(false);
@@ -349,7 +465,11 @@ export default function QRScreen({ navigation }) {
     }
 
     if (allowScanForStatus) {
-      if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
+      if (statusTimeoutRef.current) {
+        clearTimeout(statusTimeoutRef.current);
+        statusTimeoutRef.current = null;
+      }
+
       handleStatusFetchForToken(raw, token);
       return;
     }
@@ -357,13 +477,17 @@ export default function QRScreen({ navigation }) {
     navigation.navigate('Escanear', { token });
   };
 
-  const showStatusModal = (resultObj, token = null, loading = false) => {
-    if (statusTimeoutRef.current) { clearTimeout(statusTimeoutRef.current); statusTimeoutRef.current = null; }
-    setStatusResult(resultObj);
-    setStatusToken(token);
-    setStatusLoading(loading);
-    setStatusModalVisible(true);
-  };
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      const first = codes?.[0];
+      const value = first?.value || '';
+
+      if (!value) return;
+
+      onSuccess({ data: value });
+    },
+  });
 
   const hideStatusModal = () => {
     setStatusModalVisible(false);
@@ -373,106 +497,56 @@ export default function QRScreen({ navigation }) {
     setScannerActive(true);
     setAllowScan(false);
     setAllowScanForStatus(false);
-    setTimeout(() => {
-      try {
-        if (scannerRef?.current && typeof scannerRef.current.reactivate === 'function') {
-          scannerRef.current.reactivate();
-        }
-      } catch (err) {}
-    }, 300);
+    scanLockRef.current = false;
   };
 
   const onStatusPress = () => {
+    scanLockRef.current = false;
     setAllowScanForStatus(true);
-    showStatusModal({ ok: null, message: 'Apunta la cámara al QR para verificar la mesa...' }, null, true);
 
+    showStatusModal({ ok: null, message: 'Apunta la cámara al QR para verificar la mesa...' }, null, true);
     reactivateScanner(false);
 
     if (statusTimeoutRef.current) {
       clearTimeout(statusTimeoutRef.current);
       statusTimeoutRef.current = null;
     }
+
     statusTimeoutRef.current = setTimeout(() => {
       setAllowScanForStatus(false);
       setScannerActive(true);
-      showStatusModal({ ok: false, message: 'No se detectó QR. Apunta la cámara al QR y prueba "Escanear QR".' }, null, false);
+      scanLockRef.current = false;
+
+      showStatusModal(
+        {
+          ok: false,
+          message: 'No se detectó QR. Apunta la cámara al QR y prueba "Escanear QR".',
+        },
+        null,
+        false
+      );
     }, 7000);
-  };
-
-  const handleStatusFetchForToken = async (raw, token) => {
-    setStatusLoading(true);
-    showStatusModal({ ok: null, message: 'Consultando estado de la mesa…' }, token, true);
-
-    try {
-      await ensureToken();
-
-      const host = await resolveApiHost(raw);
-      if (!host) {
-        setStatusLoading(false);
-        showStatusModal({ ok: false, message: 'No se pudo determinar la URL del servidor desde el QR. Escanea con "Escanear QR" para ver detalles.' }, token, false);
-        return;
-      }
-
-      const apiUrl = `${host}/api/mesas/r/${encodeURIComponent(token)}`;
-      const headers = await buildHeaders();
-
-      const res = await fetchWithTimeout(apiUrl, { headers }, 10000);
-      let json = null;
-      try { json = await res.json(); } catch (e) { json = null; }
-
-      setStatusLoading(false);
-
-      if (!res.ok) {
-        const msg = (json && (json.error || json.message)) ? (json.error || json.message) : `Error del servidor (${res.status})`;
-        showStatusModal({ ok: false, message: msg }, token, false);
-        return;
-      }
-
-      const summaryParts = [];
-      if (json && typeof json === 'object') {
-        if (json.venta_id || json.id) summaryParts.push(`Venta: ${json.venta_id ?? json.id}`);
-        if (json.total) summaryParts.push(`Total: ${json.total}`);
-        if (json.items && Array.isArray(json.items)) summaryParts.push(`Items: ${json.items.length}`);
-      }
-      const summary = summaryParts.length ? summaryParts.join(' • ') : 'Hay una venta activa para esta mesa.';
-
-      showStatusModal({ ok: true, message: 'Existe una venta activa.', details: summary, payload: json }, token, false);
-
-    } catch (err) {
-      console.warn('Status fetch error', err);
-      setStatusLoading(false);
-      showStatusModal({ ok: false, message: 'Error al conectar con el servidor. Intenta de nuevo.' }, token, false);
-    }
   };
 
   if (!hasPermission) {
     return (
       <View style={[styles.loading, { backgroundColor: '#000' }]}>
-        <Text style={styles.loadingText}>Solicitando permiso…</Text>
+        <Text style={styles.loadingText}>Solicitando permiso...</Text>
       </View>
     );
   }
 
   const bottomButtonsOffset = insets.bottom + 79;
 
-  const cameraScaleAndroid = 1.06;
-  const cameraScale = Platform.OS === 'android' ? cameraScaleAndroid : 1.0;
-  const deviceAspect = height / width;
-  const preferRatio = deviceAspect > 2.0 ? '16:9' : '4:3';
-
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: 'transparent' }} edges={['left','right','top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right', 'top']}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
       <View style={[styles.cameraWrapper, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
-        {scannerActive && (
-          <QRCodeScanner
+        {device ? (
+          <Camera
             ref={scannerRef}
-            onRead={onSuccess}
-            containerStyle={{
-              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', overflow: 'hidden'
-            }}
-            cameraStyle={{
+            style={{
               position: 'absolute',
               top: 0,
               left: 0,
@@ -480,30 +554,38 @@ export default function QRScreen({ navigation }) {
               bottom: 0,
               width: '100%',
               height: '100%',
-              backgroundColor: 'transparent',
-              transform: [{ scaleX: cameraScale }, { scaleY: cameraScale }],
+              backgroundColor: '#000',
             }}
-            flashMode={flashEnabled ? RNCamera.Constants.FlashMode.torch : RNCamera.Constants.FlashMode.off}
-            showMarker={false}
-            reactivate={false}
-            topViewStyle={styles.zero}
-            bottomViewStyle={styles.zero}
-            cameraProps={{ ratio: preferRatio }}
+            device={device}
+            isActive={hasPermission && scannerActive && isFocused}
+            torch={flashEnabled ? 'on' : 'off'}
+            codeScanner={codeScanner}
+            onInitialized={() => console.log('[QR] Camera initialized')}
+            onError={(error) => {
+              console.warn('[QR] Camera error:', error);
+              Alert.alert('Error de cámara', error?.message || 'No se pudo iniciar la cámara.');
+            }}
           />
+        ) : (
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: '#fff' }}>No se encontró cámara trasera</Text>
+          </View>
         )}
 
         <View style={[styles.overlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
           <View style={[styles.overlayRow, { height: holeTop, backgroundColor: `rgba(0,0,0,${overlayAlpha})` }]} />
 
-          <View style={{
-            position: 'absolute',
-            top: logoTopPos,
-            left: 0,
-            right: 0,
-            alignItems: 'center',
-            zIndex: 30,
-            pointerEvents: 'none',
-          }}>
+          <View
+            style={{
+              position: 'absolute',
+              top: logoTopPos,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              zIndex: 30,
+              pointerEvents: 'none',
+            }}
+          >
             <Image
               source={require('../../assets/images/logo2.png')}
               style={{
@@ -547,7 +629,17 @@ export default function QRScreen({ navigation }) {
         </View>
 
         <View pointerEvents="box-none" style={{ position: 'absolute', bottom: bottomButtonsOffset, left: 0, width, alignItems: 'center', zIndex: 40 }}>
-          <TouchableOpacity activeOpacity={1} onPress={startManualScan} style={[styles.floatPrimary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(12), 10, 18) }]}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={startManualScan}
+            style={[
+              styles.floatPrimary,
+              {
+                width: Math.min(360, Math.round(width * 0.78)),
+                paddingVertical: clamp(rf(12), 10, 18),
+              },
+            ]}
+          >
             <View style={styles.actionContent}>
               <Ionicons name="qr-code-outline" size={rf(18)} color="#fff" style={{ marginRight: 12 }} />
               <Text style={[styles.primaryActionText, { fontSize: clamp(rf(16), 14, 18) }]}>Escanear QR</Text>
@@ -556,7 +648,17 @@ export default function QRScreen({ navigation }) {
 
           <View style={{ height: 12 }} />
 
-          <TouchableOpacity activeOpacity={1} onPress={onStatusPress} style={[styles.floatSecondary, { width: Math.min(360, Math.round(width * 0.78)), paddingVertical: clamp(rf(10), 8, 16) }]}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={onStatusPress}
+            style={[
+              styles.floatSecondary,
+              {
+                width: Math.min(360, Math.round(width * 0.78)),
+                paddingVertical: clamp(rf(10), 8, 16),
+              },
+            ]}
+          >
             <View style={styles.actionContent}>
               <Ionicons name="time-outline" size={rf(16)} color="#fff" style={{ marginRight: 10 }} />
               <Text style={[styles.secondaryActionText, { fontSize: clamp(rf(15), 13, 17) }]}>Status</Text>
@@ -611,7 +713,7 @@ const modalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000'},
+  root: { flex: 1, backgroundColor: '#000' },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   loadingText: { color: '#fff' },
 

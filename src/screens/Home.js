@@ -41,6 +41,7 @@ import SaleDetail from './PagoDetail';
 import ErrorPago from './ErrorPago';
 import { StackActions } from '@react-navigation/native';
 import SelectDefaultHome from './SelectDefaultHome';
+import StripePruebas from './StripePruebas';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -62,6 +63,7 @@ function QRStackScreen() {
       <Stack.Screen name="Stripe" component={Stripe} />
       <Stack.Screen name="ConfirmacionPago" component={ConfirmacionPago} />
       <Stack.Screen name="ErrorPago" component={ErrorPago} />
+      <Stack.Screen name="StripePruebas" component={StripePruebas} />
     </Stack.Navigator>
   );
 }

@@ -1079,7 +1079,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
     headerGradient: { width: '100%', borderBottomRightRadius: Math.round(Math.max(28, wp(8))), overflow: 'hidden' },
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
 
-    leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+    leftCol: { flexDirection: 'column', alignItems: 'center' },
     tabtrackLogo: {},
     logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
     restaurantImage: { backgroundColor: '#fff' },

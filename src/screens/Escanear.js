@@ -1254,8 +1254,7 @@ const styles = StyleSheet.create({
 
   headerGradient: { width: '100%', borderBottomRightRadius: 42, overflow: 'hidden' },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
-  tabtrackLogo: { },
+  leftCol: { flexDirection: 'column', alignItems: 'center' },  tabtrackLogo: { },
   logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
   restaurantImage: { backgroundColor: '#fff' },
 

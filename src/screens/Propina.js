@@ -375,7 +375,7 @@ export default function Propina() {
           style={[styles.headerGradient, { paddingHorizontal: Math.max(12, basePadding), paddingTop: Math.max(12, rf(14)), paddingBottom: Math.max(12, rf(14)) }]}
         >
           <View style={[styles.headerInner, { paddingHorizontal: 0 }]}>
-            <View style={[styles.leftCol, { flex: 1 }]}>
+            <View style={[styles.leftCol, { flex: 0 }]}>
               <Image
                 source={require('../../assets/images/logo2.png')}
                 style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32) }]}
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   container: { alignItems: 'center' },
   headerGradient: { width: '100%', borderBottomRightRadius: 28, overflow: 'hidden' },
   headerInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+  leftCol: { flexDirection: 'column', alignItems: 'center' },
   tabtrackLogo: { width: Math.min(staticWidth * 0.32, 160), height: Math.min(staticWidth * 0.32 * 0.32, 60), marginBottom: 8 },
   logoWrap: { marginTop: 6, backgroundColor: 'rgba(255,255,255,0.12)', padding: 8, borderRadius: 10 },
   restaurantImage: { width: 72, height: 72, borderRadius: 12, backgroundColor: '#fff' },

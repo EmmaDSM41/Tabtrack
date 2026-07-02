@@ -1229,12 +1229,6 @@ export default function PaymentScreen() {
       if (!validateBeforeStripe()) return;
       try {
         setLoadingKey('stripe');
-        const creds = await fetchStripeCredentials(restaurante_id, sucursal_id);
-        setLoadingKey(null);
-        if (!creds || !creds.public_key) {
-          showGatewayUnavailableModal('stripe', 'No se encontró la public_key de Stripe para esta sucursal. Verifica la configuración del restaurante.');
-          return;
-        }
 
         const chargeInfo = comingFromEqualSplit
           ? (equalSplitCharge ?? await resolveEqualSplitCharge())
@@ -1245,7 +1239,7 @@ export default function PaymentScreen() {
               totalAmount: round2(Number(totalSinPropina || 0) + Number(tipAmount || 0)),
             };
 
-        navigation.navigate('Stripe', {
+        navigation.navigate('StripePruebas', {
           sucursal_id,
           sale_id,
           restaurante_id,
@@ -1259,14 +1253,13 @@ export default function PaymentScreen() {
           mesa_id,
           userFullname,
           userEmail,
-          stripe_public_key: creds.public_key,
           payment_method_id: chosenId,
           restaurantImage: restaurantImage,
         });
       } catch (err) {
         setLoadingKey(null);
-        console.warn('confirmCardSelection stripe - fetch creds error', err);
-        showGatewayUnavailableModal('stripe', 'No fue posible obtener las credenciales de Stripe para esta sucursal. Intenta más tarde.');
+        console.warn('confirmCardSelection stripe error', err);
+        showGatewayUnavailableModal('stripe', 'No fue posible iniciar el pago con Stripe. Intenta más tarde.');
       } finally {
         setLoadingKey(null);
       }
@@ -1350,7 +1343,7 @@ export default function PaymentScreen() {
           style={[styles.headerGradient, { paddingHorizontal: Math.max(12, contentPadding), paddingTop: Math.max(16, hp(2)), paddingBottom: Math.max(18, hp(2)) }]}
         >
           <View style={styles.gradientRow}>
-            <View style={[styles.leftCol, { flex: 1 }]}>
+            <View style={[styles.leftCol, { flex: 0 }]}>
               <Image source={logoTabTrack} style={[styles.tabtrackLogo, { width: Math.min(logoSize, 160), height: Math.round(Math.min(logoSize, 160) * 0.32) }]} resizeMode="contain" />
               <View style={[styles.logoWrap, { marginTop: Math.max(6, hp(1)), padding: Math.max(6, wp(1)) }]}>
                 <Image
@@ -1541,10 +1534,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  leftCol: { flex: 1, flexDirection: 'column', alignItems: 'flex-start' },
+  leftCol: { flexDirection: 'column', alignItems: 'center' },
   tabtrackLogo: { marginBottom: 8 },
   logoWrap: { marginTop: 6, backgroundColor: 'rgba(255,255,255,0.12)', padding: 8, borderRadius: 10 },
-  restaurantImage: { backgroundColor: '#fff' },
+  restaurantImage: { backgroundColor: '#fff',  },
   rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
   totalLabel: { color: 'rgba(255,255,255,0.95)', marginBottom: 6 },
   totalRow: { flexDirection: 'row', alignItems: 'flex-end' },

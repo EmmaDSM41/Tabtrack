@@ -30,9 +30,12 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const DEFAULT_LOGO = require('../../assets/images/logo2.png');
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
+
+// PON AQUI TU PUBLIC KEY FIJA DE STRIPE.
+// Ya no se toma desde el restaurante ni desde params.
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
 
-export default function StripePay() {
+export default function StripePruebas() {
   const navigation = useNavigation();
   const route = useRoute();
   const params = route.params ?? {};
@@ -109,6 +112,14 @@ export default function StripePay() {
   const [savedCardsLoading, setSavedCardsLoading] = useState(false);
   const [usingSavedCard, setUsingSavedCard] = useState(false);
   const [selectedSavedCard, setSelectedSavedCard] = useState(null);
+  const [manualCardMode, setManualCardMode] = useState(false);
+  const [quickPayLoading, setQuickPayLoading] = useState(false);
+  const [quickPayNotice, setQuickPayNotice] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    icon: 'card-outline',
+  });
 
   // modal guardar tarjeta
   const [saveModalVisible, setSaveModalVisible] = useState(false);
@@ -151,10 +162,9 @@ export default function StripePay() {
   const buildListPaymentMethodsUrl = (usuarioAppId) =>
     `${(String(api_host || 'https://127.0.0.1')).replace(/\/$/, '')}/api/mobileapp/payment-methods?gateway=stripe&usuario_app_id=${encodeURIComponent(usuarioAppId)}`;
 
-  const genIdempotencyKey = () => {
-    const hex = Math.random().toString(16).slice(2, 10);
+  const genIdempotencyKey = (prefix = 'pm-setup') => {
     const suffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `${hex}-idemp-${suffix}`;
+    return `${prefix}-${suffix}`;
   };
 
   const extractStripeAccountId = (payload) =>
@@ -244,6 +254,12 @@ export default function StripePay() {
     return null;
   };
 
+  const validateBasePaymentData = () => {
+    if (!holder || holder.trim().length < 2) return 'Ingresa el nombre en la tarjeta';
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) return 'Ingresa un correo electrónico válido';
+    return null;
+  };
+
   const showPaymentError = (title, message, details = null) => {
     console.warn('Navigating to ErrorPago:', title, message, details);
     setProcessing(false);
@@ -255,7 +271,7 @@ export default function StripePay() {
     });
   };
 
-  const fetchSavedPaymentMethods = async () => {
+  const fetchSavedPaymentMethods = async ({ silent = false } = {}) => {
     await ensureToken();
 
     let usuarioAppIdToSend = null;
@@ -268,15 +284,15 @@ export default function StripePay() {
 
     if (!usuarioAppIdToSend) {
       console.warn('fetchSavedPaymentMethods - no user_usuario_app_id disponible', { usuario_app_id });
-      Alert.alert('Error', 'No hay user_usuario_app_id en AsyncStorage');
+      if (!silent) Alert.alert('Error', 'No hay user_usuario_app_id en AsyncStorage');
       setSavedCards([]);
       setLastSavedCardsResponse(null);
-      return;
+      return [];
     }
 
     setSavedCardsLoading(true);
     const url = buildListPaymentMethodsUrl(usuarioAppIdToSend);
-    const idKey = genIdempotencyKey();
+    const idKey = genIdempotencyKey('pm-setup');
 
     console.warn('[DEBUG] fetchSavedPaymentMethods - url:', url);
     console.warn('[DEBUG] fetchSavedPaymentMethods - Idempotency-Key:', idKey);
@@ -300,10 +316,10 @@ export default function StripePay() {
 
       if (!res.ok) {
         console.warn('fetchSavedPaymentMethods server error', res.status, json);
-        Alert.alert('Error', `No se pudo obtener tarjetas guardadas (${res.status})`);
+        if (!silent) Alert.alert('Error', `No se pudo obtener tarjetas guardadas (${res.status})`);
         setSavedCards([]);
         setSavedCardsLoading(false);
-        return;
+        return [];
       }
 
       const arr = Array.isArray(json?.payment_methods) ? json.payment_methods : [];
@@ -327,11 +343,13 @@ export default function StripePay() {
       }));
 
       setSavedCards(normalized);
+      return normalized;
     } catch (err) {
       console.warn('fetchSavedPaymentMethods exception', err);
-      Alert.alert('Error', 'No se pudo conectar al servidor de tarjetas guardadas.');
+      if (!silent) Alert.alert('Error', 'No se pudo conectar al servidor de tarjetas guardadas.');
       setSavedCards([]);
       setLastSavedCardsResponse({ error: String(err) });
+      return [];
     } finally {
       setSavedCardsLoading(false);
     }
@@ -405,7 +423,7 @@ export default function StripePay() {
     }
   };
 
-  const processPaymentFlow = async () => {
+  const processPaymentFlow = async (savedCardOverride = null) => {
     setProcessing(true);
     setLoading(true);
 
@@ -415,6 +433,8 @@ export default function StripePay() {
     const monto_propina = Number(propinaNum) || 0;
     const items_pagados = buildItemsPagados();
     const usuario_app_id_to_send = (email && String(email).trim()) || (usuario_app_id && String(usuario_app_id).trim()) || '';
+    const savedCardForPayment = savedCardOverride || selectedSavedCard;
+    const shouldUseSavedCard = Boolean(savedCardForPayment);
 
     const body = {
       sucursal_id,
@@ -433,12 +453,12 @@ export default function StripePay() {
       flow: 'elements',
     };
 
-    if (usingSavedCard && selectedSavedCard) {
+    if (shouldUseSavedCard) {
       try {
         const storedUuid = await AsyncStorage.getItem('user_usuario_app_id');
         if (storedUuid) body.usuario_app_uuid = storedUuid;
       } catch (e) {}
-      body.mobile_payment_method_id = selectedSavedCard.id ?? selectedSavedCard.mobile_payment_method_id ?? null;
+      body.mobile_payment_method_id = savedCardForPayment.id ?? savedCardForPayment.mobile_payment_method_id ?? null;
     }
 
     console.warn('[DEBUG] processPaymentFlow - body:', body);
@@ -509,7 +529,7 @@ export default function StripePay() {
         }
       }
 
-      if (usingSavedCard && selectedSavedCard) {
+      if (shouldUseSavedCard) {
         console.warn('[DEBUG] usando tarjeta guardada -> saltando confirmPayment en cliente; iniciando pollSplitsUntilPaid');
         const pollResult = await pollSplitsUntilPaid(transactionId, pollingTimeoutMs, pollingIntervalMs);
         setProcessing(false);
@@ -629,12 +649,63 @@ export default function StripePay() {
     await processPaymentFlow();
   };
 
-  const onPayPress = async () => {
-    const v = validateForm();
-    if (v) {
-      Alert.alert('Atención', v);
-      return;
+  const findPreferredSavedCard = (cards = []) => {
+    if (!Array.isArray(cards) || cards.length === 0) return null;
+    return cards.find((card) => Boolean(card.is_preferred)) || null;
+  };
+
+  const enableManualCardEntry = () => {
+    setManualCardMode(true);
+    setUsingSavedCard(false);
+    setSelectedSavedCard(null);
+    setCardDetails(null);
+    setCardFieldFocused(false);
+  };
+
+  const showQuickPayNotice = ({ title, message, icon = 'card-outline' }) => {
+    setQuickPayNotice({ visible: true, title, message, icon });
+  };
+
+  const closeQuickPayNotice = () => {
+    setQuickPayNotice((prev) => ({ ...prev, visible: false }));
+  };
+
+  const payWithPreferredSavedCard = async () => {
+    setQuickPayLoading(true);
+    try {
+      const cards = await fetchSavedPaymentMethods({ silent: true });
+      const preferredCard = findPreferredSavedCard(cards);
+
+      if (!preferredCard) {
+        enableManualCardEntry();
+        const hasCards = Array.isArray(cards) && cards.length > 0;
+        showQuickPayNotice({
+          title: hasCards ? 'Elige una tarjeta preferida' : 'Agrega una tarjeta para pagar más rápido',
+          message: hasCards
+            ? 'Tienes tarjetas guardadas, pero ninguna está marcada como preferida. Puedes configurarla desde tu perfil o continuar ahora ingresando una tarjeta.'
+            : 'Aún no tienes tarjetas guardadas. Para continuar con este pago, ingresa una tarjeta; después podrás guardarla para futuros pagos.',
+          icon: hasCards ? 'star-outline' : 'card-outline',
+        });
+        return;
+      }
+
+      setSelectedSavedCard(preferredCard);
+      setUsingSavedCard(true);
+      await processPaymentFlow(preferredCard);
+    } catch (err) {
+      console.warn('payWithPreferredSavedCard error', err);
+      enableManualCardEntry();
+      showQuickPayNotice({
+        title: 'No pudimos consultar tus tarjetas',
+        message: 'Por el momento no fue posible obtener tu tarjeta preferida. Puedes continuar el pago ingresando una tarjeta manualmente.',
+        icon: 'alert-circle-outline',
+      });
+    } finally {
+      setQuickPayLoading(false);
     }
+  };
+
+  const onPayPress = async () => {
     if (!api_host) {
       Alert.alert('Falta API host', 'No hay api_host configurado');
       return;
@@ -645,6 +716,22 @@ export default function StripePay() {
     }
     if (!stripePublishableKey || stripePublishableKey === 'pk_test_REPLACE_ME') {
       Alert.alert('Falta Stripe key', 'Configura FIXED_STRIPE_PUBLISHABLE_KEY en este archivo con tu public key fija de Stripe.');
+      return;
+    }
+
+    if (!manualCardMode && !usingSavedCard) {
+      const baseValidation = validateBasePaymentData();
+      if (baseValidation) {
+        Alert.alert('Atención', baseValidation);
+        return;
+      }
+      await payWithPreferredSavedCard();
+      return;
+    }
+
+    const v = validateForm();
+    if (v) {
+      Alert.alert('Atención', v);
       return;
     }
 
@@ -686,20 +773,15 @@ export default function StripePay() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        await fetchSavedPaymentMethods();
-      } catch (e) {
-        console.warn('load saved cards on mount error', e);
-      }
-    })();
     const unsub = navigation.addListener('focus', () => {
-      fetchSavedPaymentMethods().catch((e) => console.warn('refresh saved cards on focus error', e));
+      setManualCardMode(false);
+      setUsingSavedCard(false);
+      setSelectedSavedCard(null);
+      setCardDetails(null);
+      setCardFieldFocused(false);
     });
     return () => {
       try { if (unsub && typeof unsub === 'function') unsub(); } catch (e) {}
-      mounted = false;
     };
   }, [navigation]);
 
@@ -719,7 +801,7 @@ export default function StripePay() {
           <Text style={{ fontWeight: '800', color: '#0b1220' }}>{brand} • {mask}</Text>
           <Text style={{ fontSize: 12, color: '#6b7280' }}>Exp: {exp} {card.is_preferred ? ' • Preferida' : ''}</Text>
         </View>
-        <TouchableOpacity onPress={() => { setUsingSavedCard(false); setSelectedSavedCard(null); setCardFieldFocused(false); }} style={{ padding: 6 }}>
+        <TouchableOpacity onPress={() => { setManualCardMode(true); setUsingSavedCard(false); setSelectedSavedCard(null); setCardFieldFocused(false); }} style={{ padding: 6 }}>
           <Text style={{ color: '#0b58ff', fontWeight: '700' }}>Usar otra</Text>
         </TouchableOpacity>
       </View>
@@ -762,7 +844,7 @@ export default function StripePay() {
     }
     usuarioAppUuid = usuarioAppUuid || usuario_app_id || '';
 
-    const idKey = genIdempotencyKey();
+    const idKey = genIdempotencyKey('pm-delete');
 
     try {
       const res = await fetch(url, {
@@ -856,7 +938,12 @@ export default function StripePay() {
             <View style={[styles.inputWrap, { paddingVertical: 8 }]}>
               <Ionicons name="card-outline" size={18} color={'#0b1220'} style={styles.inputIcon} />
               <View style={{ flex: 1 }}>
-                {usingSavedCard && selectedSavedCard ? (
+                {!manualCardMode && !usingSavedCard ? (
+                  <View style={styles.quickPayInfo}>
+                    <Text style={styles.quickPayTitle}>Pago rápido con tarjeta seleccionada</Text>
+                    <Text style={styles.quickPaySub}>Si no sabes como esta configurado puedes revisar el apartado de metodos de pago en perfil.</Text>
+                  </View>
+                ) : usingSavedCard && selectedSavedCard ? (
                   <SavedCardView card={selectedSavedCard} />
                 ) : (
                   <>
@@ -877,7 +964,7 @@ export default function StripePay() {
                       onBlur={() => setCardFieldFocused(false)}
                     />
 
-                    {!cardFieldFocused && !usingSavedCard && Array.isArray(savedCards) && savedCards.length > 0 && (
+                    {false && !cardFieldFocused && !usingSavedCard && Array.isArray(savedCards) && savedCards.length > 0 && (
                       <TouchableOpacity onPress={openSavedCardsModal} style={{ position: 'absolute', right: 8, top: 8, padding: 6 }}>
                         <Text style={{ color: '#0b58ff', fontWeight: '700' }}>Usar tarjeta guardada</Text>
                       </TouchableOpacity>
@@ -893,9 +980,9 @@ export default function StripePay() {
             </View>
 
             <View style={{ marginTop: PAY_BTN_MARGIN, alignItems: 'center' }}>
-              <TouchableOpacity style={[styles.payBtn, { width: Math.min(560, winW - PADDING * 2) }]} onPress={onPayPress} activeOpacity={0.9} disabled={processing || loading}>
-                {processing ? <ActivityIndicator color={'#fff'} style={{ marginRight: 10 }} /> : <Ionicons name="card-outline" size={18} color={'#ffffff'} style={{ marginRight: 8 }} />}
-                <Text style={styles.payBtnText}>{processing ? 'Procesando…' : 'Pagar'}</Text>
+              <TouchableOpacity style={[styles.payBtn, { width: Math.min(560, winW - PADDING * 2) }]} onPress={onPayPress} activeOpacity={0.9} disabled={processing || loading || quickPayLoading}>
+                {(processing || quickPayLoading) ? <ActivityIndicator color={'#fff'} style={{ marginRight: 10 }} /> : <Ionicons name="card-outline" size={18} color={'#ffffff'} style={{ marginRight: 8 }} />}
+                <Text style={styles.payBtnText}>{processing ? 'Procesando…' : (quickPayLoading ? 'Buscando tarjeta…' : 'Pagar')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -909,6 +996,28 @@ export default function StripePay() {
             </View>
           </View>
         )}
+
+        <Modal visible={quickPayNotice.visible} transparent animationType="fade" onRequestClose={closeQuickPayNotice}>
+          <View style={styles.quickPayModalBackdrop}>
+            <View style={[styles.quickPayModalBox, { width: Math.min(380, winW - 48) }]}>
+              <View style={styles.quickPayIconCircle}>
+                <Ionicons name={quickPayNotice.icon} size={25} color={primaryColor} />
+              </View>
+
+              <Text style={styles.quickPayModalTitle}>{quickPayNotice.title}</Text>
+              <Text style={styles.quickPayModalMessage}>{quickPayNotice.message}</Text>
+
+              <View style={styles.quickPayModalHint}>
+                <Ionicons name="lock-closed-outline" size={15} color="#64748b" style={{ marginRight: 6 }} />
+                <Text style={styles.quickPayModalHintText}>Tu pago se procesará de forma segura con Stripe.</Text>
+              </View>
+
+              <TouchableOpacity style={styles.quickPayModalButton} onPress={closeQuickPayNotice} activeOpacity={0.9}>
+                <Text style={styles.quickPayModalButtonText}>Ingresar tarjeta</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         <Modal visible={saveModalVisible} transparent animationType="fade" onRequestClose={() => setSaveModalVisible(false)}>
           <View style={styles.autoModalBackdrop}>
@@ -1065,7 +1174,7 @@ const styles = StyleSheet.create({
   gradientInner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   gradientLeftColumn: { flexDirection: 'column', alignItems: 'flex-start' },
   gradientLogo: { height: 36, tintColor: '#fff' },
-  gradientRestaurant: { borderRadius: 12, marginLeft: 0, backgroundColor: '#fff', borderWidth: 0 },
+  gradientRestaurant: { borderRadius: 12, marginLeft: 25, backgroundColor: '#fff', borderWidth: 0 },
 
   gradientRight: { alignItems: 'flex-end' },
   gradientSmall: { color: '#e6ffffff', fontSize: 13 },
@@ -1083,10 +1192,86 @@ const styles = StyleSheet.create({
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#eef4ff', paddingHorizontal: 10, marginBottom: 10, backgroundColor: '#fff' },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, height: 44, fontSize: 14, color: '#0b1220' },
+  quickPayInfo: { minHeight: 48, justifyContent: 'center', paddingVertical: 6 },
+  quickPayTitle: { color: '#0b1220', fontWeight: '800', fontSize: 14 },
+  quickPaySub: { color: '#64748b', fontSize: 12, marginTop: 3 },
 
   processingOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2E020617' },
   processingBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', padding: 14, borderRadius: 12, shadowColor: '#14000000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 12 },
   processingText: { fontWeight: '700', fontSize: 16, color: '#0b1220' },
+
+  quickPayModalBackdrop: {
+    flex: 1,
+    backgroundColor: '#2E020617',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 18,
+  },
+  quickPayModalBox: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 18,
+  },
+  quickPayIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#eaf3ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  quickPayModalTitle: {
+    color: '#0b1220',
+    fontSize: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  quickPayModalMessage: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  quickPayModalHint: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fbff',
+    borderWidth: 1,
+    borderColor: '#eef4ff',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginTop: 14,
+  },
+  quickPayModalHintText: {
+    color: '#64748b',
+    fontSize: 12,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  quickPayModalButton: {
+    width: '100%',
+    backgroundColor: '#0b58ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    paddingVertical: 11,
+    marginTop: 14,
+  },
+  quickPayModalButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
 
   autoModalBackdrop: { flex: 1, backgroundColor: '#2E020617', justifyContent: 'center', alignItems: 'center', padding: 18 },
   autoModalBox: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#fff', borderRadius: 12, width: Math.min(340, 340), shadowColor: '#14000000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 10 },

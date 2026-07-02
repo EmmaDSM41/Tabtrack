@@ -576,7 +576,7 @@ export default function EqualSplit() {
   const headerGradientPaddingH = Math.round(sidePad);
   const contentWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
   const modalWidth = Math.round(Math.min(width - 48, 360));
-  const logoSize = Math.round(clamp(rf(12), 64, 140));
+  const logoSize = Math.round(clamp(rf(12), 80, 140));
 
   const styles = useMemo(() => makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow }), [wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow]);
 
@@ -773,7 +773,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth
 
     gradientRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
 
-    leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+    leftCol: { flexDirection: 'column', alignItems: 'center' },
     tabtrackLogo: { marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.8)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
     restaurantImage: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
