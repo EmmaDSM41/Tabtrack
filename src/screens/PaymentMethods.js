@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
@@ -20,16 +19,27 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import LinearGradient from 'react-native-linear-gradient';
 import { StripeProvider, CardField, confirmSetupIntent, initStripe } from '@stripe/stripe-react-native';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
-const BLUE = '#0046ff';
-const SOFT_BLUE = '#dbe8ff';
 const API_HOST_CONST = 'https://api.tab-track.com';
 
-// PON AQUI TU PUBLIC KEY FIJA DE STRIPE.
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
+
+const COLORS = {
+  bg: '#ffffff',
+  surface: '#ffffff',
+  text: '#161616',
+  muted: '#6f6f6f',
+  faint: '#f0f3f8',
+  border: '#e8edf5',
+  accent: '#202124',
+  ink: '#111111',
+  danger: '#d92d20',
+  success: '#176b3a',
+  softBlue: '#f6f7f9',
+  blue:'#0b58ff'
+};
 
 const AS_KEYS = {
   USER_EMAIL: 'user_email',
@@ -38,7 +48,6 @@ const AS_KEYS = {
   USER_NOMBRE: 'user_nombre',
   USER_APELLIDO: 'user_apellido',
   USER_USUARIO_APP_ID: 'user_usuario_app_id',
-  USER_PROFILE_URL: 'user_profile_url',
 };
 
 function SmallToast({ message, visible, success }) {
@@ -61,11 +70,11 @@ function SmallToast({ message, visible, success }) {
         {
           opacity: anim,
           transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }],
-          borderColor: success ? '#e6f9ee' : '#f0f0f0',
+          borderColor: success ? '#d8efe1' : COLORS.border,
         },
       ]}
     >
-      <Text style={[toastStyles.toastText, success && { color: '#0a6b2b' }]}>{message}</Text>
+      <Text style={[toastStyles.toastText, success && { color: COLORS.success }]}>{message}</Text>
     </Animated.View>
   );
 }
@@ -73,44 +82,33 @@ function SmallToast({ message, visible, success }) {
 export default function PaymentMethods({ navigation, route }) {
   const params = route?.params ?? {};
   const { width: dimWidth, height: dimHeight } = Dimensions.get('window');
-  const wp = p => Math.round((Number(p) / 100) * dimWidth);
-  const hp = p => Math.round((Number(p) / 100) * dimHeight);
   const rf = p => Math.round(PixelRatio.roundToNearestPixel((Number(p) / 100) * dimWidth));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  const headerPaddingVertical = useMemo(() => clamp(hp(3.5), 12, 36), [dimHeight]);
-  const headerPaddingHorizontal = useMemo(() => clamp(wp(4), 12, 28), [dimWidth]);
-  const avatarSize = useMemo(() => clamp(Math.round(Math.min(dimWidth * 0.08, 40)), 28, 48), [dimWidth]);
-  const modalWidth = useMemo(() => Math.min(Math.round(dimWidth * 0.88), 520), [dimWidth]);
-  const iconSize = useMemo(() => clamp(Math.round(rf(2.6)), 16, 26), [dimWidth]);
+  const pagePadding = useMemo(() => Math.max(18, Math.round(dimWidth * 0.055)), [dimWidth]);
+  const iconSize = useMemo(() => clamp(Math.round(rf(2.6)), 18, 26), [dimWidth]);
 
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? TOKEN ?? '';
 
+  const [screen, setScreen] = useState('wallet');
   const [username, setUsername] = useState('Usuario');
-  const [profileUrl, setProfileUrl] = useState(null);
   const [userEmail, setUserEmail] = useState(params.userEmail ?? params.user_email ?? '');
   const [userFullname, setUserFullname] = useState(params.userFullname ?? params.user_fullname ?? '');
   const [usuarioAppId, setUsuarioAppId] = useState(params.usuario_app_id ?? params.user_usuario_app_id ?? '');
 
-  const [stripeCards, setStripeCards] = useState([]);
-  const [openpayCards, setOpenpayCards] = useState([]);
-  const [loadingStripeCards, setLoadingStripeCards] = useState(false);
-  const [loadingOpenpayCards, setLoadingOpenpayCards] = useState(false);
+  const [cards, setCards] = useState([]);
+  const [loadingCards, setLoadingCards] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
-  const [deletingCardId, setDeletingCardId] = useState(null);
-  const [preferredCardId, setPreferredCardId] = useState(null);
-  const [selectedPreferred, setSelectedPreferred] = useState({ stripe: null, openpay: null });
-  const [settingPreferredId, setSettingPreferredId] = useState(null);
-  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
-  const [cardToDelete, setCardToDelete] = useState(null);
-  const [gatewayToDelete, setGatewayToDelete] = useState(null);
-
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedGateway, setSelectedGateway] = useState('stripe');
   const [stripeCardDetails, setStripeCardDetails] = useState(null);
   const [savePreferred, setSavePreferred] = useState(true);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
+
+  const [selectedPreferred, setSelectedPreferred] = useState(null);
+  const [settingPreferredId, setSettingPreferredId] = useState(null);
+  const [deletingCardId, setDeletingCardId] = useState(null);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [cardToDelete, setCardToDelete] = useState(null);
 
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -130,8 +128,8 @@ export default function PaymentMethods({ navigation, route }) {
 
   const hostBase = useCallback(() => String(apiHost || API_HOST_CONST).replace(/\/$/, ''), [apiHost]);
   const buildSetupIntentUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/stripe/setup-intent`, [hostBase]);
-  const buildListPaymentMethodsUrl = useCallback((gateway, userId) => `${hostBase()}/api/mobileapp/payment-methods?gateway=${encodeURIComponent(gateway)}&usuario_app_id=${encodeURIComponent(userId)}`, [hostBase]);
-  const buildDeletePaymentMethodUrl = useCallback((cardId, gateway) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}?gateway=${encodeURIComponent(gateway)}`, [hostBase]);
+  const buildListPaymentMethodsUrl = useCallback((userId) => `${hostBase()}/api/mobileapp/payment-methods?usuario_app_id=${encodeURIComponent(userId)}`, [hostBase]);
+  const buildDeletePaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe`, [hostBase]);
   const buildPreferredPaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}/preferred`, [hostBase]);
 
   const showToast = useCallback((message, success = false, duration = 1700) => {
@@ -145,7 +143,7 @@ export default function PaymentMethods({ navigation, route }) {
     }, duration);
   }, []);
 
-  const genIdempotencyKey = (prefix = 'pm-request') => {
+  const genIdempotencyKey = (prefix = 'pm-setup') => {
     const suffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `${prefix}-${suffix}`;
   };
@@ -180,7 +178,7 @@ export default function PaymentMethods({ navigation, route }) {
     exp_year: pm.exp_year ?? pm.card_exp_year ?? null,
     is_preferred: pm.is_preferred ?? pm.preferred ?? false,
     status: pm.status ?? pm.state ?? '',
-    gateway: pm.gateway ?? '',
+    gateway: 'stripe',
     raw: pm,
   });
 
@@ -194,54 +192,39 @@ export default function PaymentMethods({ navigation, route }) {
     return '';
   }, [usuarioAppId]);
 
-  const loadPaymentMethods = useCallback(async (gateway) => {
+  const loadCards = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontró usuario_app_id', false);
+      showToast('No se encontro usuario_app_id', false);
       return;
     }
 
-    if (gateway === 'stripe') setLoadingStripeCards(true);
-    if (gateway === 'openpay') setLoadingOpenpayCards(true);
-
+    setLoadingCards(true);
     try {
       await ensureToken();
-      const res = await fetch(buildListPaymentMethodsUrl(gateway, userId), {
+      const res = await fetch(buildListPaymentMethodsUrl(userId), {
         method: 'GET',
         headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
       });
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        console.warn(`loadPaymentMethods ${gateway} error`, res.status, json);
-        if (gateway === 'openpay') {
-          setOpenpayCards([]);
-          return;
-        }
-        showToast(`No se pudieron cargar tarjetas ${gateway}`, false);
+        console.warn('loadCards error', res.status, json);
+        showToast('No se pudieron cargar tus tarjetas', false);
         return;
       }
 
       const arr = Array.isArray(json?.payment_methods)
         ? json.payment_methods
         : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []));
-      const normalized = arr.map(normalizePaymentMethod);
-
-      if (gateway === 'stripe') setStripeCards(normalized);
-      if (gateway === 'openpay') setOpenpayCards(normalized);
+      setCards(arr.map(normalizePaymentMethod));
     } catch (err) {
-      console.warn(`loadPaymentMethods ${gateway} exception`, err);
-      if (gateway === 'stripe') showToast('No se pudo conectar al servidor de tarjetas', false);
+      console.warn('loadCards exception', err);
+      showToast('No se pudo conectar al servidor', false);
     } finally {
-      if (gateway === 'stripe') setLoadingStripeCards(false);
-      if (gateway === 'openpay') setLoadingOpenpayCards(false);
+      setLoadingCards(false);
     }
   }, [buildListPaymentMethodsUrl, getAuthHeaders, resolveUsuarioAppId, showToast]);
-
-  const loadAllPaymentMethods = useCallback(async () => {
-    await loadPaymentMethods('stripe');
-    await loadPaymentMethods('openpay');
-  }, [loadPaymentMethods]);
 
   useEffect(() => {
     let mounted = true;
@@ -252,7 +235,6 @@ export default function PaymentMethods({ navigation, route }) {
         const full = await AsyncStorage.getItem(AS_KEYS.USER_FULLNAME);
         const email = await AsyncStorage.getItem(AS_KEYS.USER_EMAIL) || await AsyncStorage.getItem(AS_KEYS.USER_MAIL);
         const userId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
-        const cachedUrl = await AsyncStorage.getItem(AS_KEYS.USER_PROFILE_URL);
 
         const displayName = full || `${nombre ?? ''} ${apellido ?? ''}`.trim() || 'Usuario';
         if (!mounted) return;
@@ -261,7 +243,6 @@ export default function PaymentMethods({ navigation, route }) {
         if (!userFullname) setUserFullname(displayName);
         if (!userEmail && email) setUserEmail(email);
         if (!usuarioAppId && userId) setUsuarioAppId(userId);
-        if (cachedUrl) setProfileUrl(cachedUrl);
       } catch (e) {
         console.warn('Error leyendo AsyncStorage', e);
       }
@@ -270,8 +251,17 @@ export default function PaymentMethods({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (usuarioAppId) loadAllPaymentMethods();
-  }, [usuarioAppId, loadAllPaymentMethods]);
+    if (usuarioAppId) loadCards();
+  }, [usuarioAppId, loadCards]);
+
+  useEffect(() => {
+    const unsub = navigation.addListener?.('focus', () => {
+      if (usuarioAppId) loadCards();
+    });
+    return () => {
+      try { if (typeof unsub === 'function') unsub(); } catch (e) {}
+    };
+  }, [navigation, usuarioAppId, loadCards]);
 
   useEffect(() => {
     return () => {
@@ -279,11 +269,16 @@ export default function PaymentMethods({ navigation, route }) {
     };
   }, []);
 
-  const openAddCardModal = (gateway) => {
-    setSelectedGateway(gateway);
-    setSavePreferred(true);
+  const openAddCardScreen = () => {
     setStripeCardDetails(null);
-    setModalVisible(true);
+    setSavePreferred(cards.length === 0);
+    setScreen('add-card');
+  };
+
+  const closeAddCardScreen = () => {
+    if (savingCard) return;
+    setStripeCardDetails(null);
+    setScreen('wallet');
   };
 
   const createStripeSetupIntent = async () => {
@@ -312,13 +307,13 @@ export default function PaymentMethods({ navigation, route }) {
       json?.setupIntentClientSecret ||
       null;
 
-    if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
+    if (!clientSecret) throw new Error('El servidor no devolvio client_secret');
     return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
   };
 
   const saveStripeCard = async () => {
     if (!stripeCardDetails || !stripeCardDetails.complete) {
-      showToast('Ingresa los datos de la tarjeta', false);
+      showToast('Completa los datos de la tarjeta', false);
       return;
     }
 
@@ -344,9 +339,10 @@ export default function PaymentMethods({ navigation, route }) {
         return;
       }
 
-      setModalVisible(false);
-      showToast('Tarjeta Stripe guardada', true);
-      await loadPaymentMethods('stripe');
+      showToast('Tarjeta agregada a tu wallet', true);
+      setScreen('wallet');
+      setStripeCardDetails(null);
+      await loadCards();
     } catch (err) {
       console.warn('saveStripeCard error', err);
       showToast(err?.message || 'No se pudo guardar la tarjeta', false);
@@ -355,44 +351,16 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
-  const saveOpenpayCard = async () => {
-    setModalVisible(false);
-    showToast('OpenPay todavía no está listo en backend', false, 2200);
-  };
-
-  const onSaveCard = () => {
-    if (selectedGateway === 'stripe') {
-      saveStripeCard();
-      return;
-    }
-    saveOpenpayCard();
-  };
-
-  const selectPreferredCandidate = (card, gateway) => {
+  const setPreferredCard = async (card) => {
     const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
     if (!cardId) {
-      showToast('No se encontró el id de la tarjeta', false);
-      return;
-    }
-    setSelectedPreferred(prev => ({ ...prev, [gateway]: card }));
-    showToast('Tarjeta seleccionada. Presiona Guardar preferida.', true, 1800);
-  };
-
-  const setPreferredCard = async (card, gateway) => {
-    if (gateway !== 'stripe') {
-      showToast('Preferida OpenPay aún no está disponible', false, 2200);
-      return;
-    }
-
-    const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
-    if (!cardId) {
-      showToast('No se encontró el id de la tarjeta', false);
+      showToast('No se encontro el id de la tarjeta', false);
       return;
     }
 
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontró usuario_app_id', false);
+      showToast('No se encontro usuario_app_id', false);
       return;
     }
 
@@ -407,19 +375,18 @@ export default function PaymentMethods({ navigation, route }) {
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        console.warn('setPreferredCard server error', res.status, json);
+        console.warn('setPreferredCard error', res.status, json);
         showToast(`No se pudo marcar como preferida (${res.status})`, false);
         return;
       }
 
-      setPreferredCardId(cardId);
-      setStripeCards(prev => prev.map(item => ({
+      setSelectedPreferred(null);
+      setCards(prev => prev.map(item => ({
         ...item,
         is_preferred: String(item.id) === String(cardId),
       })));
-      setSelectedPreferred(prev => ({ ...prev, [gateway]: null }));
-      showToast('Tarjeta marcada como preferida', true);
-      await loadPaymentMethods('stripe');
+      showToast('Tarjeta preferida actualizada', true);
+      await loadCards();
     } catch (err) {
       console.warn('setPreferredCard exception', err);
       showToast('Error al marcar preferida', false);
@@ -428,37 +395,23 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
-  const savePreferredSelection = async (gateway) => {
-    const card = selectedPreferred[gateway];
-    if (!card) {
-      showToast('Selecciona una tarjeta primero', false);
-      return;
-    }
-    await setPreferredCard(card, gateway);
-  };
-
-  const deleteCard = async (card, gateway) => {
-    if (gateway !== 'stripe') {
-      showToast('Eliminar OpenPay aún no está disponible', false, 2200);
-      return;
-    }
-
+  const deleteCard = async (card) => {
     const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
     if (!cardId) {
-      showToast('No se encontró el id de la tarjeta', false);
+      showToast('No se encontro el id de la tarjeta', false);
       return;
     }
 
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontró usuario_app_id', false);
+      showToast('No se encontro usuario_app_id', false);
       return;
     }
 
     setDeletingCardId(cardId);
     try {
       await ensureToken();
-      const res = await fetch(buildDeletePaymentMethodUrl(cardId, gateway), {
+      const res = await fetch(buildDeletePaymentMethodUrl(cardId), {
         method: 'DELETE',
         headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-delete') }),
         body: JSON.stringify({ usuario_app_id: userId }),
@@ -466,25 +419,26 @@ export default function PaymentMethods({ navigation, route }) {
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        console.warn('deleteCard server error', res.status, json);
+        console.warn('deleteCard error', res.status, json);
         showToast(`No se pudo eliminar tarjeta (${res.status})`, false);
         return;
       }
 
-      setStripeCards(prev => prev.filter(item => String(item.id) !== String(cardId)));
-      setSelectedPreferred(prev => ({ ...prev, [gateway]: null }));
+      setCards(prev => prev.filter(item => String(item.id) !== String(cardId)));
+      setSelectedPreferred(null);
       showToast('Tarjeta eliminada', true);
     } catch (err) {
       console.warn('deleteCard exception', err);
       showToast('Error al eliminar tarjeta', false);
     } finally {
       setDeletingCardId(null);
+      setDeleteConfirmVisible(false);
+      setCardToDelete(null);
     }
   };
 
-  const confirmDeleteCard = (card, gateway) => {
+  const confirmDeleteCard = (card) => {
     setCardToDelete(card);
-    setGatewayToDelete(gateway);
     setDeleteConfirmVisible(true);
   };
 
@@ -492,457 +446,741 @@ export default function PaymentMethods({ navigation, route }) {
     if (deletingCardId) return;
     setDeleteConfirmVisible(false);
     setCardToDelete(null);
-    setGatewayToDelete(null);
   };
 
-  const performConfirmedDelete = async () => {
-    if (!cardToDelete || !gatewayToDelete) return;
-    await deleteCard(cardToDelete, gatewayToDelete);
-    setDeleteConfirmVisible(false);
-    setCardToDelete(null);
-    setGatewayToDelete(null);
+  const getBrandLabel = (brand) => {
+    const clean = String(brand || '').trim();
+    if (!clean) return 'Card';
+    return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
   };
 
-  const renderCardItem = (card, gateway) => {
+  const getBrandMark = (brand) => {
+    const lower = String(brand || '').toLowerCase();
+    if (lower.includes('visa')) return { text: 'VISA', style: 'visa' };
+    if (lower.includes('master')) return { text: 'MC', style: 'mastercard' };
+    if (lower.includes('amex') || lower.includes('american')) return { text: 'AMEX', style: 'amex' };
+    return { text: 'CARD', style: 'generic' };
+  };
+
+  const renderExternalWallets = () => (
+    <View style={styles.walletBlock}>
+      <Text style={styles.blockTitle}>Metodos de pago</Text>
+
+      <TouchableOpacity style={styles.walletOption} activeOpacity={0.88} onPress={() => showToast('  ', false)}>
+        <View style={styles.walletLogo}>
+          <Ionicons name="logo-apple" size={24} color={COLORS.text} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.walletOptionTitle}>Apple Pay</Text>
+          <Text style={styles.walletOptionSub}>Apple pay</Text>
+        </View>
+{/*         <Text style={styles.soonBadge}>Pronto</Text>*/}
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.walletOption} activeOpacity={0.88} onPress={() => showToast(' ', false)}>
+        <View style={styles.walletLogo}>
+          <Ionicons name="logo-paypal" size={23} color="#003087" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.walletOptionTitle}>PayPal</Text>
+          <Text style={styles.walletOptionSub}> Paypal</Text>
+        </View>
+{/*         <Text style={styles.soonBadge}>Pronto</Text>*/} 
+     </TouchableOpacity>
+    </View>
+  );
+
+  const renderCardItem = (card) => {
     const cardId = card.id ?? card.external_payment_method_id;
-    const brand = String(card.brand || gateway).toUpperCase();
+    const brand = getBrandLabel(card.brand);
+    const mark = getBrandMark(card.brand);
     const last4 = card.last4 || '----';
-    const exp = card.exp_month && card.exp_year ? `${card.exp_month}/${String(card.exp_year).slice(-2)}` : 'Exp --/--';
-    const isPreferred = Boolean(card.is_preferred) || String(preferredCardId) === String(cardId);
-    const isSelected = String(selectedPreferred[gateway]?.id ?? selectedPreferred[gateway]?.external_payment_method_id ?? '') === String(cardId);
+    const exp = card.exp_month && card.exp_year ? `${card.exp_month}/${String(card.exp_year).slice(-2)}` : '--/--';
+    const isPreferred = Boolean(card.is_preferred);
+    const isSelected = String(selectedPreferred?.id ?? selectedPreferred?.external_payment_method_id ?? '') === String(cardId);
     const deleting = String(deletingCardId) === String(cardId);
     const settingPreferred = String(settingPreferredId) === String(cardId);
 
     return (
-      <View key={`${gateway}-${cardId}`} style={[styles.cardItem, isSelected && styles.cardItemSelected]}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.82} onPress={() => selectPreferredCandidate(card, gateway)}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name={isPreferred ? 'star' : (isSelected ? 'checkmark-circle' : 'star-outline')} size={17} color={isPreferred || isSelected ? BLUE : '#9aa0a6'} style={{ marginRight: 8 }} />
-            <Text style={styles.cardLabel}>{brand} • **** **** **** {last4}</Text>
+      <TouchableOpacity
+        key={`card-${cardId}`}
+        style={[styles.cardRow, isSelected && styles.cardRowSelected]}
+        activeOpacity={0.86}
+        onPress={() => {
+          setSelectedPreferred(card);
+          if (!isPreferred) setPreferredCard(card);
+        }}
+      >
+        <View style={[styles.cardBrandMark, styles[`cardBrandMark_${mark.style}`]]}>
+          {mark.style === 'mastercard' ? (
+            <View style={styles.mastercardLogo}>
+              <View style={[styles.mastercardCircle, styles.mastercardCircleLeft]} />
+              <View style={[styles.mastercardCircle, styles.mastercardCircleRight]} />
+            </View>
+          ) : (
+            <Text style={[styles.cardBrandText, mark.style === 'visa' && styles.cardBrandTextVisa]}>{mark.text}</Text>
+          )}
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <View style={styles.cardTopLine}>
+            <Text style={styles.cardTitle}>•••• {last4}</Text>
+            {isPreferred ? (
+              <View style={styles.preferredChip}>
+                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+                <Text style={styles.preferredChipText}>Principal</Text>
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.cardMeta}>{exp}{isPreferred ? ' • Preferida' : (isSelected ? ' • Seleccionada' : ' • Toca para seleccionar')}</Text>
-        </TouchableOpacity>
+          <Text style={styles.cardSub}>{brand} · Expira {exp}</Text>
+        </View>
 
         <View style={styles.cardActions}>
           <TouchableOpacity
-            onPress={() => selectPreferredCandidate(card, gateway)}
-            style={styles.iconAction}
+            style={styles.cardIconButton}
+            onPress={() => {
+              setSelectedPreferred(card);
+              if (!isPreferred) setPreferredCard(card);
+            }}
             disabled={settingPreferred}
           >
-            {settingPreferred ? <ActivityIndicator size="small" /> : <Ionicons name="checkmark-circle-outline" size={19} color={BLUE} />}
+            {settingPreferred ? <ActivityIndicator size="small" /> : <Ionicons name={isPreferred ? 'star' : 'star-outline'} size={19} color={isPreferred ? COLORS.blue : COLORS.muted} />}
           </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => confirmDeleteCard(card, gateway)}
-            style={styles.iconAction}
-            disabled={deleting}
-          >
-            {deleting ? <ActivityIndicator size="small" /> : <Ionicons name="trash-outline" size={19} color="#ef4444" />}
+          <TouchableOpacity style={styles.cardIconButton} onPress={() => confirmDeleteCard(card)} disabled={deleting}>
+            {deleting ? <ActivityIndicator size="small" /> : <Ionicons name="trash-outline" size={19} color={COLORS.danger} />}
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
-  const renderGatewaySection = ({ gateway, title, subtitle, cards, loading }) => (
-    <View style={styles.gatewaySection}>
-      <View style={styles.gatewayHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Ionicons name="card-outline" size={20} color={BLUE} />
-          <View style={{ marginLeft: 8, flex: 1 }}>
-            <Text style={[styles.sectionTitle, { fontSize: clamp(Math.round(rf(1.9)), 14, 18) }]}>{title}</Text>
-            <Text style={styles.gatewaySubtitle}>{subtitle}</Text>
-          </View>
+  const renderWalletScreen = () => (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
+      <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconButton} accessibilityLabel="Volver">
+          <Ionicons name="chevron-back" size={Math.round(clamp(iconSize, 23, 28))} color={COLORS.blue} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Metodos de pago</Text>
+        <View style={styles.headerIconButton} />
+      </View>
+
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: pagePadding }]} keyboardShouldPersistTaps="always">
+        <View style={styles.hero}>
+{/*           <Text style={styles.heroKicker}>Metodos de pago</Text>*/} 
+           <Text style={styles.heroTitle}>Configura tus metodos de pago</Text>
+{/*            <Text style={styles.heroCopy}>Agrega tarjetas, elige una principal y mantén tus opciones listas para el checkout.</Text>*/}
         </View>
 
-        <TouchableOpacity
-          onPress={() => openAddCardModal(gateway)}
-          style={styles.addButton}
-          activeOpacity={0.9}
-        >
-          <Ionicons name="add" size={18} color={BLUE} style={{ marginRight: 6 }} />
-          <Text style={{ color: BLUE, fontWeight: '700' }}>Agregar</Text>
-        </TouchableOpacity>
-      </View>
+        {renderExternalWallets()}
 
-      <View style={{ marginTop: 12 }}>
-        {loading ? (
-          <View style={styles.emptyBox}>
-            <ActivityIndicator color={BLUE} />
+        <View style={styles.cardsBlock}>
+          <View style={styles.blockHeader}>
+            <View>
+              <Text style={styles.blockTitle}>Tarjetas</Text>
+              <Text style={styles.blockSubtitle}>{cards.length ? `${cards.length} tarjeta${cards.length === 1 ? '' : 's'} guardada${cards.length === 1 ? '' : 's'}` : 'Sin tarjetas guardadas'}</Text>
+            </View>
+            <TouchableOpacity style={styles.addCardButton} onPress={openAddCardScreen} activeOpacity={0.9}>
+              <Ionicons name="add" size={19} color={COLORS.blue} style={{ marginRight: 5 }} />
+              <Text style={styles.addCardButtonText}>Agregar</Text>
+            </TouchableOpacity>
           </View>
-        ) : cards.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={{ color: '#333' }}>
-              {gateway === 'openpay' ? 'OpenPay' : 'Aún no tienes tarjetas guardadas.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.cardsList}>
-            {cards.map(card => renderCardItem(card, gateway))}
-          </View>
-        )}
-      </View>
 
-      <TouchableOpacity
-        style={[styles.preferredSaveButton, { opacity: selectedPreferred[gateway] ? 1 : 0.55 }]}
-        onPress={() => savePreferredSelection(gateway)}
-        disabled={!selectedPreferred[gateway] || Boolean(settingPreferredId)}
-      >
-        {settingPreferredId && selectedPreferred[gateway] ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <>
-            <Ionicons name="star-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={styles.saveButtonText}>Guardar preferida</Text>
-          </>
-        )}
-      </TouchableOpacity>
-    </View>
+          {loadingCards ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={COLORS.text} />
+              <Text style={styles.emptyText}>Cargando tarjetas...</Text>
+            </View>
+          ) : cards.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="card-outline" size={27} color={COLORS.text} />
+              </View>
+              <Text style={styles.emptyTitle}>Aun no hay tarjetas</Text>
+              <Text style={styles.emptyText}>Agrega una tarjeta para pagar mas rapido en tus proximas visitas.</Text>
+              <TouchableOpacity style={styles.emptyButton} onPress={openAddCardScreen}>
+                <Text style={styles.emptyButtonText}>Agregar tarjeta</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.cardsList}>
+              {cards.map(renderCardItem)}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      <DeleteConfirmModal
+        visible={deleteConfirmVisible}
+        card={cardToDelete}
+        deleting={Boolean(deletingCardId)}
+        onClose={closeDeleteConfirm}
+        onConfirm={() => cardToDelete && deleteCard(cardToDelete)}
+      />
+
+      <View style={toastStyles.container} pointerEvents="box-none">
+        <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
+      </View>
+    </SafeAreaView>
   );
 
-  const addModalTitle = selectedGateway === 'stripe' ? 'Agregar tarjeta Stripe' : 'Agregar tarjeta OpenPay';
+  const renderAddCardScreen = () => (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
+      <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
+        <TouchableOpacity onPress={closeAddCardScreen} style={styles.headerIconButton} accessibilityLabel="Volver">
+          <Ionicons name="chevron-back" size={Math.round(clamp(iconSize, 20, 28))} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Agregar tarjeta</Text>
+        <View style={styles.headerIconButton} />
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={[styles.addContent, { paddingHorizontal: pagePadding }]} keyboardShouldPersistTaps="always">
+          <View style={styles.cardPreview}>
+            <View style={styles.cardPreviewTop}>
+              <Text style={styles.cardPreviewBrand}>{getBrandLabel(stripeCardDetails?.brand) || 'Card'}</Text>
+              <View style={styles.cardPreviewChip} />
+            </View>
+            <Text style={styles.cardPreviewNumber}>
+              {stripeCardDetails?.last4 ? `••••  ••••  ••••  ${stripeCardDetails.last4}` : '••••  ••••  ••••  ••••'}
+            </Text>
+            <View style={styles.cardPreviewBottom}>
+              <View>
+                <Text style={styles.cardPreviewLabel}>Titular</Text>
+                <Text style={styles.cardPreviewValue}>{userFullname || username || 'Nombre del cliente'}</Text>
+              </View>
+              <View>
+                <Text style={styles.cardPreviewLabel}>Expira</Text>
+                <Text style={styles.cardPreviewValue}>
+                  {stripeCardDetails?.expiryMonth && stripeCardDetails?.expiryYear
+                    ? `${String(stripeCardDetails.expiryMonth).padStart(2, '0')}/${String(stripeCardDetails.expiryYear).slice(-2)}`
+                    : 'MM/AA'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.formBlock}>
+            <Text style={styles.formTitle}>Datos de la tarjeta</Text>
+{/*             <Text style={styles.formCopy}>La tarjeta se guarda de forma segura con Stripe. No almacenamos el numero completo en la app.</Text>
+ */}
+            <View style={styles.stripeFieldWrap}>
+              <CardField
+                postalCodeEnabled={false}
+                placeholders={{ number: '4242 4242 4242 4242' }}
+                cardStyle={{
+                  borderRadius: 8,
+                  backgroundColor: COLORS.surface,
+                  textColor: COLORS.text,
+                  placeholderColor: '#9a9a9a',
+                }}
+                style={{ width: '100%', height: 52 }}
+                onCardChange={setStripeCardDetails}
+              />
+            </View>
+
+            <View style={styles.preferenceRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.preferenceTitle}>Usar como tarjeta principal</Text>
+                <Text style={styles.preferenceSub}>La seleccionaremos por defecto en pagos futuros.</Text>
+              </View>
+              <Switch
+                value={savePreferred}
+                onValueChange={setSavePreferred}
+                trackColor={{ false: '#d8d4ce', true: '#0b58ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={[styles.addFooter, { paddingHorizontal: pagePadding }]}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={closeAddCardScreen} disabled={savingCard}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryButton} onPress={saveStripeCard} disabled={savingCard}>
+            {savingCard ? <ActivityIndicator color="#fefefe" /> : <Text style={styles.primaryButtonText}>Guardar tarjeta</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+
+      <View style={toastStyles.container} pointerEvents="box-none">
+        <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
+      </View>
+    </SafeAreaView>
+  );
 
   return (
     <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-
-        <View style={[styles.header, { paddingVertical: headerPaddingVertical, paddingHorizontal: headerPaddingHorizontal }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Volver">
-            <Ionicons name="arrow-back" size={Math.round(clamp(iconSize, 20, 28))} color={BLUE} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { fontSize: clamp(Math.round(rf(2.6)), 20, 22) }]}>Perfil</Text>
-
-          <View style={styles.headerRight}>
-            <View style={[styles.avatar, { width: avatarSize, height: avatarSize, borderRadius: Math.round(avatarSize / 2) }]}>
-              {profileUrl ? (
-                <Image source={{ uri: profileUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={[styles.avatarInitials, { fontSize: Math.round(avatarSize * 0.36) }]}>
-                    {getInitials(username)}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <Text style={[styles.username, { fontSize: clamp(Math.round(rf(1.8)), 14, 18), marginRight: Math.round(Math.max(8, dimWidth * 0.02)) }]} numberOfLines={1}>
-              {username}
-            </Text>
-          </View>
-        </View>
-
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: Math.max(16, Math.round(dimWidth * 0.06)) }]} keyboardShouldPersistTaps="always">
-          <View style={styles.mainTitleRow}>
-            <Ionicons name="wallet-outline" size={21} color={BLUE} />
-            <Text style={[styles.mainTitle, { fontSize: clamp(Math.round(rf(2)), 16, 20) }]}>Métodos de pago</Text>
-          </View>
-
-          {renderGatewaySection({
-            gateway: 'stripe',
-            title: 'Stripe',
-            subtitle: 'Tarjetas guardadas para pagos con Stripe',
-            cards: stripeCards,
-            loading: loadingStripeCards,
-          })}
-
-          {renderGatewaySection({
-            gateway: 'openpay',
-            title: 'OpenPay',
-            subtitle: 'OpenPay',
-            cards: openpayCards,
-            loading: loadingOpenpayCards,
-          })}
-
-          <TouchableOpacity style={[styles.refreshButton, { alignSelf: dimWidth > 420 ? 'flex-end' : 'flex-start' }]} onPress={loadAllPaymentMethods}>
-            <Ionicons name="refresh-outline" size={17} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={[styles.saveButtonText, { fontSize: clamp(Math.round(rf(1.6)), 13, 16) }]}>Actualizar</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        <Modal animationType="fade" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)} presentationStyle="overFullScreen">
-          <View style={styles.modalOverlay}>
-            <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
-
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalWrapper}>
-              <View style={[styles.modalContainer, { width: modalWidth }]}>
-                <LinearGradient colors={['#ffffff', '#fbfbff']} style={styles.modalGradient}>
-                  <TouchableOpacity style={styles.modalClose} onPress={() => setModalVisible(false)} accessibilityLabel="Cerrar">
-                    <Ionicons name="close" size={18} color="#6b7280" />
-                  </TouchableOpacity>
-
-                  <Text style={[styles.modalTitle, { fontSize: clamp(Math.round(rf(2.1)), 16, 20) }]}>{addModalTitle}</Text>
-
-                  <View style={styles.cardPreview}>
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={{ color: '#222', fontWeight: '700', fontSize: 13 }}>Tarjeta</Text>
-                      <Text style={styles.cardNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
-                        •••• •••• •••• ••••
-                      </Text>
-                      <View style={{ flexDirection: 'row', marginTop: 10, alignItems: 'center' }}>
-                        <Text style={{ color: '#666', marginRight: 12 }}>Gateway</Text>
-                        <Text style={styles.cardHolder}>{selectedGateway === 'stripe' ? 'STRIPE' : 'OPENPAY'}</Text>
-                      </View>
-                    </View>
-
-                    <View style={{ width: 110, alignItems: 'flex-end' }}>
-                      <View style={styles.expiryPill}>
-                        <Text style={styles.expiryText}>MM/AA</Text>
-                      </View>
-                      <Image source={require('../../assets/images/logo.png')} style={{ width: 64, height: 18, marginTop: 16 }} resizeMode="contain" />
-                    </View>
-                  </View>
-
-                  {selectedGateway === 'stripe' ? (
-                    <>
-                      <View style={styles.stripeFieldWrap}>
-                        <CardField
-                          postalCodeEnabled={false}
-                          placeholders={{ number: '4242 4242 4242 4242' }}
-                          cardStyle={{
-                            borderRadius: 8,
-                            backgroundColor: '#ffffff',
-                            textColor: '#222222',
-                            placeholderColor: '#9aa0a6',
-                          }}
-                          style={{ width: '100%', height: 48 }}
-                          onCardChange={setStripeCardDetails}
-                        />
-                      </View>
-
-                      <View style={styles.preferredRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.preferredTitle}>Marcar como preferida</Text>
-                          <Text style={styles.preferredSub}>Se guardará como tarjeta principal de Stripe.</Text>
-                        </View>
-                        <Switch
-                          value={savePreferred}
-                          onValueChange={setSavePreferred}
-                          trackColor={{ false: '#d1d5db', true: '#bfe0ff' }}
-                          thumbColor={savePreferred ? BLUE : '#ffffff'}
-                        />
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.emptyBox}>
-                      <Text style={{ color: '#333' }}>OpenPay queda listo visualmente. Cuando el backend esté disponible se conecta aquí sin cambiar el diseño.</Text>
-                    </View>
-                  )}
-
-                  <View style={styles.modalButtons}>
-                    <TouchableOpacity style={styles.cancelButton} onPress={() => setModalVisible(false)} disabled={savingCard}>
-                      <Text style={styles.cancelButtonText}>Cancelar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.saveButtonModal} onPress={onSaveCard} disabled={savingCard}>
-                      {savingCard ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Guardar</Text>}
-                    </TouchableOpacity>
-                  </View>
-
-                  <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
-                </LinearGradient>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-
-        <Modal animationType="fade" transparent visible={deleteConfirmVisible} onRequestClose={closeDeleteConfirm} presentationStyle="overFullScreen">
-          <View style={styles.deleteOverlay}>
-            <Pressable style={styles.deleteBackdrop} onPress={closeDeleteConfirm} />
-            <View style={styles.deleteModalBox}>
-              <View style={styles.deleteIconCircle}>
-                <Ionicons name="trash-outline" size={24} color="#ef4444" />
-              </View>
-
-              <Text style={styles.deleteTitle}>Eliminar tarjeta</Text>
-              <Text style={styles.deleteMessage}>
-                ¿Deseas eliminar esta tarjeta guardada?
-              </Text>
-
-              {cardToDelete ? (
-                <View style={styles.deleteCardPreview}>
-                  <Ionicons name="card-outline" size={19} color={BLUE} style={{ marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deleteCardTitle}>
-                      {String(cardToDelete.brand || gatewayToDelete || 'tarjeta').toUpperCase()} • **** {cardToDelete.last4 || '----'}
-                    </Text>
-                    <Text style={styles.deleteCardSub}>
-                      Esta acción no se puede deshacer.
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-
-              <View style={styles.deleteButtons}>
-                <TouchableOpacity style={styles.deleteCancelButton} onPress={closeDeleteConfirm} disabled={Boolean(deletingCardId)}>
-                  <Text style={styles.deleteCancelText}>Cancelar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.deleteConfirmButton} onPress={performConfirmedDelete} disabled={Boolean(deletingCardId)}>
-                  {deletingCardId ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.deleteConfirmText}>Eliminar</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        <View style={toastStyles.container} pointerEvents="box-none">
-          <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
-        </View>
-      </SafeAreaView>
+      {screen === 'add-card' ? renderAddCardScreen() : renderWalletScreen()}
     </StripeProvider>
   );
 }
 
-function getInitials(name) {
-  if (!name) return 'US';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'US';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
+  const brand = String(card?.brand || 'Tarjeta').toUpperCase();
+  const last4 = card?.last4 || '----';
+
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose} presentationStyle="overFullScreen">
+      <View style={styles.deleteOverlay}>
+        <Pressable style={styles.deleteBackdrop} onPress={onClose} />
+        <View style={styles.deleteModalBox}>
+          <View style={styles.deleteIconCircle}>
+            <Ionicons name="trash-outline" size={24} color={COLORS.danger} />
+          </View>
+          <Text style={styles.deleteTitle}>Eliminar tarjeta</Text>
+          <Text style={styles.deleteMessage}>Esta tarjeta se quitara de tus metodos de pago guardados.</Text>
+
+          <View style={styles.deleteCardPreview}>
+            <Ionicons name="card-outline" size={19} color={COLORS.text} style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deleteCardTitle}>{brand} •••• {last4}</Text>
+              <Text style={styles.deleteCardSub}>Esta accion no se puede deshacer.</Text>
+            </View>
+          </View>
+
+          <View style={styles.deleteButtons}>
+            <TouchableOpacity style={styles.deleteCancelButton} onPress={onClose} disabled={deleting}>
+              <Text style={styles.deleteCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.deleteConfirmButton} onPress={onConfirm} disabled={deleting}>
+              {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteConfirmText}>Eliminar</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 },
-  header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: BLUE },
-  headerTitle: { fontSize: 22, fontWeight: '600', color: BLUE },
-  headerRight: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
-  avatar: { overflow: 'hidden', backgroundColor: '#f3f6ff', marginHorizontal: 8 },
-  avatarFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { color: BLUE, fontWeight: '700' },
-  username: { fontSize: 16, color: '#000', marginRight: 16, maxWidth: 160 },
-  backButton: { marginRight: 12 },
-  scrollContent: { paddingTop: 16, paddingBottom: 32 },
-
-  mainTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  mainTitle: { color: BLUE, fontWeight: '800', marginLeft: 8 },
-  gatewaySection: { marginBottom: 18 },
-  gatewayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: BLUE },
-  gatewaySubtitle: { color: '#667085', fontSize: 12, marginTop: 2 },
-  addButton: {
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
+  },
+  header: {
+    height: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e6eefc',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    shadowColor: BLUE,
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 2,
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.bg,
   },
-  refreshButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: BLUE, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 6 },
-  saveButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
-  emptyBox: {
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: '#fbfbff',
-    borderWidth: 1,
-    borderColor: '#eef1ff',
-  },
-  cardsList: { marginTop: 4, paddingVertical: 4 },
-  cardItem: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#eef1ff',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-  },
-  cardItemSelected: {
-    borderColor: '#bcd9ff',
-    backgroundColor: '#f8fbff',
-  },
-  cardLabel: { fontSize: 15, color: '#222', fontWeight: '700', flexShrink: 1 },
-  cardMeta: { fontSize: 12, color: '#666', marginTop: 6 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
-  iconAction: { paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: '#e6eefc', backgroundColor: '#fff', marginLeft: 6 },
-  preferredSaveButton: {
-    marginTop: 8,
-    alignSelf: 'flex-end',
-    flexDirection: 'row',
+  headerIconButton: {
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: BLUE,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 8,
-    minWidth: 150,
   },
+  headerTitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    fontWeight: '800',
+    flex: 1,
+    textAlign: 'center',
+  },
+  scrollContent: {
+    paddingTop: 8,
+    paddingBottom: 34,
+  },
+  hero: {
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
+  heroKicker: {
+    color: COLORS.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    color: COLORS.text,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+    marginTop: 8,
+    alignItems: 'center',
+    textAlign: 'center',
 
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(8,10,20,0.6)' },
-  modalWrapper: { width: '100%', alignItems: 'center', paddingHorizontal: 18 },
-  modalContainer: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 10 },
-  modalGradient: { paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center' },
-  modalClose: { position: 'absolute', top: 6, right: 6, zIndex: 10, padding: 6 },
-  modalTitle: { fontSize: 15, fontWeight: '800', color: BLUE, marginBottom: 8 },
-  cardPreview: {
-    width: '100%',
-    borderRadius: 12,
+  },
+  heroCopy: {
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  walletBlock: {
+    marginTop: 4,
+  },
+  blockTitle: {
+    color: COLORS.blue,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  blockSubtitle: {
+    color: COLORS.muted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  walletOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     padding: 14,
-    marginVertical: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1.6,
-    borderColor: SOFT_BLUE,
+    marginTop: 10,
+  },
+  walletLogo: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#f2f0ed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  walletOptionTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  walletOptionSub: {
+    color: COLORS.muted,
+    fontSize: 12,
+    marginTop: 3,
+  },
+  soonBadge: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#f2f0ed',
+    overflow: 'hidden',
+  },
+  cardsBlock: {
+    marginTop: 24,
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  addCardButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  addCardButtonText: {
+    color: COLORS.blue,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 24,
+  },
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#f2f0ed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  emptyText: {
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  emptyButton: {
+    marginTop: 14,
+    backgroundColor: COLORS.softBlue,
+    borderWidth: 1,
+    borderColor: '#cfe2ff',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  emptyButtonText: {
+    color: COLORS.accent,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  cardsList: {
+    marginTop: 2,
+  },
+  cardRow: {
+    width: '100%',
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 13,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardRowSelected: {
+    borderColor: COLORS.text,
+  },
+  cardBrandMark: {
+    width: 52,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+  },
+  cardBrandMark_visa: { backgroundColor: '#ffffff', borderColor: '#d8dde8' },
+  cardBrandMark_mastercard: { backgroundColor: '#ffffff', borderColor: '#e8ded3' },
+  cardBrandMark_amex: { backgroundColor: '#ffffff', borderColor: '#d8e7f2' },
+  cardBrandMark_generic: { backgroundColor: '#f7f6f3', borderColor: COLORS.border },
+  cardBrandText: {
+    color: COLORS.text,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  cardBrandTextVisa: {
+    color: '#1a4fb7',
+    fontSize: 13,
+    fontStyle: 'italic',
+    letterSpacing: 0.5,
+  },
+  mastercardLogo: {
+    width: 32,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mastercardCircle: {
+    position: 'absolute',
+    width: 19,
+    height: 19,
+    borderRadius: 10,
+  },
+  mastercardCircleLeft: {
+    left: 3,
+    backgroundColor: '#eb001b',
+    opacity: 0.92,
+  },
+  mastercardCircleRight: {
+    right: 3,
+    backgroundColor: '#f79e1b',
+    opacity: 0.92,
+  },
+  cardTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  cardTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginRight: 6,
+  },
+  cardSub: {
+    color: COLORS.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  preferredChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f2f0ed',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  preferredChipText: {
+    color: COLORS.blue,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  cardIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+    backgroundColor: '#f7f6f3',
+  },
+  addContent: {
+    paddingTop: 10,
+    paddingBottom: 110,
+  },
+  cardPreview: {
+    minHeight: 190,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 20,
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  cardPreviewTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardPreviewBrand: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  cardPreviewChip: {
+    width: 34,
+    height: 25,
+    borderRadius: 8,
+    backgroundColor: '#f0d89f',
+  },
+  cardPreviewNumber: {
+    color: COLORS.text,
+    fontSize: 23,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  cardPreviewBottom: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 4,
   },
-  cardNumber: { color: '#222', marginTop: 10, fontSize: 18, letterSpacing: 1.2, fontWeight: '700' },
-  cardHolder: { color: '#222', fontWeight: '700', fontSize: 14 },
-  expiryPill: { backgroundColor: '#f0f6ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#e6eefc' },
-  expiryText: { color: BLUE, fontWeight: '700', fontSize: 14 },
+  cardPreviewLabel: {
+    color: COLORS.muted,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  cardPreviewValue: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 4,
+    maxWidth: 180,
+  },
+  formBlock: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginTop: 18,
+  },
+  formTitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  formCopy: {
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
   stripeFieldWrap: {
     width: '100%',
-    backgroundColor: '#fbfbfd',
-    borderRadius: 8,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#eef1f6',
-    paddingHorizontal: 9,
-    paddingVertical: 8,
-    marginBottom: 8,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    marginTop: 14,
   },
-  preferredRow: {
-    width: '100%',
+  preferenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#eef1f6',
-    padding: 10,
-    marginTop: 2,
-    backgroundColor: '#fff',
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.faint,
   },
-  preferredTitle: { color: '#222', fontWeight: '800', fontSize: 13 },
-  preferredSub: { color: '#667085', marginTop: 2, fontSize: 12 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 10 },
-  cancelButton: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#dbe4ff', paddingVertical: 8, borderRadius: 8, marginRight: 8, alignItems: 'center' },
-  cancelButtonText: { color: BLUE, fontWeight: '700', fontSize: 13 },
-  saveButtonModal: { flex: 1, backgroundColor: BLUE, paddingVertical: 8, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
-
+  preferenceTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  preferenceSub: {
+    color: COLORS.muted,
+    fontSize: 12,
+    marginTop: 3,
+  },
+  addFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    backgroundColor: 'rgba(247,247,245,0.96)',
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  secondaryButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: 8,
+  },
+  secondaryButtonText: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  primaryButton: {
+    flex: 1.35,
+    height: 48,
+    borderRadius: 14,
+    borderColor:COLORS.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    marginLeft: 8,
+  
+  },
+  primaryButtonText: {
+    color: COLORS.blue,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   deleteOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -955,37 +1193,32 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(8,10,20,0.56)',
+    backgroundColor: 'rgba(10,10,10,0.48)',
   },
   deleteModalBox: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
     padding: 18,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.14,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 14,
   },
   deleteIconCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#fff1f2',
+    backgroundColor: '#fff1f1',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
   },
   deleteTitle: {
     fontSize: 17,
-    fontWeight: '800',
-    color: '#0b1220',
+    fontWeight: '900',
+    color: COLORS.text,
   },
   deleteMessage: {
-    color: '#475467',
+    color: COLORS.muted,
     fontSize: 13,
     marginTop: 6,
     textAlign: 'center',
@@ -995,19 +1228,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 14,
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#eef1ff',
-    backgroundColor: '#fbfbff',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
     padding: 12,
   },
   deleteCardTitle: {
-    color: '#222',
-    fontWeight: '800',
+    color: COLORS.text,
+    fontWeight: '900',
     fontSize: 13,
   },
   deleteCardSub: {
-    color: '#667085',
+    color: COLORS.muted,
     fontSize: 12,
     marginTop: 3,
   },
@@ -1019,28 +1252,28 @@ const styles = StyleSheet.create({
   deleteCancelButton: {
     flex: 1,
     alignItems: 'center',
-    borderRadius: 9,
+    borderRadius: 13,
     borderWidth: 1,
-    borderColor: '#dbe4ff',
-    paddingVertical: 10,
+    borderColor: COLORS.border,
+    paddingVertical: 11,
     marginRight: 8,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
   },
   deleteCancelText: {
-    color: BLUE,
-    fontWeight: '800',
+    color: COLORS.text,
+    fontWeight: '900',
   },
   deleteConfirmButton: {
     flex: 1,
     alignItems: 'center',
-    borderRadius: 9,
-    paddingVertical: 10,
+    borderRadius: 13,
+    paddingVertical: 11,
     marginLeft: 8,
-    backgroundColor: '#ef4444',
+    backgroundColor: COLORS.danger,
   },
   deleteConfirmText: {
     color: '#fff',
-    fontWeight: '800',
+    fontWeight: '900',
   },
 });
 
@@ -1049,19 +1282,19 @@ const toastStyles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingTop: Platform.OS === 'ios' ? 86 : 68,
+    paddingTop: Platform.OS === 'ios' ? 84 : 64,
     zIndex: 9999,
     elevation: 9999,
   },
   toast: {
-    minWidth: 140,
+    minWidth: 160,
     maxWidth: '86%',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#f0f0f0',
+    borderColor: COLORS.border,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: 6 },
@@ -1069,5 +1302,10 @@ const toastStyles = StyleSheet.create({
     elevation: 8,
     alignItems: 'center',
   },
-  toastText: { fontSize: 13, color: '#222', textAlign: 'center' },
+  toastText: {
+    fontSize: 13,
+    color: COLORS.text,
+    textAlign: 'center',
+    fontWeight: '700',
+  },
 });

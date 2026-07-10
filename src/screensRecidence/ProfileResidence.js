@@ -342,8 +342,17 @@ export default function ProfileResidence({ navigation }) {
 
         if (!isApproved) return;
 
-        const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0) || 0;
-
+const total = Number(
+  (detail && (
+    detail.total_pagar ??
+    detail.total_consumo ??
+    detail.total
+  )) ??
+  c.total_pagar ??
+  c.total ??
+  c.total_consumo ??
+  0
+) || 0;
         const dateSource = fechaC || fechaA || c.updated_at || c.created_at || c.fecha || new Date().toISOString();
         const normalizedDate = (() => {
           try {
@@ -389,7 +398,9 @@ export default function ProfileResidence({ navigation }) {
             approved_by_nombre: approvedByName,
             approved_by_email: approvedByEmail,
             department_id: deptId,
-            total_consumo: total,
+            total_consumo: c.total_consumo,
+            total_pagar: total,
+            monto_propina: c.monto_propina,
             fecha_apertura: fechaA,
             fecha_cierre: fechaC,
             sale_id: c.sale_id ?? null,

@@ -322,6 +322,14 @@ export default function ExperiencesScreen() {
 
           const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0);
 
+          const propinaRaw = (detail && (detail.monto_propina ?? detail.propina)) ?? c.monto_propina ?? c.propina;
+          const propinaParsed = Number(propinaRaw);
+          const propinaFinal = Number.isNaN(propinaParsed) ? 0 : propinaParsed;
+
+          const totalPagarRaw = (detail && (detail.total_pagar ?? detail.totalPagar)) ?? c.total_pagar ?? c.totalPagar;
+          const totalPagarParsed = Number(totalPagarRaw);
+          const totalPagarFinal = Number.isNaN(totalPagarParsed) ? (total + propinaFinal) : totalPagarParsed;
+
           consumptions.push({
             id: c.sale_id ?? `c-${idx}`,
             sale_id: c.sale_id ?? null,
@@ -333,6 +341,8 @@ export default function ExperiencesScreen() {
             initials,
             timestamp,
             amount: total,
+            propina: propinaFinal,
+            total_pagar: totalPagarFinal,
             items,
             raw: c,
             fecha_apertura: fechaA,
@@ -587,6 +597,27 @@ export default function ExperiencesScreen() {
         const subtotalText = `$${fmtCurrency(subtotal)}`;
         const subW = helvetica.widthOfTextAtSize(subtotalText, 10);
         page.drawText(subtotalText, { x: pW - marginLeft - subW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
+        y -= 20;
+
+        const propinaVal = Number(tx.propina) || 0;
+        const totalPagarVal = (tx.total_pagar !== undefined && tx.total_pagar !== null) ? Number(tx.total_pagar) : (subtotal + propinaVal);
+
+        if (y < 100) {
+          page = pdfDoc.addPage(pageSize);
+          ({ width: pW, height: pH } = page.getSize());
+          y = pH - 60;
+        }
+
+        page.drawText('Propina:', { x: marginLeft + 8, y: y - 6, size: 10, font: helvetica, color: rgb(0.42, 0.13, 0.66) });
+        const propinaText = `$${fmtCurrency(propinaVal)}`;
+        const propW = helvetica.widthOfTextAtSize(propinaText, 10);
+        page.drawText(propinaText, { x: pW - marginLeft - propW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
+        y -= 18;
+
+        page.drawText('Total a pagar:', { x: marginLeft + 8, y: y - 6, size: 10, font: helvetica, color: rgb(0.42, 0.13, 0.66) });
+        const totalPagarText = `$${fmtCurrency(totalPagarVal)}`;
+        const totalPagarW = helvetica.widthOfTextAtSize(totalPagarText, 10);
+        page.drawText(totalPagarText, { x: pW - marginLeft - totalPagarW, y: y - 6, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
         y -= 24;
 
         page.drawLine({ start: { x: marginLeft, y }, end: { x: pW - marginLeft, y }, thickness: 0.5, color: rgb(0.92, 0.92, 0.92) });
@@ -704,7 +735,7 @@ export default function ExperiencesScreen() {
           </View>
 
           <View style={sheetStyles.personRight}>
-            <Text style={sheetStyles.personAmount}>{formatMoney(tx.amount, { currencySign: '$' })}</Text>
+            <Text style={sheetStyles.personAmount}>{formatMoney(tx.total_pagar, { currencySign: '$' })}</Text>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#6B21A8" />
             {tx.sale_id ? <Text style={{ color: '#94A3B8', marginTop: 6, fontSize: 12 }}>#{tx.sale_id}</Text> : null}
             {tx.estado ? <Text style={{ color: '#94A3B8', marginTop: 2, fontSize: 12 }}>{tx.estado}</Text> : null}
@@ -725,6 +756,18 @@ export default function ExperiencesScreen() {
             <View style={sheetStyles.personSummaryRow}>
               <Text style={sheetStyles.personSummaryLabel}>Subtotal</Text>
               <Text style={sheetStyles.personSummaryValue}>{formatMoney(computedSubtotal, { currencySign: '$' })}</Text>
+            </View>
+
+            <View style={[sheetStyles.personSummaryRow, { marginTop: 8 }]}>
+              <Text style={sheetStyles.personSummaryLabel}>Propina</Text>
+              <Text style={sheetStyles.personSummaryValue}>{formatMoney(tx.propina || 0, { currencySign: '$' })}</Text>
+            </View>
+
+            <View style={[sheetStyles.personSummaryRow, { marginTop: 8 }]}>
+              <Text style={[sheetStyles.personSummaryLabel, { color: '#000000', fontWeight: '900' }]}>Total</Text>
+              <Text style={[sheetStyles.personSummaryValue, { color: '#000000' }]}>
+                {formatMoney((tx.total_pagar !== undefined && tx.total_pagar !== null) ? tx.total_pagar : (computedSubtotal + (tx.propina || 0)), { currencySign: '$' })}
+              </Text>
             </View>
 
             {tx.fecha_apertura ? <Text style={{ color: '#6b7280', marginTop: 8 }}>Apertura: {new Date(tx.fecha_apertura).toLocaleString()}</Text> : null}

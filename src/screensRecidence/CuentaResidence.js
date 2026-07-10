@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   Alert,
   DeviceEventEmitter,
+  TextInput,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -235,6 +236,13 @@ export default function CuentaResidence() {
   const [validationBannerVisible, setValidationBannerVisible] = useState(false);
 
   const [startConsumptionModalVisible, setStartConsumptionModalVisible] = useState(false);
+
+  // --- Propina (tip) state ---
+  const [tipOption, setTipOption] = useState(null); // '10' | '15' | '20' | 'custom' | null
+  const [tipAmount, setTipAmount] = useState(0);
+  const [customTipVisible, setCustomTipVisible] = useState(false);
+  const [customTipPercentText, setCustomTipPercentText] = useState('');
+  const [customTipPesosText, setCustomTipPesosText] = useState('');
 
   const isMountedRef = useRef(true);
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
@@ -678,6 +686,51 @@ export default function CuentaResidence() {
     await handleStartConsumptionConfirmed();
   };
 
+  // --- Propina (tip) helpers ---
+  const applyTipPercent = useCallback((percent) => {
+    const amt = +(safeNum(totalConsumo) * (percent / 100)).toFixed(2);
+    setTipOption(String(percent));
+    setTipAmount(amt);
+    setCustomTipVisible(false);
+    setCustomTipPercentText('');
+    setCustomTipPesosText('');
+  }, [totalConsumo]);
+
+  const toggleCustomTip = useCallback(() => {
+    setTipOption('custom');
+    setCustomTipVisible(v => !v);
+  }, []);
+
+  const handleCustomTipPercentChange = useCallback((text) => {
+    setCustomTipPercentText(text);
+    const p = parseFloat(String(text).replace(',', '.'));
+    if (Number.isFinite(p) && p >= 0) {
+      const amt = +(safeNum(totalConsumo) * (p / 100)).toFixed(2);
+      setTipAmount(amt);
+      setCustomTipPesosText(amt.toFixed(2));
+      setTipOption('custom');
+    } else if (String(text).trim() === '') {
+      setTipAmount(0);
+    }
+  }, [totalConsumo]);
+
+  const handleCustomTipPesosChange = useCallback((text) => {
+    setCustomTipPesosText(text);
+    const v = parseFloat(String(text).replace(',', '.'));
+    if (Number.isFinite(v) && v >= 0) {
+      setTipAmount(+v.toFixed(2));
+      setTipOption('custom');
+      const base = safeNum(totalConsumo);
+      const pct = base > 0 ? +((v / base) * 100).toFixed(2) : 0;
+      setCustomTipPercentText(pct ? String(pct) : '');
+    } else if (String(text).trim() === '') {
+      setTipAmount(0);
+    }
+  }, [totalConsumo]);
+
+    const grandTotalWithTip = +(safeNum(totalConsumo) + safeNum(tipAmount)).toFixed(2);
+
+
   const handleApproveConsumption = async () => {
     if (!qr) { openErrorModal('QR no disponible.'); return; }
     if (!saleId) { Alert.alert('Venta no encontrada', 'No se pudo determinar el id de la venta.'); return; }
@@ -701,7 +754,7 @@ export default function CuentaResidence() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
-        body: JSON.stringify({ qr: qr, usuario_app_id: usuarioAppId }),
+        body: JSON.stringify({ qr: qr, usuario_app_id: usuarioAppId, tip_amount: Number(tipAmount) || 0 }),
       });
 
       if (!res.ok) {
@@ -725,16 +778,18 @@ export default function CuentaResidence() {
             restaurantImage: restaurantImageUri ?? null,
             mesa: mesaId ?? null,
             fecha: json.closed_at ?? new Date().toISOString(),
-            total: Number(json.total ?? totalConsumo) || 0,
+            total: grandTotalWithTip,            
             moneda: moneda ?? 'MXN',
             items: items ?? [],
+            monto_propina: Number(json.tip_amount ?? tipAmount) || 0,
+            propina: Number(json.tip_amount ?? tipAmount) || 0,
           };
           await saveVisitToStorage(visitToSave);
         }
       } catch (e) { console.warn('Could not save visit after approve', e); }
 
       try {
-        const amountVal = Number(json.total ?? totalConsumo) || 0;
+        const amountVal = grandTotalWithTip;
         const notifId = `notif_${Date.now()}_${Math.floor(Math.random()*10000)}`;
         const notifText = `Pago registrado: $${amountVal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — Venta ${json.sale_id ?? saleId}${(json.mesa_id ?? mesaId) ? ` (Mesa ${json.mesa_id ?? mesaId})` : ''}`;
         const notification = {
@@ -772,9 +827,12 @@ export default function CuentaResidence() {
         setValidationBannerVisible(false);
       } catch (e) {}
 
+      
+
       try {
+
         navigation.navigate('ConfirmacionConsumo', {
-          amount: Number(json.total ?? totalConsumo) || 0,
+          amount: grandTotalWithTip,          
           date: json.closed_at ?? new Date().toISOString(),
           transactionId: json.sale_id ?? saleId,
           mesa: mesaId,
@@ -782,6 +840,7 @@ export default function CuentaResidence() {
           sucursalId: json.sucursal_id ?? sucursalId,
           rawResponse: json,
           edificioId: json.edificio_id ?? json.edificioId ?? null,
+          tipAmount: Number(json.tip_amount ?? tipAmount) || 0,
         });
       } catch (e) {
         try { navigation.navigate('QrResidence'); } catch(er) {}
@@ -800,7 +859,7 @@ export default function CuentaResidence() {
   const subtotal = +(totalConsumo - iva).toFixed(2);
   const fechaTexto = fechaApertura ? new Date(fechaApertura).toLocaleString('es-MX') : '';
   const fechaCierreTexto = fechaCierre ? new Date(fechaCierre).toLocaleString('es-MX') : '';
-
+ 
   const consumoPaid = useMemo(() => {
     try {
       const anyItemPaid = Array.isArray(items) && items.some(it => !!it.paid || safeNum(it.paidAmount) > 0);
@@ -945,7 +1004,7 @@ export default function CuentaResidence() {
               <View style={[styles.rightCol, { maxWidth: rightColMaxWidth, marginRight: Math.max(12, wp(3)) }]}>
                 <Text style={[styles.totalLabel, { fontSize: clamp(rf(2.6), 12, 16) }]}>Total</Text>
                 <View style={[styles.totalRow, { alignItems: 'flex-end' }]}>
-                  <Text style={[styles.totalNumber, { fontSize: totalNumberFont, lineHeight: Math.round(totalNumberFont * 1.05) }]}>{formatMoney(totalConsumo, moneda)}</Text>
+                  <Text style={[styles.totalNumber, { fontSize: totalNumberFont, lineHeight: Math.round(totalNumberFont * 1.05) }]}>{formatMoney(grandTotalWithTip, moneda)}</Text>
                   <Text style={[styles.totalCurrency, { fontSize: totalCurrencyFont, marginLeft: Math.max(6, wp(1.6)) }]}>{moneda ?? 'MXN'}</Text>
                 </View>
                 <View style={styles.rightThanks}>
@@ -1029,9 +1088,18 @@ export default function CuentaResidence() {
                 </View>
               )}
 
+              {tipAmount > 0 && (
+                <View style={[styles.itemRow, { paddingTop: 6 }]}>
+                  <Text style={[styles.subtotalLabel, { fontSize: subtotalValueFont }]}>Propina</Text>
+                  <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont, color: '#10b981' }]}>
+                    {formatMoney(tipAmount)} {moneda ?? 'MXN'}
+                  </Text>
+                </View>
+              )}
+
               <View style={[styles.itemRow, { paddingTop: 6 }]}>
                 <Text style={[styles.subtotalLabel, { fontSize: subtotalValueFont }]}>Total</Text>
-                <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont }]}>{formatMoney(totalConsumo)} {moneda ?? 'MXN'}</Text>
+                <Text style={[styles.subtotalValue, { fontSize: subtotalValueFont }]}>{formatMoney(grandTotalWithTip)} {moneda ?? 'MXN'}</Text>
               </View>
             </View>
           </View>
@@ -1046,29 +1114,81 @@ export default function CuentaResidence() {
           ) : null}
 
           {(canOpenAccount || accountOpened) ? (
-            <TouchableOpacity
-              style={[
-                styles.smallPrimaryButton,
-                {
-                  width: layoutWidth,
-                  paddingVertical: Math.max(10, hp(1.2)),
-                  backgroundColor: accountOpened ? '#16a34a' : '#0046ff',
-                },
-                (accountOpening || approveLoading) ? { opacity: 0.75 } : null
-              ]}
-              activeOpacity={0.85}
-              onPress={accountOpened ? handleApproveConsumption : handleStartConsumption}
-              disabled={accountOpening || approveLoading}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              {(accountOpening || approveLoading) ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>
-                  {accountOpened ? 'Validar consumo' : 'Aprobar consumo'}
-                </Text>
-              )}
-            </TouchableOpacity>
+            <>
+              <View style={[styles.tipSectionBox, { width: layoutWidth }]}>
+                <Text style={[styles.tipSectionTitle, { fontSize: clamp(rf(3.4), 14, 18) }]}>Propina</Text>
+                <View style={styles.tipButtonsRow}>
+                  {[10, 15, 20].map((p) => (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.tipButton, tipOption === String(p) && styles.tipButtonActive]}
+                      onPress={() => applyTipPercent(p)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.tipButtonText, tipOption === String(p) && styles.tipButtonTextActive]}>{p}%</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[styles.tipButton, tipOption === 'custom' && styles.tipButtonActive]}
+                    onPress={toggleCustomTip}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.tipButtonText, tipOption === 'custom' && styles.tipButtonTextActive]}>Personalizar</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {customTipVisible ? (
+                  <View style={styles.customTipBox}>
+                    <View style={styles.customTipInputWrap}>
+                      <Text style={styles.customTipLabel}>%</Text>
+                      <TextInput
+                        style={styles.customTipInput}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor="#9ca3af"
+                        value={customTipPercentText}
+                        onChangeText={handleCustomTipPercentChange}
+                      />
+                    </View>
+                    <View style={styles.customTipInputWrap}>
+                      <Text style={styles.customTipLabel}>{moneda ?? 'MXN'}</Text>
+                      <TextInput
+                        style={styles.customTipInput}
+                        keyboardType="numeric"
+                        placeholder="0.00"
+                        placeholderTextColor="#9ca3af"
+                        value={customTipPesosText}
+                        onChangeText={handleCustomTipPesosChange}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.smallPrimaryButton,
+                  {
+                    width: layoutWidth,
+                    paddingVertical: Math.max(10, hp(1.2)),
+                    backgroundColor: accountOpened ? '#16a34a' : '#0046ff',
+                  },
+                  (accountOpening || approveLoading) ? { opacity: 0.75 } : null
+                ]}
+                activeOpacity={0.85}
+                onPress={accountOpened ? handleApproveConsumption : handleStartConsumption}
+                disabled={accountOpening || approveLoading}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                {(accountOpening || approveLoading) ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.smallPrimaryButtonText, { fontSize: clamp(rf(3.2), 14, 16), textAlign: 'center' }]}>
+                    {accountOpened ? 'Validar consumo' : 'Aprobar consumo'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
           ) : (
             <View style={{ height: 0 }} />
           )}
@@ -1109,7 +1229,7 @@ const styles = StyleSheet.create({
 
   headerGradient: { width: '100%', borderBottomRightRadius: 42, overflow: 'hidden' },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  leftCol: { flexDirection: 'column', alignItems: 'flex-start' },
+  leftCol: { flexDirection: 'column', alignItems: 'center' },
   tabtrackLogo: { },
   logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
   restaurantImage: { backgroundColor: '#fff' },
@@ -1220,6 +1340,48 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '400',
   },
+
+  // --- Propina (tip) styles ---
+  tipSectionBox: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginTop: 16,
+  },
+  tipSectionTitle: { fontWeight: '800', color: '#222', marginBottom: 10 },
+  tipButtonsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  tipButton: {
+    flex: 1,
+    marginHorizontal: 4,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  tipButtonActive: { backgroundColor: '#eaf1ff', borderColor: '#0046ff' },
+  tipButtonText: { color: '#444', fontWeight: '700', fontSize: 10 },
+  tipButtonTextActive: { color: '#0046ff' },
+  customTipBox: {
+    flexDirection: 'row',
+    marginTop: 12,
+    justifyContent: 'space-between',
+  },
+  customTipInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginHorizontal: 4,
+    height: 40,
+  },
+  customTipLabel: { color: '#666', fontWeight: '700', marginRight: 6, fontSize: 12 },
+  customTipInput: { flex: 1, color: '#111', fontSize: 14, padding: 0 },
 
   startModalBackdrop: {
     flex: 1,
