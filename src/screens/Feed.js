@@ -137,16 +137,62 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+/* ------------------ NUEVO: utilidades de red robustas ------------------ */
+
+// Ejecuta 'asyncFn' sobre 'items' con un límite de tareas concurrentes,
+// en vez de disparar todas las peticiones al mismo tiempo (esto evita
+// saturar el servidor local y que algunas peticiones fallen "al azar").
+async function mapWithConcurrencyLimit(items, limit, asyncFn) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      try {
+        results[current] = await asyncFn(items[current], current);
+      } catch (e) {
+        console.warn('mapWithConcurrencyLimit - tarea falló', e);
+        results[current] = undefined;
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// fetch con un reintento simple para peticiones que fallan por red/timeout
+// intermitente (común al pegarle muy seguido a un servidor local).
+async function fetchWithRetry(url, options = {}, retries = 1) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 /* ------------------ fetchSurveyAvgForSucursal ------------------ */
 const fetchSurveyAvgForSucursal = async (sucursalId) => {
   if (!sucursalId) return 0.0;
   try {
     await ensureToken();
     const url = `${API_URL_2.replace(/\/$/, '')}/${encodeURIComponent(SURVEY_ID)}/reportes?sucursal_id=${encodeURIComponent(sucursalId)}`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       method: 'GET',
       headers: getAuthHeaders(),
-    });
+    }, 1);
     if (!res.ok) {
       console.warn('fetchSurveyAvgForSucursal - http status', res.status, url);
       return 0.0;
@@ -180,17 +226,17 @@ const fetchAllRestaurants = async () => {
       const sep = API_URL.includes('?') ? '&' : '?';
       const url = `${API_URL}${sep}page=${page}&per_page=${perPage}`;
 
-      const res = await fetch(url, {
+      const res = await fetchWithRetry(url, {
         method: 'GET',
         headers: getAuthHeaders(),
-      });
+      }, 1);
 
       if (!res.ok) {
         if (page === 1) {
-          const res2 = await fetch(API_URL, {
+          const res2 = await fetchWithRetry(API_URL, {
             method: 'GET',
             headers: getAuthHeaders(),
-          });
+          }, 1);
           if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
           const json2 = await res2.json().catch(() => null);
           let itemsFallback = [];
@@ -228,9 +274,17 @@ const fetchAllRestaurants = async () => {
       const totalPages = json.total_pages || (json.meta && json.meta.total_pages) || null;
       const nextPageUrl = json.next_page_url || json.next || null;
 
-      if (nextPageUrl) break;
-      if (totalPages && page >= Number(totalPages)) break;
-      if (items.length < perPage) break;
+      // CORREGIDO: antes se hacía `if (nextPageUrl) break;`, lo cual detenía
+      // la paginación justo cuando la API indicaba que SÍ había más páginas
+      // (truncando el listado a la primera página, ej. 100 restaurantes).
+      // La lógica correcta es: seguir pidiendo páginas mientras haya
+      // 'total_pages' pendientes o un 'next_page_url', y parar solo cuando
+      // ya no queden más páginas o la página vino incompleta.
+      if (totalPages) {
+        if (page >= Number(totalPages)) break;
+      } else if (!nextPageUrl) {
+        if (items.length < perPage) break;
+      }
 
       page += 1;
     }
@@ -406,15 +460,18 @@ export default function RestaurantsScreen() {
         const restNameMap = {};
         const restEnvironmentMap = {};
 
-        const restDetailPromises = allRestaurants.map(async (rest) => {
+        // NUEVO: concurrencia limitada (antes se disparaban TODAS las
+        // peticiones de detalle al mismo tiempo, lo que podía saturar el
+        // servidor local y hacer fallar peticiones al azar).
+        await mapWithConcurrencyLimit(allRestaurants, 6, async (rest) => {
           try {
             if (!rest || rest.id === undefined || rest.id === null) return;
 
             await ensureToken();
             const restUrl = `${API_URL.replace(/\/$/, '')}/${encodeURIComponent(rest.id)}`;
-            const rr = await fetch(restUrl, {
+            const rr = await fetchWithRetry(restUrl, {
               headers: getAuthHeaders(),
-            });
+            }, 1);
 
             if (!rr.ok) {
               console.warn('[RestaurantsScreen] detalle de restaurante falló:', {
@@ -452,17 +509,15 @@ export default function RestaurantsScreen() {
           }
         });
 
-        await Promise.allSettled(restDetailPromises);
-
-        const branchPromises = allRestaurants.map(async (rest) => {
+        const branchesArraysRaw = await mapWithConcurrencyLimit(allRestaurants, 6, async (rest) => {
           try {
             if (!rest || rest.id === undefined || rest.id === null) return [];
 
             await ensureToken();
             const url = `${API_URL.replace(/\/$/, '')}/${encodeURIComponent(rest.id)}/sucursales`;
-            const r = await fetch(url, {
+            const r = await fetchWithRetry(url, {
               headers: getAuthHeaders(),
-            });
+            }, 1);
 
             if (!r.ok) {
               console.warn(`[RestaurantsScreen] sucursales request failed para rest ${rest.id}`, {
@@ -478,6 +533,13 @@ export default function RestaurantsScreen() {
               return [];
             }
 
+            // Un objeto "parece una sucursal" si trae al menos un identificador
+            // o nombre/dirección reconocible (heurística para el caso de que
+            // el backend devuelva un objeto suelto en vez de un arreglo).
+            const looksLikeSucursal = (obj) =>
+              obj && typeof obj === 'object' && !Array.isArray(obj) &&
+              (obj.id !== undefined || obj.nombre !== undefined || obj.name !== undefined || obj.direccion !== undefined || obj.address !== undefined);
+
             let branches = [];
             if (Array.isArray(j.sucursales)) branches = j.sucursales;
             else if (Array.isArray(j.data) && Array.isArray(j.data.sucursales)) branches = j.data.sucursales;
@@ -485,10 +547,30 @@ export default function RestaurantsScreen() {
             else if (Array.isArray(j.results)) branches = j.results;
             else if (Array.isArray(j.items)) branches = j.items;
             else if (Array.isArray(j)) branches = j;
+            // NUEVO: casos donde el backend devuelve UNA sola sucursal sin
+            // envolverla en arreglo (frecuente cuando el restaurante solo
+            // tiene una sucursal). Antes esto se interpretaba como "0
+            // sucursales" y la sucursal desaparecía del listado.
+            else if (looksLikeSucursal(j.sucursal)) branches = [j.sucursal];
+            else if (looksLikeSucursal(j.data)) branches = [j.data];
+            else if (looksLikeSucursal(j)) branches = [j];
             else branches = [];
 
             if (!branches || branches.length === 0) {
-              console.warn('[RestaurantsScreen] sin sucursales para restaurant:', rest.id);
+              // Log detallado: si esto se repite para el mismo restaurante,
+              // copia esta salida para ver la forma exacta que regresa la API
+              // y así ajustar el parseo si sigue sin coincidir con nada.
+              let rawPreview = '';
+              try {
+                rawPreview = JSON.stringify(j).slice(0, 500);
+              } catch (e) {
+                rawPreview = '(no se pudo serializar)';
+              }
+              console.warn('[RestaurantsScreen] sin sucursales para restaurant (revisa la forma de la respuesta):', {
+                restaurantId: rest.id,
+                url,
+                rawPreview,
+              });
               return [];
             }
 
@@ -524,6 +606,14 @@ export default function RestaurantsScreen() {
               const branchNamePart = (b.nombre ?? b.name ?? '').toString().trim();
               const combinedName = restName ? (branchNamePart ? `${restName} - ${branchNamePart}` : restName) : (branchNamePart || '');
 
+              // CORREGIDO: antes se usaba SIEMPRE el environment del restaurante
+              // padre para todas sus sucursales, ignorando si la sucursal trae
+              // su propio campo 'environment'. Ahora se prioriza el dato de la
+              // sucursal (más específico) y solo se usa el del padre como respaldo.
+              const branchEnvRaw = b.environment ?? b.ambiente ?? b?.raw?.environment ?? null;
+              const normalizedBranchEnv = normalizeEnvironment(branchEnvRaw);
+              const finalEnv = normalizedBranchEnv || parentEnv;
+
               const mapped = {
                 id: b.id ?? `${rest.id}-${Math.random().toString(36).slice(2, 8)}`,
                 name: combinedName,
@@ -552,7 +642,7 @@ export default function RestaurantsScreen() {
                 url_tiktok: b.url_tiktok ?? b.tiktok ?? null,
                 url_whatsapp: b.url_whatsapp ?? b.whatsapp ?? null,
                 url_opentable: url_opentable,
-                environment: parentEnv,
+                environment: finalEnv,
                 raw: b,
               };
 
@@ -598,10 +688,8 @@ export default function RestaurantsScreen() {
           }
         });
 
-        const settled = await Promise.allSettled(branchPromises);
-        const branchesArrays = settled
-          .filter(s => s.status === 'fulfilled')
-          .map(s => s.value)
+        const branchesArrays = branchesArraysRaw
+          .filter(Boolean)
           .flat();
 
         console.warn('[RestaurantsScreen] sucursales total antes de filtrar environment:', branchesArrays.length);
@@ -614,6 +702,19 @@ export default function RestaurantsScreen() {
             item?.raw?.environment ??
             ''
           );
+
+          // CORREGIDO: si no se pudo determinar el environment de la sucursal
+          // (por ejemplo porque falló la petición de detalle del restaurante
+          // padre), antes se ocultaba silenciosamente. Ahora, ante la duda,
+          // se muestra la sucursal en vez de perderla sin explicación.
+          if (!itemEnv) {
+            console.warn('[RestaurantsScreen] sucursal sin environment detectable, se muestra por defecto:', {
+              id: item?.id,
+              name: item?.name,
+              expected: normalizedEnvironment,
+            });
+            return true;
+          }
 
           const ok = itemEnv === normalizedEnvironment;
 

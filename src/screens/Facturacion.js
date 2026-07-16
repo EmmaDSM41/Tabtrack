@@ -14,6 +14,7 @@ import {
   Linking,
   Image,
   Modal,
+  FlatList,
   Animated,
   Easing,
 } from 'react-native';
@@ -83,6 +84,17 @@ export default function Facturacion({ navigation }) {
   // NUEVO: estado para la URL de la foto de perfil guardada en AsyncStorage con clave 'user_profile_url'
   const [profileUrl, setProfileUrl] = useState(null);
 
+  // ===== NUEVO: errores por campo (validación) =====
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // ===== NUEVO: catálogos de régimen fiscal y uso de CFDI =====
+  const [regimenes, setRegimenes] = useState([]);
+  const [usoCfdiOptions, setUsoCfdiOptions] = useState([]);
+  const [loadingRegimenes, setLoadingRegimenes] = useState(false);
+  const [loadingUsoCfdi, setLoadingUsoCfdi] = useState(false);
+  const [regimenModalVisible, setRegimenModalVisible] = useState(false);
+  const [usoCfdiModalVisible, setUsoCfdiModalVisible] = useState(false);
+
   const { width, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
@@ -127,6 +139,11 @@ export default function Facturacion({ navigation }) {
 
         // cargar datos fiscales al iniciar
         await loadFiscal();
+
+        // NUEVO: precargar catálogos (regímenes y usos de CFDI) en segundo plano,
+        // así se pueden mostrar los nombres en vez de solo el código.
+        fetchRegimenes();
+        fetchUsoCfdiOptions();
       } catch (err) {
         console.warn('Error leyendo usuario desde AsyncStorage:', err);
         setUsername('Usuario');
@@ -256,8 +273,230 @@ export default function Facturacion({ navigation }) {
     }
   };
 
+  // ===================== NUEVO: VALIDACIÓN DE CAMPOS =====================
+
+  // Validación básica en el cliente antes de enviar al backend.
+  const validateFiscalFields = () => {
+    const errors = {};
+
+    const cpTrim = String(cp ?? '').trim();
+    if (!cpTrim) {
+      errors.cp = 'El código postal es requerido.';
+    } else if (!/^\d{5}$/.test(cpTrim)) {
+      errors.cp = 'Código postal incorrecto (deben ser 5 dígitos).';
+    }
+
+    if (!razonSocial || !razonSocial.trim()) {
+      errors.razonSocial = 'La razón social es requerida.';
+    }
+
+    if (!regimenFiscal) {
+      errors.regimenFiscal = 'Selecciona un régimen fiscal.';
+    }
+
+    const rfcTrim = String(rfc ?? '').trim();
+    // Formato general de RFC (persona física: 4 letras + 6 dígitos + 3 alfanuméricos,
+    // persona moral: 3 letras + 6 dígitos + 3 alfanuméricos)
+    const rfcPattern = /^([A-ZÑ&]{3,4})\d{6}[A-Z0-9]{3}$/i;
+    if (!rfcTrim) {
+      errors.rfc = 'El RFC es requerido.';
+    } else if (!rfcPattern.test(rfcTrim)) {
+      errors.rfc = 'RFC no válido. Verifica el formato.';
+    }
+
+    if (!usoCfdi) {
+      errors.usoCfdi = 'Selecciona un uso de CFDI.';
+    }
+
+    return errors;
+  };
+
+  // Normaliza los nombres de campo que pueda regresar el backend (snake_case) a
+  // las claves que usamos en el estado de errores (camelCase).
+  const normalizeFieldKey = (key) => {
+    const map = {
+      cp: 'cp',
+      codigo_postal: 'cp',
+      razon_social: 'razonSocial',
+      razonSocial: 'razonSocial',
+      regimen_fiscal: 'regimenFiscal',
+      regimenFiscal: 'regimenFiscal',
+      rfc: 'rfc',
+      uso_cfdi: 'usoCfdi',
+      usoCfdi: 'usoCfdi',
+    };
+    return map[key] || key;
+  };
+
+  // Intenta extraer errores por campo desde la respuesta del backend.
+  // Soporta varios formatos comunes; si no encuentra nada estructurado,
+  // intenta detectar palabras clave en el mensaje genérico.
+  const parseBackendFieldErrors = (json, fallbackText) => {
+    const errors = {};
+
+    if (json && typeof json === 'object') {
+      // Formato: { errors: { cp: 'mensaje', rfc: ['mensaje1', 'mensaje2'] } }
+      if (json.errors && typeof json.errors === 'object' && !Array.isArray(json.errors)) {
+        Object.keys(json.errors).forEach((key) => {
+          const val = json.errors[key];
+          const msg = Array.isArray(val) ? val[0] : val;
+          if (msg) errors[normalizeFieldKey(key)] = String(msg);
+        });
+      }
+
+      // Formato: { field: 'cp', message: 'mensaje' }
+      if (json.field && json.message) {
+        errors[normalizeFieldKey(json.field)] = String(json.message);
+      }
+    }
+
+    // Si no se encontró nada estructurado, intentar deducir por palabras clave
+    if (Object.keys(errors).length === 0) {
+      const msg = String(json?.message || json?.error || fallbackText || '').toLowerCase();
+      if (msg) {
+        if (msg.includes('postal') || /\bcp\b/.test(msg)) {
+          errors.cp = 'Código postal incorrecto.';
+        }
+        if (msg.includes('rfc')) {
+          errors.rfc = 'RFC no válido.';
+        }
+        if (msg.includes('regimen') || msg.includes('régimen')) {
+          errors.regimenFiscal = 'Régimen fiscal inválido.';
+        }
+        if (msg.includes('cfdi') || msg.includes('uso')) {
+          errors.usoCfdi = 'Uso de CFDI inválido.';
+        }
+        if (msg.includes('razon') || msg.includes('razón') || msg.includes('social')) {
+          errors.razonSocial = 'Razón social inválida.';
+        }
+      }
+    }
+
+    return errors;
+  };
+
+  const clearFieldError = (fieldKey) => {
+    setFieldErrors((prev) => {
+      if (!prev[fieldKey]) return prev;
+      const next = { ...prev };
+      delete next[fieldKey];
+      return next;
+    });
+  };
+
+  // ===================== NUEVO: CATÁLOGOS (régimen / uso CFDI) =====================
+
+  const fetchRegimenes = async (force = false) => {
+    if (!force && regimenes.length > 0) return regimenes;
+    setLoadingRegimenes(true);
+    try {
+      await ensureToken();
+      const res = await fetch(`${API_BASE_URL}/api/catalogos/regimenes`, { headers: getAuthHeaders() });
+      if (!res || !res.ok) {
+        console.warn('fetchRegimenes bad response', res?.status);
+        showToast('No se pudo cargar el catálogo de régimen fiscal.', 'error');
+        return [];
+      }
+      let json = null;
+      try {
+        json = await res.json();
+      } catch (err) {
+        console.warn('fetchRegimenes json parse error', err);
+        showToast('Respuesta inválida del catálogo de régimen fiscal.', 'error');
+        return [];
+      }
+      const list = Array.isArray(json) ? json : (json?.data || json?.regimenes || []);
+      setRegimenes(list);
+      return list;
+    } catch (err) {
+      console.warn('fetchRegimenes error', err);
+      showToast('Error de conexión al cargar régimen fiscal.', 'error');
+      return [];
+    } finally {
+      setLoadingRegimenes(false);
+    }
+  };
+
+  const fetchUsoCfdiOptions = async (force = false) => {
+    if (!force && usoCfdiOptions.length > 0) return usoCfdiOptions;
+    setLoadingUsoCfdi(true);
+    try {
+      await ensureToken();
+      const res = await fetch(`${API_BASE_URL}/api/catalogos/uso_cfdi`, { headers: getAuthHeaders() });
+      if (!res || !res.ok) {
+        console.warn('fetchUsoCfdiOptions bad response', res?.status);
+        showToast('No se pudo cargar el catálogo de uso de CFDI.', 'error');
+        return [];
+      }
+      let json = null;
+      try {
+        json = await res.json();
+      } catch (err) {
+        console.warn('fetchUsoCfdiOptions json parse error', err);
+        showToast('Respuesta inválida del catálogo de uso de CFDI.', 'error');
+        return [];
+      }
+      const list = Array.isArray(json) ? json : (json?.data || json?.uso_cfdi || []);
+      setUsoCfdiOptions(list);
+      return list;
+    } catch (err) {
+      console.warn('fetchUsoCfdiOptions error', err);
+      showToast('Error de conexión al cargar uso de CFDI.', 'error');
+      return [];
+    } finally {
+      setLoadingUsoCfdi(false);
+    }
+  };
+
+  const openRegimenPicker = async () => {
+    setRegimenModalVisible(true);
+    if (regimenes.length === 0) {
+      await fetchRegimenes();
+    }
+  };
+
+  const openUsoCfdiPicker = async () => {
+    setUsoCfdiModalVisible(true);
+    if (usoCfdiOptions.length === 0) {
+      await fetchUsoCfdiOptions();
+    }
+  };
+
+  const selectRegimen = (item) => {
+    setRegimenFiscal(item?.codigo != null ? String(item.codigo) : '');
+    clearFieldError('regimenFiscal');
+    setRegimenModalVisible(false);
+  };
+
+  const selectUsoCfdi = (item) => {
+    setUsoCfdi(item?.codigo != null ? String(item.codigo) : '');
+    clearFieldError('usoCfdi');
+    setUsoCfdiModalVisible(false);
+  };
+
+  const getRegimenLabel = () => {
+    if (!regimenFiscal) return '';
+    const found = regimenes.find((r) => String(r.codigo) === String(regimenFiscal));
+    return found ? `${found.codigo} - ${found.nombre}` : String(regimenFiscal);
+  };
+
+  const getUsoCfdiLabel = () => {
+    if (!usoCfdi) return '';
+    const found = usoCfdiOptions.find((r) => String(r.codigo) === String(usoCfdi));
+    return found ? `${found.codigo} - ${found.descripcion}` : String(usoCfdi);
+  };
+
   // Guardar/crear datos fiscales (POST si no existe, PATCH si existe)
   const saveFiscal = async () => {
+    // NUEVO: validar antes de enviar
+    const clientErrors = validateFiscalFields();
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      showToast('Revisa los campos marcados en rojo.', 'error');
+      return;
+    }
+    setFieldErrors({});
+
     setSaving(true);
     try {
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
@@ -297,7 +536,24 @@ export default function Facturacion({ navigation }) {
       if (!res || !res.ok) {
         const txt = await safeText(res);
         console.warn('saveFiscal failed', method, res?.status, txt);
-        showToast(`No se pudo ${fiscalExists ? 'actualizar' : 'crear'} los datos.`, 'error');
+
+        // NUEVO: intentar identificar el error específico devuelto por el backend
+        let json = null;
+        try {
+          json = txt ? JSON.parse(txt) : null;
+        } catch (e) {
+          json = null;
+        }
+        const backendErrors = parseBackendFieldErrors(json, txt);
+
+        if (Object.keys(backendErrors).length > 0) {
+          setFieldErrors(backendErrors);
+          const summary = Object.values(backendErrors).join(' ');
+          showToast(summary, 'error');
+        } else {
+          showToast(`No se pudo ${fiscalExists ? 'actualizar' : 'crear'} los datos.`, 'error');
+        }
+
         setSaving(false);
         return;
       }
@@ -724,59 +980,71 @@ export default function Facturacion({ navigation }) {
               <Text style={styles.fieldLabel}>Código postal (cp)</Text>
               <TextInput
                 value={String(cp ?? '')}
-                onChangeText={setCp}
+                onChangeText={(val) => { setCp(val); clearFieldError('cp'); }}
                 keyboardType="numeric"
-                style={styles.input}
+                style={[styles.input, fieldErrors.cp ? styles.inputError : null]}
                 placeholder="03100"
                 placeholderTextColor="#999"
               />
+              {fieldErrors.cp ? <Text style={styles.errorText}>{fieldErrors.cp}</Text> : null}
             </View>
 
             <View style={{ marginTop: 12 }}>
               <Text style={styles.fieldLabel}>Razón social</Text>
               <TextInput
                 value={razonSocial}
-                onChangeText={setRazonSocial}
-                style={styles.input}
+                onChangeText={(val) => { setRazonSocial(val); clearFieldError('razonSocial'); }}
+                style={[styles.input, fieldErrors.razonSocial ? styles.inputError : null]}
                 placeholder="USUARIO DE PRUEBA"
                 placeholderTextColor="#999"
                 autoCapitalize="words"
               />
+              {fieldErrors.razonSocial ? <Text style={styles.errorText}>{fieldErrors.razonSocial}</Text> : null}
             </View>
 
+            {/* NUEVO: Régimen fiscal ahora es un selector con lista desplegable */}
             <View style={{ marginTop: 12 }}>
               <Text style={styles.fieldLabel}>Régimen fiscal</Text>
-              <TextInput
-                value={regimenFiscal}
-                onChangeText={setRegimenFiscal}
-                style={styles.input}
-                placeholder="62"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-              />
+              <TouchableOpacity
+                style={[styles.input, styles.selectInput, fieldErrors.regimenFiscal ? styles.inputError : null]}
+                onPress={openRegimenPicker}
+                activeOpacity={0.7}
+              >
+                <Text style={regimenFiscal ? styles.selectValueText : styles.selectPlaceholderText} numberOfLines={1}>
+                  {regimenFiscal ? getRegimenLabel() : 'Selecciona un régimen fiscal'}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#666" />
+              </TouchableOpacity>
+              {fieldErrors.regimenFiscal ? <Text style={styles.errorText}>{fieldErrors.regimenFiscal}</Text> : null}
             </View>
 
             <View style={{ marginTop: 12 }}>
               <Text style={styles.fieldLabel}>RFC</Text>
               <TextInput
                 value={rfc}
-                onChangeText={setRfc}
-                style={styles.input}
+                onChangeText={(val) => { setRfc(val); clearFieldError('rfc'); }}
+                style={[styles.input, fieldErrors.rfc ? styles.inputError : null]}
                 placeholder="AAA900000000"
                 placeholderTextColor="#999"
                 autoCapitalize="characters"
               />
+              {fieldErrors.rfc ? <Text style={styles.errorText}>{fieldErrors.rfc}</Text> : null}
             </View>
 
+            {/* NUEVO: Uso de CFDI ahora es un selector con lista desplegable */}
             <View style={{ marginTop: 12 }}>
               <Text style={styles.fieldLabel}>Uso CFDI</Text>
-              <TextInput
-                value={usoCfdi}
-                onChangeText={setUsoCfdi}
-                style={styles.input}
-                placeholder="10"
-                placeholderTextColor="#999"
-              />
+              <TouchableOpacity
+                style={[styles.input, styles.selectInput, fieldErrors.usoCfdi ? styles.inputError : null]}
+                onPress={openUsoCfdiPicker}
+                activeOpacity={0.7}
+              >
+                <Text style={usoCfdi ? styles.selectValueText : styles.selectPlaceholderText} numberOfLines={1}>
+                  {usoCfdi ? getUsoCfdiLabel() : 'Selecciona un uso de CFDI'}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#666" />
+              </TouchableOpacity>
+              {fieldErrors.usoCfdi ? <Text style={styles.errorText}>{fieldErrors.usoCfdi}</Text> : null}
             </View>
 
             <TouchableOpacity
@@ -860,6 +1128,92 @@ export default function Facturacion({ navigation }) {
             </View>
           ) : null}
         </SafeAreaView>
+      </Modal>
+
+      {/* NUEVO: Modal selector de Régimen fiscal */}
+      <Modal
+        visible={regimenModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setRegimenModalVisible(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerHeaderText}>Régimen fiscal</Text>
+              <TouchableOpacity onPress={() => setRegimenModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {loadingRegimenes ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={BLUE} />
+              </View>
+            ) : regimenes.length === 0 ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <Text style={{ color: '#666', marginBottom: 12 }}>No se pudo cargar el catálogo.</Text>
+                <TouchableOpacity onPress={() => fetchRegimenes(true)} style={styles.smallBtn}>
+                  <Text style={styles.smallBtnText}>Reintentar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={regimenes}
+                keyExtractor={(item, idx) => String(item?.codigo ?? idx)}
+                renderItem={({ item }) => (
+                  <TouchableOpacity style={styles.pickerItem} onPress={() => selectRegimen(item)}>
+                    <Text style={styles.pickerItemText}>{item.codigo} - {item.nombre}</Text>
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#eee' }} />}
+                style={{ maxHeight: 420 }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* NUEVO: Modal selector de Uso de CFDI */}
+      <Modal
+        visible={usoCfdiModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setUsoCfdiModalVisible(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerHeaderText}>Uso de CFDI</Text>
+              <TouchableOpacity onPress={() => setUsoCfdiModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {loadingUsoCfdi ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={BLUE} />
+              </View>
+            ) : usoCfdiOptions.length === 0 ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <Text style={{ color: '#666', marginBottom: 12 }}>No se pudo cargar el catálogo.</Text>
+                <TouchableOpacity onPress={() => fetchUsoCfdiOptions(true)} style={styles.smallBtn}>
+                  <Text style={styles.smallBtnText}>Reintentar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={usoCfdiOptions}
+                keyExtractor={(item, idx) => String(item?.codigo ?? idx)}
+                renderItem={({ item }) => (
+                  <TouchableOpacity style={styles.pickerItem} onPress={() => selectUsoCfdi(item)}>
+                    <Text style={styles.pickerItemText}>{item.codigo} - {item.descripcion}</Text>
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#eee' }} />}
+                style={{ maxHeight: 420 }}
+              />
+            )}
+          </View>
+        </View>
       </Modal>
 
       {/* Toast animado */}
@@ -967,4 +1321,62 @@ const styles = StyleSheet.create({
   smallBtnText: { color: BLUE, fontWeight: '700' },
 
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
+
+  // ===================== NUEVO: estilos añadidos =====================
+  inputError: {
+    borderColor: '#ff4d4f',
+  },
+  errorText: {
+    color: '#ff4d4f',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  selectInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectValueText: {
+    color: '#111',
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  selectPlaceholderText: {
+    color: '#999',
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 16,
+    maxHeight: '75%',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  pickerHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BLUE,
+  },
+  pickerItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  pickerItemText: {
+    fontSize: 14,
+    color: '#111',
+  },
 });
