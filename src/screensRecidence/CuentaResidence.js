@@ -221,6 +221,9 @@ export default function CuentaResidence() {
   const [sucursalId, setSucursalId] = useState(null);
   const [restaurantImageUri, setRestaurantImageUri] = useState(null);
 
+  // --- Tips habilitados por restaurante ---
+  const [tipsEnabled, setTipsEnabled] = useState(false);
+
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [errorModalMessage, setErrorModalMessage] = useState('');
 
@@ -238,7 +241,7 @@ export default function CuentaResidence() {
   const [startConsumptionModalVisible, setStartConsumptionModalVisible] = useState(false);
 
   // --- Propina (tip) state ---
-  const [tipOption, setTipOption] = useState(null); // '10' | '15' | '20' | 'custom' | null
+  const [tipOption, setTipOption] = useState(null); 
   const [tipAmount, setTipAmount] = useState(0);
   const [customTipVisible, setCustomTipVisible] = useState(false);
   const [customTipPercentText, setCustomTipPercentText] = useState('');
@@ -374,6 +377,55 @@ export default function CuentaResidence() {
       console.warn('fetchRestaurantImage error', err);
       console.log('[CuentaResidence] Error consultando imagen. Se usa imagen por defecto.');
       if (isMountedRef.current) setRestaurantImageUri(null);
+    }
+  }, []);
+
+  // --- Consulta si el restaurante tiene habilitadas las propinas ---
+  const fetchTipsEnabled = useCallback(async (edificioIdToSearch, restauranteIdToSearch) => {
+    try {
+      await ensureToken();
+
+      const edificioId = edificioIdToSearch !== null && edificioIdToSearch !== undefined ? String(edificioIdToSearch).trim() : '';
+      const targetRestauranteId = restauranteIdToSearch !== null && restauranteIdToSearch !== undefined ? String(restauranteIdToSearch).trim() : '';
+
+      console.log('[CuentaResidence] fetchTipsEnabled -> edificioId:', edificioId, 'restauranteId:', targetRestauranteId);
+
+      if (!edificioId || !targetRestauranteId) {
+        console.log('[CuentaResidence] Falta edificioId o restauranteId. No se consulta tips_enabled.');
+        if (isMountedRef.current) setTipsEnabled(false);
+        return;
+      }
+
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/residence/edificios/${encodeURIComponent(edificioId)}/restaurantes/${encodeURIComponent(targetRestauranteId)}`;
+      console.log('[CuentaResidence] Consultando tips_enabled en:', url);
+
+      const headers = { Accept: 'application/json' };
+      if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
+
+      console.log('[CuentaResidence] Status consulta restaurante (tips):', res.status);
+
+      if (!res.ok) {
+        console.log('[CuentaResidence] La consulta de tips_enabled falló. Se oculta módulo de propina.');
+        if (isMountedRef.current) setTipsEnabled(false);
+        return;
+      }
+
+      const json = await res.json();
+      console.log('[CuentaResidence] Respuesta restaurante (tips):', json);
+
+      const tipsFlag = json?.tips_enabled ?? json?.restaurante?.tips_enabled ?? false;
+
+      if (isMountedRef.current) {
+        setTipsEnabled(!!tipsFlag);
+      }
+    } catch (err) {
+      console.warn('fetchTipsEnabled error', err);
+      if (isMountedRef.current) setTipsEnabled(false);
     }
   }, []);
 
@@ -576,6 +628,7 @@ export default function CuentaResidence() {
       });
 
       await fetchRestaurantImage(edificioId, resolvedRestaurantIdFromJson);
+      await fetchTipsEnabled(edificioId, resolvedRestaurantIdFromJson);
 
     } catch (err) {
       console.warn('fetchConsumo error', err);
@@ -583,7 +636,7 @@ export default function CuentaResidence() {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [qr, applyResolveJsonToState, fetchRestaurantImage]);
+  }, [qr, applyResolveJsonToState, fetchRestaurantImage, fetchTipsEnabled]);
 
   useEffect(() => {
     loadValidationBannerState();
@@ -656,6 +709,7 @@ export default function CuentaResidence() {
       });
 
       await fetchRestaurantImage(edificioId, resolvedData?.restauranteId ?? null);
+      await fetchTipsEnabled(edificioId, resolvedData?.restauranteId ?? null);
 
       const aperturaStatus = json.apertura?.status ? String(json.apertura.status).toUpperCase() : null;
       if (aperturaStatus && aperturaStatus.includes('OPEN')) {
@@ -1115,55 +1169,57 @@ export default function CuentaResidence() {
 
           {(canOpenAccount || accountOpened) ? (
             <>
-              <View style={[styles.tipSectionBox, { width: layoutWidth }]}>
-                <Text style={[styles.tipSectionTitle, { fontSize: clamp(rf(3.4), 14, 18) }]}>Propina</Text>
-                <View style={styles.tipButtonsRow}>
-                  {[10, 15, 20].map((p) => (
+              {tipsEnabled ? (
+                <View style={[styles.tipSectionBox, { width: layoutWidth }]}>
+                  <Text style={[styles.tipSectionTitle, { fontSize: clamp(rf(3.4), 14, 18) }]}>Propina</Text>
+                  <View style={styles.tipButtonsRow}>
+                    {[10, 15, 20].map((p) => (
+                      <TouchableOpacity
+                        key={p}
+                        style={[styles.tipButton, tipOption === String(p) && styles.tipButtonActive]}
+                        onPress={() => applyTipPercent(p)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.tipButtonText, tipOption === String(p) && styles.tipButtonTextActive]}>{p}%</Text>
+                      </TouchableOpacity>
+                    ))}
                     <TouchableOpacity
-                      key={p}
-                      style={[styles.tipButton, tipOption === String(p) && styles.tipButtonActive]}
-                      onPress={() => applyTipPercent(p)}
+                      style={[styles.tipButton, tipOption === 'custom' && styles.tipButtonActive]}
+                      onPress={toggleCustomTip}
                       activeOpacity={0.8}
                     >
-                      <Text style={[styles.tipButtonText, tipOption === String(p) && styles.tipButtonTextActive]}>{p}%</Text>
+                      <Text style={[styles.tipButtonText, tipOption === 'custom' && styles.tipButtonTextActive]}>Otro</Text>
                     </TouchableOpacity>
-                  ))}
-                  <TouchableOpacity
-                    style={[styles.tipButton, tipOption === 'custom' && styles.tipButtonActive]}
-                    onPress={toggleCustomTip}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.tipButtonText, tipOption === 'custom' && styles.tipButtonTextActive]}>Personalizar</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {customTipVisible ? (
-                  <View style={styles.customTipBox}>
-                    <View style={styles.customTipInputWrap}>
-                      <Text style={styles.customTipLabel}>%</Text>
-                      <TextInput
-                        style={styles.customTipInput}
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor="#9ca3af"
-                        value={customTipPercentText}
-                        onChangeText={handleCustomTipPercentChange}
-                      />
-                    </View>
-                    <View style={styles.customTipInputWrap}>
-                      <Text style={styles.customTipLabel}>{moneda ?? 'MXN'}</Text>
-                      <TextInput
-                        style={styles.customTipInput}
-                        keyboardType="numeric"
-                        placeholder="0.00"
-                        placeholderTextColor="#9ca3af"
-                        value={customTipPesosText}
-                        onChangeText={handleCustomTipPesosChange}
-                      />
-                    </View>
                   </View>
-                ) : null}
-              </View>
+
+                  {customTipVisible ? (
+                    <View style={styles.customTipBox}>
+                      <View style={styles.customTipInputWrap}>
+                        <Text style={styles.customTipLabel}>%</Text>
+                        <TextInput
+                          style={styles.customTipInput}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor="#9ca3af"
+                          value={customTipPercentText}
+                          onChangeText={handleCustomTipPercentChange}
+                        />
+                      </View>
+                      <View style={styles.customTipInputWrap}>
+                        <Text style={styles.customTipLabel}>{moneda ?? 'MXN'}</Text>
+                        <TextInput
+                          style={styles.customTipInput}
+                          keyboardType="numeric"
+                          placeholder="0.00"
+                          placeholderTextColor="#9ca3af"
+                          value={customTipPesosText}
+                          onChangeText={handleCustomTipPesosChange}
+                        />
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               <TouchableOpacity
                 style={[
@@ -1363,7 +1419,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   tipButtonActive: { backgroundColor: '#eaf1ff', borderColor: '#0046ff' },
-  tipButtonText: { color: '#444', fontWeight: '700', fontSize: 10 },
+  tipButtonText: { color: '#444', fontWeight: '700', fontSize: 13 },
   tipButtonTextActive: { color: '#0046ff' },
   customTipBox: {
     flexDirection: 'row',
@@ -1380,7 +1436,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     height: 40,
   },
-  customTipLabel: { color: '#666', fontWeight: '700', marginRight: 6, fontSize: 12 },
+  customTipLabel: { color: '#666', fontWeight: '700', marginRight: 6, fontSize: 13 },
   customTipInput: { flex: 1, color: '#111', fontSize: 14, padding: 0 },
 
   startModalBackdrop: {
