@@ -200,6 +200,34 @@ function groupConsumptionItems(flatItems = []) {
   return grouped;
 }
 
+// --- NUEVO: identifica si dos "líneas" (item + sus subitems) son EXACTAMENTE
+// iguales (mismo nombre, mismo precio, mismo estado cancelado y mismos
+// subitems con mismo nombre/precio). Solo líneas con firma idéntica se
+// agrupan en una sola fila con "xN". Un café con leche y un café solo
+// tienen firmas distintas (porque sus subitems difieren) y por lo tanto
+// nunca se mezclan.
+function getLineSignature(line) {
+  const subs = Array.isArray(line.subitems) ? line.subitems : [];
+  const subsSig = subs
+    .map((s) => `${(s.name || '').trim().toLowerCase()}::${safeNum(s.lineTotal).toFixed(2)}::${s.canceled ? 1 : 0}`)
+    .sort()
+    .join('|');
+  return `${(line.name || '').trim().toLowerCase()}::${safeNum(line.lineTotal).toFixed(2)}::${line.canceled ? 1 : 0}::[${subsSig}]`;
+}
+
+// --- NUEVO: determina si una línea está totalmente pagada, totalmente sin
+// pagar, o en un estado mixto (por ejemplo el item principal pagado pero
+// alguno de sus subitems no). Las líneas "mixtas" nunca se agrupan, para
+// evitar que se pierda información de conciliación de pagos.
+function getLinePaidBucket(line) {
+  const subs = Array.isArray(line.subitems) ? line.subitems : [];
+  const allPaid = !!line.paid && subs.every((s) => !!s.paid);
+  const allUnpaid = !line.paid && subs.every((s) => !s.paid);
+  if (allPaid) return 'paid';
+  if (allUnpaid) return 'unpaid';
+  return 'mixed';
+}
+
 export default function Escanear() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -805,6 +833,47 @@ export default function Escanear() {
 
   const displayItems = useMemo(() => groupConsumptionItems(items), [items]);
 
+  // --- NUEVO: agrupa líneas EXACTAMENTE idénticas (mismo nombre, precio,
+  // subitems y estado de cancelación) en una sola fila con "xN". Si un
+  // producto está parcialmente pagado (por ejemplo 3 panques y ya se pagó
+  // 1), NO se separa en dos filas — se muestra una sola fila con la
+  // cantidad restante por pagar (x2). Solo cuando TODAS las unidades ya
+  // fueron pagadas, esa fila cambia a mostrarse como "Pagado". Líneas con
+  // estado de pago "mixto" (por ejemplo el item pagado pero un subitem no)
+  // nunca se agrupan, para no perder claridad sobre qué falta pagar.
+  const superGroups = useMemo(() => {
+    const map = new Map();
+    const list = [];
+    displayItems.forEach((line, idx) => {
+      const bucket = getLinePaidBucket(line);
+      if (bucket === 'mixed') {
+        list.push({ type: 'single', key: `single-${line.id ?? idx}`, line });
+        return;
+      }
+      const sig = getLineSignature(line);
+      if (map.has(sig)) {
+        const g = map.get(sig);
+        g.lines.push(line);
+        if (bucket === 'paid') g.paidCount += 1;
+        else g.unpaidCount += 1;
+      } else {
+        const g = {
+          sig,
+          name: line.name,
+          canceled: !!line.canceled,
+          unitPrice: safeNum(line.lineTotal),
+          paidCount: bucket === 'paid' ? 1 : 0,
+          unpaidCount: bucket === 'unpaid' ? 1 : 0,
+          lines: [line],
+          subitemsTemplate: Array.isArray(line.subitems) ? line.subitems : [],
+        };
+        map.set(sig, g);
+        list.push({ type: 'group', key: sig, group: g });
+      }
+    });
+    return list;
+  }, [displayItems]);
+
   const layoutWidth = Math.min(width - (sidePad * 2), 420);
   const headerPaddingHorizontal = Math.max(sidePad, wp(4));
   const topBarBaseHeight = Math.max(64, hp(8));
@@ -907,80 +976,166 @@ export default function Escanear() {
             <View style={styles.desgloseSeparator} />
 
             <View style={styles.items}>
-              {displayItems.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
-              {displayItems.map((it, i) => (
-                <View key={it.id ?? i} style={styles.itemBlock}>
-                  <View style={[styles.itemRow, it.isSubitem ? { marginLeft: 14 } : null]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              {superGroups.length === 0 && <Text style={{ color: '#666', marginVertical: 8 }}>No hay items registrados.</Text>}
+              {superGroups.map((entry) => {
+                if (entry.type === 'single') {
+                  const it = entry.line;
+                  return (
+                    <View key={entry.key} style={styles.itemBlock}>
+                      <View style={[styles.itemRow, it.isSubitem ? { marginLeft: 14 } : null]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.itemName,
+                              it.isSubitem ? { color: '#4b5563', marginLeft: 10 } : null,
+                              it.canceled && styles.itemCanceled,
+                              (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
+                              { fontSize: it.isSubitem ? Math.max(itemNameFont - 1, 11) : itemNameFont }
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {it.isSubitem ? `• ${it.name}` : it.name}
+                          </Text>
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.itemPrice,
+                            it.isSubitem ? { color: '#4b5563', paddingLeft: 8 } : null,
+                            it.canceled && styles.itemCanceled,
+                            (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
+                            { width: itemPriceWidth, fontSize: it.isSubitem ? clamp(rf(2.6), 11, 15) : clamp(rf(2.8), 12, 16) }
+                          ]}
+                        >
+                          {formatMoney(it.lineTotal)} {moneda ?? 'MXN'}
+                        </Text>
+                      </View>
+
+                      {it.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14), marginLeft: it.isSubitem ? 14 : 0 }]}>Cancelado</Text> : null}
+                      {it.paid && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Pagado</Text> : it.paidPartial && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Parcial: {formatMoney(it.paidAmount)} pagado</Text> : null}
+
+                      {Array.isArray(it.subitems) && it.subitems.length > 0 ? (
+                        <View style={{ marginTop: 8, marginLeft: 16, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' }}>
+                          {it.subitems.map((sub, j) => (
+                            <View key={sub.id ?? `${entry.key}-${j}`} style={[styles.itemBlock, { marginBottom: 8 }]}>
+                              <View style={[styles.itemRow, { marginLeft: 10 }]}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                  <Text
+                                    style={[
+                                      styles.itemName,
+                                      { color: '#4b5563', marginLeft: 10, fontSize: Math.max(itemNameFont - 1, 11) },
+                                      sub.canceled && styles.itemCanceled,
+                                      (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {`• ${sub.name}`}
+                                  </Text>
+                                </View>
+
+                                <Text
+                                  style={[
+                                    styles.itemPrice,
+                                    { color: '#4b5563', width: itemPriceWidth, fontSize: clamp(rf(2.6), 11, 15) },
+                                    sub.canceled && styles.itemCanceled,
+                                    (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
+                                  ]}
+                                >
+                                  {formatMoney(sub.lineTotal)} {moneda ?? 'MXN'}
+                                </Text>
+                              </View>
+
+                              {sub.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.4), 10, 13), marginLeft: 24 }]}>Cancelado</Text> : null}
+                              {sub.paid && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Pagado</Text> : sub.paidPartial && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Parcial: {formatMoney(sub.paidAmount)} pagado</Text> : null}
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                }
+
+                const g = entry.group;
+                // Si aún queda algo por pagar, esa es la cantidad que se
+                // muestra (las unidades ya pagadas de este mismo producto
+                // NO se muestran aparte). Solo cuando ya no queda nada
+                // pendiente (unpaidCount === 0) se muestra como Pagado.
+                const isPaidGroup = g.unpaidCount === 0;
+                const displayCount = isPaidGroup ? g.paidCount : g.unpaidCount;
+                const displayTotalPrice = +(safeNum(g.unitPrice) * displayCount).toFixed(2);
+                return (
+                  <View key={entry.key} style={styles.itemBlock}>
+                    <View style={styles.itemRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.itemName,
+                            g.canceled && styles.itemCanceled,
+                            isPaidGroup && { color: '#10b981', fontWeight: '800' },
+                            { fontSize: itemNameFont }
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {g.name}{displayCount > 1 ? `  x${displayCount}` : ''}
+                        </Text>
+                      </View>
+
                       <Text
                         style={[
-                          styles.itemName,
-                          it.isSubitem ? { color: '#4b5563', marginLeft: 10 } : null,
-                          it.canceled && styles.itemCanceled,
-                          (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
-                          { fontSize: it.isSubitem ? Math.max(itemNameFont - 1, 11) : itemNameFont }
+                          styles.itemPrice,
+                          g.canceled && styles.itemCanceled,
+                          isPaidGroup && { color: '#10b981', fontWeight: '800' },
+                          { width: itemPriceWidth, fontSize: clamp(rf(2.8), 12, 16) }
                         ]}
-                        numberOfLines={1}
                       >
-                        {it.isSubitem ? `• ${it.name}` : it.name}
+                        {formatMoney(displayTotalPrice)} {moneda ?? 'MXN'}
                       </Text>
                     </View>
 
-                    <Text
-                      style={[
-                        styles.itemPrice,
-                        it.isSubitem ? { color: '#4b5563', paddingLeft: 8 } : null,
-                        it.canceled && styles.itemCanceled,
-                        (it.paid || it.paidPartial) && { color: '#10b981', fontWeight: '800' },
-                        { width: itemPriceWidth, fontSize: it.isSubitem ? clamp(rf(2.6), 11, 15) : clamp(rf(2.8), 12, 16) }
-                      ]}
-                    >
-                      {formatMoney(it.lineTotal)} {moneda ?? 'MXN'}
-                    </Text>
-                  </View>
+                    {g.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14) }]}>Cancelado</Text> : null}
+                    {isPaidGroup && !g.canceled ? (
+                      <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, fontSize: clamp(rf(2.6), 12, 14) }}>
+                        {displayCount > 1 ? `Pagados (${displayCount})` : 'Pagado'}
+                      </Text>
+                    ) : null}
 
-                  {it.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.6), 11, 14), marginLeft: it.isSubitem ? 14 : 0 }]}>Cancelado</Text> : null}
-                  {it.paid && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Pagado</Text> : it.paidPartial && !it.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: it.isSubitem ? 14 : 0, fontSize: clamp(rf(2.6), 12, 14) }}>Parcial: {formatMoney(it.paidAmount)} pagado</Text> : null}
+                    {g.subitemsTemplate.length > 0 ? (
+                      <View style={{ marginTop: 8, marginLeft: 16, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' }}>
+                        {g.subitemsTemplate.map((sub, j) => (
+                          <View key={sub.id ?? `${entry.key}-sub-${j}`} style={[styles.itemBlock, { marginBottom: 8 }]}>
+                            <View style={[styles.itemRow, { marginLeft: 10 }]}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                <Text
+                                  style={[
+                                    styles.itemName,
+                                    { color: '#4b5563', marginLeft: 10, fontSize: Math.max(itemNameFont - 1, 11) },
+                                    sub.canceled && styles.itemCanceled,
+                                    isPaidGroup && { color: '#10b981', fontWeight: '800' },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {`• ${sub.name}`}{displayCount > 1 ? `  x${displayCount}` : ''}
+                                </Text>
+                              </View>
 
-                  {Array.isArray(it.subitems) && it.subitems.length > 0 ? (
-                    <View style={{ marginTop: 8, marginLeft: 16, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' }}>
-                      {it.subitems.map((sub, j) => (
-                        <View key={sub.id ?? `${i}-${j}`} style={[styles.itemBlock, { marginBottom: 8 }]}>
-                          <View style={[styles.itemRow, { marginLeft: 10 }]}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                               <Text
                                 style={[
-                                  styles.itemName,
-                                  { color: '#4b5563', marginLeft: 10, fontSize: Math.max(itemNameFont - 1, 11) },
+                                  styles.itemPrice,
+                                  { color: '#4b5563', width: itemPriceWidth, fontSize: clamp(rf(2.6), 11, 15) },
                                   sub.canceled && styles.itemCanceled,
-                                  (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
+                                  isPaidGroup && { color: '#10b981', fontWeight: '800' },
                                 ]}
-                                numberOfLines={1}
                               >
-                                {`• ${sub.name}`}
+                                {formatMoney(safeNum(sub.lineTotal) * displayCount)} {moneda ?? 'MXN'}
                               </Text>
                             </View>
-
-                            <Text
-                              style={[
-                                styles.itemPrice,
-                                { color: '#4b5563', width: itemPriceWidth, fontSize: clamp(rf(2.6), 11, 15) },
-                                sub.canceled && styles.itemCanceled,
-                                (sub.paid || sub.paidPartial) && { color: '#10b981', fontWeight: '800' }
-                              ]}
-                            >
-                              {formatMoney(sub.lineTotal)} {moneda ?? 'MXN'}
-                            </Text>
                           </View>
-
-                          {sub.canceled ? <Text style={[styles.canceledTag, { fontSize: clamp(rf(2.4), 10, 13), marginLeft: 24 }]}>Cancelado</Text> : null}
-                          {sub.paid && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '800', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Pagado</Text> : sub.paidPartial && !sub.canceled ? <Text style={{ color: '#0b8f56', fontWeight: '700', marginTop: 6, marginLeft: 24, fontSize: clamp(rf(2.4), 11, 13) }}>Parcial: {formatMoney(sub.paidAmount)} pagado</Text> : null}
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              ))}
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
 
               <View style={styles.beforeIvaSeparator} />
 
@@ -1077,8 +1232,10 @@ export default function Escanear() {
                 }
               } catch (e) { console.warn('Error saving pending visit before navigate', e); }
 
-              navigation.navigate('OneExhibicion', paramsToSend);
-            }}
+navigation.navigate('Propina', {
+  ...paramsToSend,
+  returnScreen: 'OneExhibicion',
+});            }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             disabled={primaryDisabled}
           >

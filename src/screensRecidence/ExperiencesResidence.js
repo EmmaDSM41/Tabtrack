@@ -497,6 +497,19 @@ export default function ExperiencesScreen() {
     });
   };
 
+  // --- FIX: sanitiza texto antes de dibujarlo en el PDF ---
+  // pdf-lib con la fuente estándar Helvetica usa codificación WinAnsi, que no
+  // soporta ciertos caracteres Unicode "especiales" (por ejemplo el narrow
+  // no-break space \u202f que algunos motores JS ahora insertan al usar
+  // toLocaleString()/toLocaleTimeString()). Esta función reemplaza esos
+  // caracteres por un espacio normal para evitar el error
+  // "WinAnsi cannot encode ... (0x202f)" al generar el PDF.
+  const sanitizeForPdf = (str) => {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/[\u202F\u00A0\u2007\u2009\u200A\u2060]/g, ' ');
+  };
+
   const exportPayment = async (payment) => {
     setExportMessage('Generando PDF...');
     setExporting(true);
@@ -509,7 +522,7 @@ export default function ExperiencesScreen() {
         if (!dStr) return '';
         const d = new Date(dStr);
         if (isNaN(d.getTime())) return dStr;
-        return d.toLocaleString();
+        return sanitizeForPdf(d.toLocaleString());
       };
 
       const pdfDoc = await PDFDocument.create();
@@ -551,7 +564,7 @@ export default function ExperiencesScreen() {
         color: rgb(0.07, 0.07, 0.07),
       });
 
-      page.drawText(payment.title || payment.periodo || '', {
+      page.drawText(sanitizeForPdf(payment.title || payment.periodo || ''), {
         x: marginLeft + rectWidth + 30,
         y: y - 26,
         size: 10,
@@ -570,8 +583,8 @@ export default function ExperiencesScreen() {
           y = pH - 60;
         }
 
-        page.drawText(tx.name || 'Transacción', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.07, 0.07, 0.07), });
-        page.drawText(tx.timestamp || fmtDate(tx.fecha_apertura) || '', { x: pW - marginLeft - 160, y: y, size: 9, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
+        page.drawText(sanitizeForPdf(tx.name || 'Transacción'), { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.07, 0.07, 0.07), });
+        page.drawText(sanitizeForPdf(tx.timestamp || fmtDate(tx.fecha_apertura) || ''), { x: pW - marginLeft - 160, y: y, size: 9, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
         y -= 18;
 
         let subtotal = 0;
@@ -586,7 +599,7 @@ export default function ExperiencesScreen() {
             y = pH - 60;
           }
 
-          page.drawText(label, { x: marginLeft + 8, y: y, size: 10, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
+          page.drawText(sanitizeForPdf(label), { x: marginLeft + 8, y: y, size: 10, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
           const priceText = `$${fmtCurrency(totalItem)}`;
           const textWidth = helvetica.widthOfTextAtSize(priceText, 10);
           page.drawText(priceText, { x: pW - marginLeft - textWidth, y: y, size: 10, font: helvetica, color: rgb(0.07, 0.07, 0.07) });
@@ -628,7 +641,7 @@ export default function ExperiencesScreen() {
         page.drawText('No hay consumos registrados en este periodo.', { x: marginLeft, y: y, size: 12, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
       }
 
-      const genText = `Generado el ${new Date().toLocaleString()}`;
+      const genText = `Generado el ${sanitizeForPdf(new Date().toLocaleString())}`;
       page.drawText(genText, { x: marginLeft, y: 36, size: 9, font: helvetica, color: rgb(0.45, 0.45, 0.45) });
 
       const base64 = await pdfDoc.saveAsBase64({ dataUri: false });

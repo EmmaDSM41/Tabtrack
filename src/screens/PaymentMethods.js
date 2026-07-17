@@ -16,6 +16,8 @@ import {
   Animated,
   ActivityIndicator,
   Switch,
+  Image,
+  TextInput,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,7 +40,8 @@ const COLORS = {
   danger: '#d92d20',
   success: '#176b3a',
   softBlue: '#f6f7f9',
-  blue:'#0b58ff'
+  blue:'#0b58ff',
+  gold: '#f3e305',
 };
 
 const AS_KEYS = {
@@ -48,6 +51,7 @@ const AS_KEYS = {
   USER_NOMBRE: 'user_nombre',
   USER_APELLIDO: 'user_apellido',
   USER_USUARIO_APP_ID: 'user_usuario_app_id',
+  USER_PROFILE_URL: 'user_profile_url',
 };
 
 function SmallToast({ message, visible, success }) {
@@ -87,6 +91,7 @@ export default function PaymentMethods({ navigation, route }) {
 
   const pagePadding = useMemo(() => Math.max(18, Math.round(dimWidth * 0.055)), [dimWidth]);
   const iconSize = useMemo(() => clamp(Math.round(rf(2.6)), 18, 26), [dimWidth]);
+  const avatarSize = clamp(Math.round(rf(6.5)), 32, 56);
 
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? TOKEN ?? '';
@@ -96,11 +101,13 @@ export default function PaymentMethods({ navigation, route }) {
   const [userEmail, setUserEmail] = useState(params.userEmail ?? params.user_email ?? '');
   const [userFullname, setUserFullname] = useState(params.userFullname ?? params.user_fullname ?? '');
   const [usuarioAppId, setUsuarioAppId] = useState(params.usuario_app_id ?? params.user_usuario_app_id ?? '');
+  const [profileUrl, setProfileUrl] = useState(null);
 
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
   const [stripeCardDetails, setStripeCardDetails] = useState(null);
+  const [cardHolderName, setCardHolderName] = useState('');
   const [savePreferred, setSavePreferred] = useState(true);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
@@ -110,10 +117,20 @@ export default function PaymentMethods({ navigation, route }) {
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [cardToDelete, setCardToDelete] = useState(null);
 
+  const [quickPreferred, setQuickPreferred] = useState(null);
+
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [toastSuccess, setToastSuccess] = useState(false);
   const toastTimeoutRef = useRef(null);
+
+  const getInitials = (name) => {
+    if (!name) return null;
+    const parts = String(name).trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  };
 
   const getAuthHeaders = useCallback((extra = {}) => {
     const headers = {
@@ -195,7 +212,7 @@ export default function PaymentMethods({ navigation, route }) {
   const loadCards = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontro usuario_app_id', false);
+      showToast('No se encontró usuario_app_id', false);
       return;
     }
 
@@ -235,6 +252,7 @@ export default function PaymentMethods({ navigation, route }) {
         const full = await AsyncStorage.getItem(AS_KEYS.USER_FULLNAME);
         const email = await AsyncStorage.getItem(AS_KEYS.USER_EMAIL) || await AsyncStorage.getItem(AS_KEYS.USER_MAIL);
         const userId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
+        const profileImg = await AsyncStorage.getItem(AS_KEYS.USER_PROFILE_URL);
 
         const displayName = full || `${nombre ?? ''} ${apellido ?? ''}`.trim() || 'Usuario';
         if (!mounted) return;
@@ -243,6 +261,7 @@ export default function PaymentMethods({ navigation, route }) {
         if (!userFullname) setUserFullname(displayName);
         if (!userEmail && email) setUserEmail(email);
         if (!usuarioAppId && userId) setUsuarioAppId(userId);
+        if (profileImg) setProfileUrl(profileImg);
       } catch (e) {
         console.warn('Error leyendo AsyncStorage', e);
       }
@@ -271,6 +290,7 @@ export default function PaymentMethods({ navigation, route }) {
 
   const openAddCardScreen = () => {
     setStripeCardDetails(null);
+    setCardHolderName('');
     setSavePreferred(cards.length === 0);
     setScreen('add-card');
   };
@@ -307,13 +327,17 @@ export default function PaymentMethods({ navigation, route }) {
       json?.setupIntentClientSecret ||
       null;
 
-    if (!clientSecret) throw new Error('El servidor no devolvio client_secret');
+    if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
     return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
   };
 
   const saveStripeCard = async () => {
     if (!stripeCardDetails || !stripeCardDetails.complete) {
       showToast('Completa los datos de la tarjeta', false);
+      return;
+    }
+    if (!cardHolderName || !cardHolderName.trim()) {
+      showToast('Ingresa el nombre del titular', false);
       return;
     }
 
@@ -326,7 +350,7 @@ export default function PaymentMethods({ navigation, route }) {
 
       const billingDetails = {
         email: userEmail || '',
-        name: userFullname || username || '',
+        name: cardHolderName || '',
       };
 
       const result = await confirmSetupIntent(setupResp.clientSecret, {
@@ -351,18 +375,20 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
-  const setPreferredCard = async (card) => {
+  const togglePreferredCard = async (card) => {
     const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
     if (!cardId) {
-      showToast('No se encontro el id de la tarjeta', false);
+      showToast('No se encontró el id de la tarjeta', false);
       return;
     }
 
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontro usuario_app_id', false);
+      showToast('No se encontró usuario_app_id', false);
       return;
     }
+
+    const wasPreferred = Boolean(card.is_preferred);
 
     setSettingPreferredId(cardId);
     try {
@@ -370,26 +396,26 @@ export default function PaymentMethods({ navigation, route }) {
       const res = await fetch(buildPreferredPaymentMethodUrl(cardId), {
         method: 'PATCH',
         headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-preferred') }),
-        body: JSON.stringify({ usuario_app_id: userId }),
+        body: JSON.stringify({ usuario_app_id: userId, preferred: !wasPreferred }),
       });
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        console.warn('setPreferredCard error', res.status, json);
-        showToast(`No se pudo marcar como preferida (${res.status})`, false);
+        console.warn('togglePreferredCard error', res.status, json);
+        showToast(`No se pudo actualizar la tarjeta predeterminada (${res.status})`, false);
         return;
       }
 
       setSelectedPreferred(null);
-      setCards(prev => prev.map(item => ({
-        ...item,
-        is_preferred: String(item.id) === String(cardId),
-      })));
-      showToast('Tarjeta preferida actualizada', true);
+      setCards(prev => prev.map(item => {
+        if (String(item.id) === String(cardId)) return { ...item, is_preferred: !wasPreferred };
+        return wasPreferred ? item : { ...item, is_preferred: false };
+      }));
+      showToast(wasPreferred ? 'Tarjeta ya no es predeterminada' : 'Tarjeta predeterminada actualizada', true);
       await loadCards();
     } catch (err) {
-      console.warn('setPreferredCard exception', err);
-      showToast('Error al marcar preferida', false);
+      console.warn('togglePreferredCard exception', err);
+      showToast('Error al actualizar la tarjeta predeterminada', false);
     } finally {
       setSettingPreferredId(null);
     }
@@ -398,13 +424,13 @@ export default function PaymentMethods({ navigation, route }) {
   const deleteCard = async (card) => {
     const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
     if (!cardId) {
-      showToast('No se encontro el id de la tarjeta', false);
+      showToast('No se encontró el id de la tarjeta', false);
       return;
     }
 
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontro usuario_app_id', false);
+      showToast('No se encontró usuario_app_id', false);
       return;
     }
 
@@ -450,7 +476,7 @@ export default function PaymentMethods({ navigation, route }) {
 
   const getBrandLabel = (brand) => {
     const clean = String(brand || '').trim();
-    if (!clean) return 'Card';
+    if (!clean) return 'Tarjeta';
     return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
   };
 
@@ -462,31 +488,53 @@ export default function PaymentMethods({ navigation, route }) {
     return { text: 'CARD', style: 'generic' };
   };
 
+  const toggleQuickPreferred = (key) => {
+    setQuickPreferred(prev => (prev === key ? null : key));
+  };
+
   const renderExternalWallets = () => (
     <View style={styles.walletBlock}>
-      <Text style={styles.blockTitle}>Metodos de pago</Text>
+      <Text style={styles.blockTitle}>Métodos de pago rápido</Text>
 
-      <TouchableOpacity style={styles.walletOption} activeOpacity={0.88} onPress={() => showToast('  ', false)}>
-        <View style={styles.walletLogo}>
-          <Ionicons name="logo-apple" size={24} color={COLORS.text} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.walletOptionTitle}>Apple Pay</Text>
-          <Text style={styles.walletOptionSub}>Apple pay</Text>
-        </View>
-{/*         <Text style={styles.soonBadge}>Pronto</Text>*/}
-      </TouchableOpacity>
+      <View style={styles.walletOption}>
+        <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
+          <View style={styles.walletLogo}>
+            <Ionicons name="logo-apple" size={24} color={COLORS.text} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.walletOptionTitle}>Apple Pay</Text>
+            {quickPreferred === 'applepay' ? (
+              <View style={styles.preferredChip}>
+                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+                <Text style={styles.preferredChipText}>Predeterminado</Text>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.cardIconButton} onPress={() => toggleQuickPreferred('applepay')}>
+          <Ionicons name={quickPreferred === 'applepay' ? 'star' : 'star-outline'} size={19} color={quickPreferred === 'applepay' ? COLORS.gold : COLORS.muted} />
+        </TouchableOpacity>
+      </View>
 
-      <TouchableOpacity style={styles.walletOption} activeOpacity={0.88} onPress={() => showToast(' ', false)}>
-        <View style={styles.walletLogo}>
-          <Ionicons name="logo-paypal" size={23} color="#003087" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.walletOptionTitle}>PayPal</Text>
-          <Text style={styles.walletOptionSub}> Paypal</Text>
-        </View>
-{/*         <Text style={styles.soonBadge}>Pronto</Text>*/} 
-     </TouchableOpacity>
+      <View style={styles.walletOption}>
+        <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
+          <View style={styles.walletLogo}>
+            <Ionicons name="logo-paypal" size={23} color="#003087" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.walletOptionTitle}>PayPal</Text>
+            {quickPreferred === 'paypal' ? (
+              <View style={styles.preferredChip}>
+                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+                <Text style={styles.preferredChipText}>Predeterminado</Text>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.cardIconButton} onPress={() => toggleQuickPreferred('paypal')}>
+          <Ionicons name={quickPreferred === 'paypal' ? 'star' : 'star-outline'} size={19} color={quickPreferred === 'paypal' ? COLORS.gold : COLORS.muted} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -506,10 +554,7 @@ export default function PaymentMethods({ navigation, route }) {
         key={`card-${cardId}`}
         style={[styles.cardRow, isSelected && styles.cardRowSelected]}
         activeOpacity={0.86}
-        onPress={() => {
-          setSelectedPreferred(card);
-          if (!isPreferred) setPreferredCard(card);
-        }}
+        onPress={() => setSelectedPreferred(card)}
       >
         <View style={[styles.cardBrandMark, styles[`cardBrandMark_${mark.style}`]]}>
           {mark.style === 'mastercard' ? (
@@ -528,7 +573,7 @@ export default function PaymentMethods({ navigation, route }) {
             {isPreferred ? (
               <View style={styles.preferredChip}>
                 <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
-                <Text style={styles.preferredChipText}>Principal</Text>
+                <Text style={styles.preferredChipText}>Predeterminado</Text>
               </View>
             ) : null}
           </View>
@@ -538,13 +583,10 @@ export default function PaymentMethods({ navigation, route }) {
         <View style={styles.cardActions}>
           <TouchableOpacity
             style={styles.cardIconButton}
-            onPress={() => {
-              setSelectedPreferred(card);
-              if (!isPreferred) setPreferredCard(card);
-            }}
+            onPress={() => togglePreferredCard(card)}
             disabled={settingPreferred}
           >
-            {settingPreferred ? <ActivityIndicator size="small" /> : <Ionicons name={isPreferred ? 'star' : 'star-outline'} size={19} color={isPreferred ? COLORS.blue : COLORS.muted} />}
+            {settingPreferred ? <ActivityIndicator size="small" /> : <Ionicons name={isPreferred ? 'star' : 'star-outline'} size={19} color={isPreferred ? COLORS.gold : COLORS.muted} />}
           </TouchableOpacity>
           <TouchableOpacity style={styles.cardIconButton} onPress={() => confirmDeleteCard(card)} disabled={deleting}>
             {deleting ? <ActivityIndicator size="small" /> : <Ionicons name="trash-outline" size={19} color={COLORS.danger} />}
@@ -559,27 +601,36 @@ export default function PaymentMethods({ navigation, route }) {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
       <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconButton} accessibilityLabel="Volver">
-          <Ionicons name="chevron-back" size={Math.round(clamp(iconSize, 23, 28))} color={COLORS.blue} />
+          <Ionicons name="arrow-back" size={Math.round(clamp(iconSize, 23, 28))} color={COLORS.blue} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Metodos de pago</Text>
-        <View style={styles.headerIconButton} />
+        <Text style={styles.headerTitle}>Métodos de pago</Text>
+        <View style={styles.headerRight}>
+          <View style={[styles.avatarWrap, { width: avatarSize, height: avatarSize, borderRadius: Math.round(avatarSize / 2) }]}>
+            {profileUrl ? (
+              <Image source={{ uri: profileUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            ) : (
+              <View style={styles.avatarInitialsWrap}>
+                <Text style={[styles.avatarInitials, { fontSize: Math.round(avatarSize * 0.36) }]}>
+                  {getInitials(username) || '👤'}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.headerUsername} numberOfLines={1}>{username}</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: pagePadding }]} keyboardShouldPersistTaps="always">
-        <View style={styles.hero}>
-{/*           <Text style={styles.heroKicker}>Metodos de pago</Text>*/} 
-           <Text style={styles.heroTitle}>Configura tus metodos de pago</Text>
-{/*            <Text style={styles.heroCopy}>Agrega tarjetas, elige una principal y mantén tus opciones listas para el checkout.</Text>*/}
+        <View style={styles.sectionHeaderRow}>
+          <Ionicons name="wallet-outline" size={20} color={COLORS.blue} />
+          <Text style={styles.pageHeading}>Configura tus métodos de pago</Text>
         </View>
 
         {renderExternalWallets()}
 
         <View style={styles.cardsBlock}>
           <View style={styles.blockHeader}>
-            <View>
-              <Text style={styles.blockTitle}>Tarjetas</Text>
-              <Text style={styles.blockSubtitle}>{cards.length ? `${cards.length} tarjeta${cards.length === 1 ? '' : 's'} guardada${cards.length === 1 ? '' : 's'}` : 'Sin tarjetas guardadas'}</Text>
-            </View>
+            <Text style={styles.blockTitle}>Tarjetas</Text>
             <TouchableOpacity style={styles.addCardButton} onPress={openAddCardScreen} activeOpacity={0.9}>
               <Ionicons name="add" size={19} color={COLORS.blue} style={{ marginRight: 5 }} />
               <Text style={styles.addCardButtonText}>Agregar</Text>
@@ -596,8 +647,8 @@ export default function PaymentMethods({ navigation, route }) {
               <View style={styles.emptyIcon}>
                 <Ionicons name="card-outline" size={27} color={COLORS.text} />
               </View>
-              <Text style={styles.emptyTitle}>Aun no hay tarjetas</Text>
-              <Text style={styles.emptyText}>Agrega una tarjeta para pagar mas rapido en tus proximas visitas.</Text>
+              <Text style={styles.emptyTitle}>Aún no hay tarjetas</Text>
+              <Text style={styles.emptyText}>Agrega una tarjeta para pagar más rápido en tus próximas visitas.</Text>
               <TouchableOpacity style={styles.emptyButton} onPress={openAddCardScreen}>
                 <Text style={styles.emptyButtonText}>Agregar tarjeta</Text>
               </TouchableOpacity>
@@ -635,11 +686,15 @@ export default function PaymentMethods({ navigation, route }) {
         <View style={styles.headerIconButton} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        style={{ flex: 1 }}
+      >
         <ScrollView contentContainerStyle={[styles.addContent, { paddingHorizontal: pagePadding }]} keyboardShouldPersistTaps="always">
           <View style={styles.cardPreview}>
             <View style={styles.cardPreviewTop}>
-              <Text style={styles.cardPreviewBrand}>{getBrandLabel(stripeCardDetails?.brand) || 'Card'}</Text>
+              <Text style={styles.cardPreviewBrand}>{getBrandLabel(stripeCardDetails?.brand)}</Text>
               <View style={styles.cardPreviewChip} />
             </View>
             <Text style={styles.cardPreviewNumber}>
@@ -648,7 +703,7 @@ export default function PaymentMethods({ navigation, route }) {
             <View style={styles.cardPreviewBottom}>
               <View>
                 <Text style={styles.cardPreviewLabel}>Titular</Text>
-                <Text style={styles.cardPreviewValue}>{userFullname || username || 'Nombre del cliente'}</Text>
+                <Text style={styles.cardPreviewValue}>{cardHolderName || 'Nombre del titular'}</Text>
               </View>
               <View>
                 <Text style={styles.cardPreviewLabel}>Expira</Text>
@@ -663,8 +718,19 @@ export default function PaymentMethods({ navigation, route }) {
 
           <View style={styles.formBlock}>
             <Text style={styles.formTitle}>Datos de la tarjeta</Text>
-{/*             <Text style={styles.formCopy}>La tarjeta se guarda de forma segura con Stripe. No almacenamos el numero completo en la app.</Text>
- */}
+
+            <View style={styles.inputWrap}>
+              <Ionicons name="person-outline" size={18} color={COLORS.muted} style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.input}
+                placeholder="Nombre del titular"
+                value={cardHolderName}
+                onChangeText={setCardHolderName}
+                placeholderTextColor="#9a9a9a"
+                autoCapitalize="words"
+              />
+            </View>
+
             <View style={styles.stripeFieldWrap}>
               <CardField
                 postalCodeEnabled={false}
@@ -682,8 +748,8 @@ export default function PaymentMethods({ navigation, route }) {
 
             <View style={styles.preferenceRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.preferenceTitle}>Usar como tarjeta principal</Text>
-                <Text style={styles.preferenceSub}>La seleccionaremos por defecto en pagos futuros.</Text>
+                <Text style={styles.preferenceTitle}>Usar como método de pago predeterminado</Text>
+                <Text style={styles.preferenceSub}>Esta tarjeta se seleccionará por defecto en pagos futuros.</Text>
               </View>
               <Switch
                 value={savePreferred}
@@ -731,13 +797,13 @@ function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
             <Ionicons name="trash-outline" size={24} color={COLORS.danger} />
           </View>
           <Text style={styles.deleteTitle}>Eliminar tarjeta</Text>
-          <Text style={styles.deleteMessage}>Esta tarjeta se quitara de tus metodos de pago guardados.</Text>
+          <Text style={styles.deleteMessage}>Esta tarjeta se quitará de tus métodos de pago guardados.</Text>
 
           <View style={styles.deleteCardPreview}>
             <Ionicons name="card-outline" size={19} color={COLORS.text} style={{ marginRight: 8 }} />
             <View style={{ flex: 1 }}>
               <Text style={styles.deleteCardTitle}>{brand} •••• {last4}</Text>
-              <Text style={styles.deleteCardSub}>Esta accion no se puede deshacer.</Text>
+              <Text style={styles.deleteCardSub}>Esta acción no se puede deshacer.</Text>
             </View>
           </View>
 
@@ -762,11 +828,13 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   header: {
-    height: 58,
+    height: 80,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: COLORS.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.blue,
   },
   headerIconButton: {
     width: 42,
@@ -781,38 +849,50 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 42,
+  },
+  avatarWrap: {
+    overflow: 'hidden',
+    backgroundColor: '#f3f6ff',
+    marginRight: 8,
+  },
+  avatarInitialsWrap: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: COLORS.blue,
+    fontWeight: '700',
+  },
+  headerUsername: {
+    fontSize: 13,
+    color: COLORS.text,
+    maxWidth: 90,
+  },
   scrollContent: {
     paddingTop: 8,
     paddingBottom: 34,
   },
-  hero: {
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-  heroKicker: {
-    color: COLORS.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  heroTitle: {
-    color: COLORS.text,
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '900',
-    marginTop: 8,
+  sectionHeaderRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    textAlign: 'center',
-
+    paddingTop: 14,
+    paddingBottom: 16,
   },
-  heroCopy: {
-    color: COLORS.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
+  pageHeading: {
+    color: COLORS.blue,
+    fontSize: 18,
+    fontWeight: '900',
+    marginLeft: 8,
   },
   walletBlock: {
-    marginTop: 4,
+    marginTop: 30,
   },
   blockTitle: {
     color: COLORS.blue,
@@ -834,6 +914,11 @@ const styles = StyleSheet.create({
     padding: 14,
     marginTop: 10,
   },
+  walletOptionMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   walletLogo: {
     width: 46,
     height: 46,
@@ -847,21 +932,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 15,
     fontWeight: '900',
-  },
-  walletOptionSub: {
-    color: COLORS.muted,
-    fontSize: 12,
-    marginTop: 3,
-  },
-  soonBadge: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#f2f0ed',
-    overflow: 'hidden',
   },
   cardsBlock: {
     marginTop: 24,
@@ -1013,7 +1083,7 @@ const styles = StyleSheet.create({
   preferredChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f2f0ed',
+    backgroundColor: '#fefefe',
     borderRadius: 999,
     paddingHorizontal: 7,
     paddingVertical: 3,
@@ -1103,11 +1173,23 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '900',
   },
-  formCopy: {
-    color: COLORS.muted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6,
+  inputWrap: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    backgroundColor: COLORS.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    marginTop: 14,
+  },
+  input: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingVertical: 0,
   },
   stripeFieldWrap: {
     width: '100%',
@@ -1166,15 +1248,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   primaryButton: {
-    flex: 1.35,
+    flex: 1,
     height: 48,
     borderRadius: 14,
-    borderColor:COLORS.blue,
+    borderColor: COLORS.blue,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.surface,
     marginLeft: 8,
-  
   },
   primaryButtonText: {
     color: COLORS.blue,

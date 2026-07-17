@@ -18,6 +18,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +28,7 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
+const TABTRACK_LOGO = require('../../assets/images/logo2.png');
 
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
 
@@ -105,7 +107,12 @@ export default function PaymentMarketplace() {
   const route = useRoute();
   const params = route?.params ?? {};
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+
+  const wp = (p) => Math.round(((Number(p) || 0) / 100) * width);
+  const hp = (p) => Math.round(((Number(p) || 0) / 100) * height);
+  const rf = (p) => Math.round(((Number(p) || 0) / 100) * width);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? TOKEN ?? '';
@@ -206,6 +213,7 @@ export default function PaymentMarketplace() {
 
   const [processing, setProcessing] = useState(false);
   const [manualCardDetails, setManualCardDetails] = useState(null);
+  const [cardHolderName, setCardHolderName] = useState('');
   const [saveCard, setSaveCard] = useState(true);
   const [savingCard, setSavingCard] = useState(false);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
@@ -314,8 +322,6 @@ export default function PaymentMarketplace() {
 
   const isPaymentGatewayReady = (payment) => {
     if (!payment) return false;
-    const reasonCodes = payment.reason_codes ?? payment.reasonCodes ?? [];
-    const cleanReasonCodes = Array.isArray(reasonCodes) ? reasonCodes.filter(Boolean) : [];
     const requiredFlags = [
       payment.admin_enabled,
       payment.configured,
@@ -325,7 +331,7 @@ export default function PaymentMarketplace() {
       payment.provider_ready,
       payment.ready_to_process,
     ];
-    return requiredFlags.every((flag) => flag === true) && cleanReasonCodes.length === 0;
+    return requiredFlags.every((flag) => flag === true);
   };
 
   const parseRestaurantPayments = (json) => {
@@ -411,7 +417,7 @@ export default function PaymentMarketplace() {
     }
 
     if (!name || name.length < 2) throw new Error('Ingresa el nombre del titular de la tarjeta');
-    if (!email || !isValidEmail(email)) throw new Error('Ingresa un correo electronico valido');
+    if (!email || !isValidEmail(email)) throw new Error('Ingresa un correo electrónico válido');
 
     return {
       email,
@@ -445,7 +451,7 @@ export default function PaymentMarketplace() {
   const loadMarketplaceMethods = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
-      showToast('No se encontro usuario_app_id', false);
+      showToast('No se encontró usuario_app_id', false);
       return;
     }
 
@@ -461,7 +467,7 @@ export default function PaymentMarketplace() {
 
       if (!res.ok) {
         console.warn('loadMarketplaceMethods error', res.status, json);
-        showToast('No se pudieron cargar los metodos de pago', false);
+        showToast('No se pudieron cargar los métodos de pago', false);
         setMethods([]);
         setAvailableGateways(restaurantGateways);
         return;
@@ -731,7 +737,7 @@ export default function PaymentMarketplace() {
     const checkoutUrl = json?.checkout_url ?? json?.data?.checkout_url ?? null;
     const accountId = extractStripeAccountId(json);
 
-    if (!transactionId) throw new Error('El servidor no devolvio transaction_id');
+    if (!transactionId) throw new Error('El servidor no devolvió transaction_id');
 
     try {
       if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId));
@@ -750,7 +756,7 @@ export default function PaymentMarketplace() {
   const showPaymentError = (title, message, details = null) => {
     navigation.navigate('ErrorPago', {
       title: String(title || 'Error'),
-      message: String(message || 'Ocurrio un problema procesando el pago.'),
+      message: String(message || 'Ocurrió un problema procesando el pago.'),
       details: details ? String(details) : null,
     });
   };
@@ -759,27 +765,27 @@ export default function PaymentMarketplace() {
     if (!apiHost) throw new Error('Falta api_host para crear el pago');
     if (!sucursal_id) throw new Error('Falta sucursal_id para crear el pago');
     if (!sale_id) throw new Error('Falta sale_id o venta_id para verificar el pago');
-    if (!restaurante_id) throw new Error('Falta restaurante_id para validar metodos de pago');
+    if (!restaurante_id) throw new Error('Falta restaurante_id para validar métodos de pago');
     return true;
   };
 
   const payWithSavedMethod = async (method) => {
     if (!method) {
-      showToast('Selecciona un metodo de pago', false);
+      showToast('Selecciona un método de pago', false);
       return;
     }
 
     const gateway = normalizeGateway(method.gateway);
     if (!gateway) {
-      showToast('El metodo seleccionado no tiene gateway', false);
+      showToast('El método seleccionado no tiene gateway', false);
       return;
     }
 
     if (gateway !== 'stripe') {
       setNotice({
         visible: true,
-        title: gateway === 'paypal' ? 'PayPal pronto disponible' : 'Metodo preparado',
-        message: 'Este metodo ya queda preparado en la pantalla, pero aun falta conectar su flujo de pago.',
+        title: gateway === 'paypal' ? 'PayPal pronto disponible' : 'Método preparado',
+        message: 'Este método ya queda preparado en la pantalla, pero aún falta conectar su flujo de pago.',
       });
       return;
     }
@@ -792,11 +798,11 @@ export default function PaymentMarketplace() {
       if (poll.ok) {
         navigateSuccess(tx.chargeInfo?.totalAmount);
       } else {
-        showPaymentError('Pago pendiente', 'El servidor aun no refleja la venta como pagada.', JSON.stringify(poll));
+        showPaymentError('Pago pendiente', 'El servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
       }
     } catch (err) {
       console.warn('payWithSavedMethod error', err);
-      showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con el metodo guardado.');
+      showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con el método guardado.');
     } finally {
       setProcessing(false);
     }
@@ -823,18 +829,17 @@ export default function PaymentMarketplace() {
       json?.setupIntentClientSecret ||
       null;
 
-    if (!clientSecret) throw new Error('El servidor no devolvio client_secret');
+    if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
     return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
   };
 
   const confirmAndSaveCard = async () => {
-    const customer = await resolveCustomerForPayment();
     const setup = await createSetupIntentOnServer();
     const accountIdToUse = setup.stripeAccountId || stripeAccountId || null;
     await configureStripeForAccount(accountIdToUse);
     if (accountIdToUse) setStripeAccountId(accountIdToUse);
 
-    const billingDetails = { email: customer.email, name: customer.name };
+    const billingDetails = { email: userEmail, name: cardHolderName };
     const res = await confirmSetupIntent(setup.clientSecret, {
       paymentMethodType: 'Card',
       paymentMethodData: { billingDetails },
@@ -849,22 +854,26 @@ export default function PaymentMarketplace() {
       showToast('Ingresa los datos completos de la tarjeta', false);
       return;
     }
+    if (!cardHolderName || !cardHolderName.trim()) {
+      showToast('Ingresa el nombre del titular', false);
+      return;
+    }
 
     setProcessing(true);
     setSavingCard(Boolean(save));
     try {
       validateBeforePayment();
-      const customer = await resolveCustomerForPayment();
+      await resolveCustomerForPayment();
       if (save) await confirmAndSaveCard();
 
       const tx = await createTransaction({ gateway: 'stripe' });
-      if (!tx.clientSecret) throw new Error('El servidor no devolvio client_secret');
+      if (!tx.clientSecret) throw new Error('El servidor no devolvió client_secret');
 
       const accountIdToUse = tx.stripeAccountId || stripeAccountId || null;
       await configureStripeForAccount(accountIdToUse);
       if (accountIdToUse) setStripeAccountId(accountIdToUse);
 
-      const billingDetails = { email: customer.email, name: customer.name };
+      const billingDetails = { email: userEmail, name: cardHolderName };
       const { error, paymentIntent } = await confirmPayment(tx.clientSecret, {
         paymentMethodType: 'Card',
         paymentMethodData: { billingDetails },
@@ -879,7 +888,7 @@ export default function PaymentMarketplace() {
           navigateSuccess(tx.chargeInfo?.totalAmount);
           return;
         }
-        showPaymentError('Pago pendiente', 'Stripe confirmo el pago, pero el servidor aun no refleja la venta como pagada.', JSON.stringify(poll));
+        showPaymentError('Pago pendiente', 'Stripe confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
         return;
       }
 
@@ -897,13 +906,14 @@ export default function PaymentMarketplace() {
     const normalized = normalizeGateway(gateway);
     if (normalized === 'stripe' || normalized === 'card') {
       setManualCardDetails(null);
+      setCardHolderName('');
       setScreen('manual-card');
       return;
     }
     setNotice({
       visible: true,
-      title: normalized === 'paypal' ? 'PayPal pronto disponible' : 'Metodo preparado',
-      message: 'Este metodo se mostrara aqui cuando su integracion este lista para marketplace.',
+      title: normalized === 'paypal' ? 'PayPal pronto disponible' : 'Método preparado',
+      message: 'Este método se mostrará aquí cuando su integración esté lista para marketplace.',
     });
   };
 
@@ -927,7 +937,7 @@ export default function PaymentMarketplace() {
     if (g === 'paypal') return 'PayPal';
     if (g === 'applepay' || g === 'apple_pay') return 'Apple Pay';
     if (g === 'openpay') return 'OpenPay';
-    return g ? g.toUpperCase() : 'Metodo';
+    return g ? g.toUpperCase() : 'Método';
   };
 
   const renderCardNetworkLogos = () => (
@@ -1003,7 +1013,7 @@ export default function PaymentMarketplace() {
             {preferred ? (
               <View style={styles.preferredChip}>
                 <Ionicons name="star" size={11} color={COLORS.accent} style={{ marginRight: 3 }} />
-                <Text style={styles.preferredChipText}>Principal</Text>
+                <Text style={styles.preferredChipText}>Predeterminado</Text>
               </View>
             ) : null}
           </View>
@@ -1022,13 +1032,20 @@ export default function PaymentMarketplace() {
       <TouchableOpacity key={g} style={styles.gatewayOption} activeOpacity={0.88} onPress={() => openManualGateway(g)}>
         <View style={styles.gatewayLogoWrap}>{renderGatewayLogo(g)}</View>
         <View style={styles.gatewayCopy}>
-          <Text style={styles.gatewayTitle}>{isCard ? 'Tarjeta de credito o debito' : gatewayLabel(g)}</Text>
+          <Text style={styles.gatewayTitle}>{isCard ? 'Tarjeta de crédito o débito' : gatewayLabel(g)}</Text>
           <Text style={styles.gatewaySub}>{isCard ? 'Paga con una tarjeta bancaria.' : 'Disponible en este restaurante.'}</Text>
         </View>
         <Ionicons name="chevron-forward" size={19} color={COLORS.accent} />
       </TouchableOpacity>
     );
   };
+
+  // --- Banner degradado edge-to-edge (mismo patrón que Escanear) ---
+  const logoWidth = clamp(Math.round(wp(28)), 80, 140);
+  const restaurantImgSize = clamp(Math.round(wp(16)), 48, 96);
+  const rightColMaxWidth = Math.round(Math.min(Math.max(wp(36), 120), 220));
+  const totalNumberFont = clamp(rf(7.5), 20, 36);
+  const totalCurrencyFont = clamp(rf(2.8), 12, 16);
 
   const renderCheckoutScreen = () => (
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top || 0 }]}>
@@ -1041,78 +1058,104 @@ export default function PaymentMarketplace() {
         <View style={styles.headerIconButton} />
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: pagePadding, paddingBottom: Math.max(insets.bottom, 16) + 130 }]}>
-        <View style={styles.summaryCard}>
-          <View>
-            <Text style={styles.summaryKicker}>Total a pagar</Text>
-            <Text style={styles.summaryAmount}>{totalText}</Text>
-            <Text style={styles.summarySub}>{items.length} {items.length === 1 ? 'item' : 'items'} - Propina {formatMoney(displayCharge.tipAmount)} {moneda}</Text>
-          </View>
-          <Image source={restaurantImage ? { uri: restaurantImage } : DEFAULT_RESTAURANT} style={styles.restaurantImage} />
-        </View>
-
-        <View style={styles.securityLine}>
-          <Ionicons name="lock-closed-outline" size={16} color={COLORS.accent} />
-          <Text style={styles.securityText}>Pago seguro. Solo veras metodos disponibles para este restaurante.</Text>
-        </View>
-
-        {loadingMethods ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator color={COLORS.accent} />
-            <Text style={styles.loadingText}>Preparando metodos de pago...</Text>
-          </View>
-        ) : hasMethods ? (
-          <>
-            {preferredMethod ? (
-              <View style={styles.featureBlock}>
-                <Text style={styles.blockTitle}>Metodo recomendado</Text>
-                <Text style={styles.blockSub}>Usaremos tu metodo principal disponible para este restaurante.</Text>
-                {renderMethodRow(preferredMethod)}
-                {!showOtherMethods ? (
-                  <TouchableOpacity style={styles.linkRow} onPress={() => setShowOtherMethods(true)}>
-                    <Ionicons name="swap-horizontal-outline" size={18} color={COLORS.accent} />
-                    <Text style={styles.linkRowText}>Seleccionar otro metodo</Text>
-                  </TouchableOpacity>
-                ) : null}
+      <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 130 }}>
+        <LinearGradient
+          colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+          start={{ x: 0, y: 1 }}
+          end={{ x: 1, y: 0 }}
+          locations={[0, 0.45, 1]}
+          style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(20, hp(3)), borderBottomRightRadius: Math.max(28, wp(8)) }]}
+        >
+          <View style={styles.gradientRow}>
+            <View style={styles.leftCol}>
+              <Image source={TABTRACK_LOGO} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
+              <View style={[styles.logoWrap, { marginTop: Math.max(6, hp(0.5)), padding: Math.max(6, wp(1.5)), borderRadius: Math.max(8, wp(2)) }]}>
+                <Image
+                  source={restaurantImage ? { uri: restaurantImage } : DEFAULT_RESTAURANT}
+                  style={[styles.restaurantImage, { width: restaurantImgSize, height: restaurantImgSize, borderRadius: Math.round(restaurantImgSize * 0.16) }]}
+                />
               </View>
-            ) : null}
+            </View>
 
-            {showOtherMethods || !preferredMethod ? (
-              <View style={styles.featureBlock}>
-                <View style={styles.blockHeader}>
-                  <View>
-                    <Text style={styles.blockTitle}>{preferredMethod ? 'Otros metodos' : 'Elige como pagar'}</Text>
-                    <Text style={styles.blockSub}>Selecciona un metodo y confirma el pago.</Text>
-                  </View>
+            <View style={[styles.rightCol, { maxWidth: rightColMaxWidth, marginRight: Math.max(12, wp(3)) }]}>
+              <Text style={[styles.totalLabel, { fontSize: clamp(rf(2.6), 12, 16) }]}>Total</Text>
+              <View style={[styles.totalRow, { alignItems: 'flex-end' }]}>
+                <Text style={[styles.totalNumber, { fontSize: totalNumberFont, lineHeight: Math.round(totalNumberFont * 1.05) }]}>{formatMoney(displayAmount)}</Text>
+                <Text style={[styles.totalCurrency, { fontSize: totalCurrencyFont, marginLeft: Math.max(6, wp(1.6)) }]}>{moneda ?? 'MXN'}</Text>
+              </View>
+              <View style={styles.rightThanks}>
+                <Text style={[styles.thanksText, { fontSize: clamp(rf(2.6), 12, 16) }]}>¡Gracias por tu visita!</Text>
+                <Text style={[styles.itemsTipText, { fontSize: clamp(rf(2.2), 11, 13) }]}>
+                  {items.length} {items.length === 1 ? 'item' : 'items'} · Propina {formatMoney(displayCharge.tipAmount)} {moneda}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={{ paddingHorizontal: pagePadding }}>
+          <View style={styles.securityLine}>
+            <Ionicons name="lock-closed-outline" size={16} color={COLORS.accent} />
+            <Text style={styles.securityText}>Pago seguro. Solo verás métodos disponibles para este restaurante.</Text>
+          </View>
+
+          {loadingMethods ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color={COLORS.accent} />
+              <Text style={styles.loadingText}>Preparando métodos de pago...</Text>
+            </View>
+          ) : hasMethods ? (
+            <>
+              {preferredMethod ? (
+                <View style={styles.featureBlock}>
+                  <Text style={styles.blockTitle}>Método de pago</Text>
+                  {renderMethodRow(preferredMethod)}
+                  {!showOtherMethods ? (
+                    <TouchableOpacity style={styles.linkRow} onPress={() => setShowOtherMethods(true)}>
+                      <Ionicons name="swap-horizontal-outline" size={18} color={COLORS.accent} />
+                      <Text style={styles.linkRowText}>Seleccionar otro método</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-                {methods.map(renderMethodRow)}
-                <TouchableOpacity style={styles.linkRow} onPress={() => openManualGateway('stripe')}>
-                  <Ionicons name="add" size={18} color={COLORS.accent} />
-                  <Text style={styles.linkRowText}>Usar una tarjeta nueva</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
+              ) : null}
 
-            <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={() => payWithSavedMethod(selectedMethod)} disabled={processing || !selectedMethod}>
-              {processing ? <ActivityIndicator color={COLORS.accent} /> : <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <View style={styles.featureBlock}>
-            <Text style={styles.blockTitle}>Elige como pagar</Text>
-            <Text style={styles.blockSub}>
-              {gatewaysForEmptyState.length
-                ? 'No tienes metodos guardados disponibles para este restaurante.'
-                : 'Por ahora este restaurante no tiene metodos de pago en linea disponibles.'}
-            </Text>
-            {gatewaysForEmptyState.length ? gatewaysForEmptyState.map(renderGatewayOption) : (
-              <View style={styles.emptyPaymentsBox}>
-                <Ionicons name="card-outline" size={24} color={COLORS.muted} />
-                <Text style={styles.emptyPaymentsText}>Puedes regresar e intentar mas tarde o consultar con el restaurante.</Text>
-              </View>
-            )}
-          </View>
-        )}
+              {showOtherMethods || !preferredMethod ? (
+                <View style={styles.featureBlock}>
+                  <View style={styles.blockHeader}>
+                    <View>
+                      <Text style={styles.blockTitle}>{preferredMethod ? 'Otros métodos' : 'Elige cómo pagar'}</Text>
+                      <Text style={styles.blockSub}>Selecciona un método y confirma el pago.</Text>
+                    </View>
+                  </View>
+                  {methods.map(renderMethodRow)}
+                  <TouchableOpacity style={styles.linkRow} onPress={() => openManualGateway('stripe')}>
+                    <Ionicons name="add" size={18} color={COLORS.accent} />
+                    <Text style={styles.linkRowText}>Usar una tarjeta nueva</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={() => payWithSavedMethod(selectedMethod)} disabled={processing || !selectedMethod}>
+                {processing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={styles.featureBlock}>
+              <Text style={styles.blockTitle}>Elige cómo pagar</Text>
+              <Text style={styles.blockSub}>
+                {gatewaysForEmptyState.length
+                  ? 'No tienes métodos guardados disponibles para este restaurante.'
+                  : 'Por ahora este restaurante no tiene métodos de pago en línea disponibles.'}
+              </Text>
+              {gatewaysForEmptyState.length ? gatewaysForEmptyState.map(renderGatewayOption) : (
+                <View style={styles.emptyPaymentsBox}>
+                  <Ionicons name="card-outline" size={24} color={COLORS.muted} />
+                  <Text style={styles.emptyPaymentsText}>Puedes regresar e intentar más tarde o consultar con el restaurante.</Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       <NoticeModal notice={notice} onClose={() => setNotice((prev) => ({ ...prev, visible: false }))} />
@@ -1133,7 +1176,11 @@ export default function PaymentMarketplace() {
         <View style={styles.headerIconButton} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        style={{ flex: 1 }}
+      >
         <ScrollView contentContainerStyle={[styles.manualContent, { paddingHorizontal: pagePadding, paddingBottom: Math.max(insets.bottom, 16) + 210 }]} keyboardShouldPersistTaps="always">
           <View style={styles.cardPreview}>
             <View style={styles.cardPreviewTop}>
@@ -1146,7 +1193,7 @@ export default function PaymentMarketplace() {
             <View style={styles.cardPreviewBottom}>
               <View>
                 <Text style={styles.cardPreviewLabel}>Titular</Text>
-                <Text style={styles.cardPreviewValue}>{userFullname || 'Cliente'}</Text>
+                <Text style={styles.cardPreviewValue}>{cardHolderName || 'Nombre del titular'}</Text>
               </View>
               <View>
                 <Text style={styles.cardPreviewLabel}>Expira</Text>
@@ -1167,8 +1214,8 @@ export default function PaymentMarketplace() {
               <TextInput
                 style={styles.input}
                 placeholder="Nombre del titular"
-                value={userFullname}
-                onChangeText={setUserFullname}
+                value={cardHolderName}
+                onChangeText={setCardHolderName}
                 placeholderTextColor="#9a9a9a"
                 autoCapitalize="words"
               />
@@ -1177,7 +1224,7 @@ export default function PaymentMarketplace() {
               <Ionicons name="mail-outline" size={18} color={COLORS.muted} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Correo electronico"
+                placeholder="Correo electrónico"
                 value={userEmail}
                 onChangeText={setUserEmail}
                 keyboardType="email-address"
@@ -1204,7 +1251,7 @@ export default function PaymentMarketplace() {
             <View style={styles.saveRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.saveRowTitle}>Guardar tarjeta</Text>
-                <Text style={styles.saveRowSub}>Se guardara como metodo principal si el pago es exitoso.</Text>
+                <Text style={styles.saveRowSub}>Se guardará como método predeterminado si el pago es exitoso.</Text>
               </View>
               <Switch
                 value={saveCard}
@@ -1221,7 +1268,7 @@ export default function PaymentMarketplace() {
             <Text style={styles.secondaryButtonText}>Cancelar</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryButtonFooter} onPress={() => payWithManualStripeCard({ save: saveCard })} disabled={processing || savingCard}>
-            {processing || savingCard ? <ActivityIndicator color={COLORS.accent} /> : <Text style={styles.primaryButtonText}>Pagar</Text>}
+            {processing || savingCard ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonTextWhite}>Pagar</Text>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -1280,26 +1327,25 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '900',
   },
-  scrollContent: { paddingTop: 8 },
-  summaryCard: {
-    borderWidth: 1,
-    borderColor: COLORS.text,
-    borderRadius: 22,
-    backgroundColor: COLORS.surface,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  summaryKicker: { color: COLORS.accent, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
-  summaryAmount: { color: COLORS.accent, fontSize: 30, lineHeight: 36, fontWeight: '900', marginTop: 4 },
-  summarySub: { color: COLORS.muted, fontSize: 13, marginTop: 6 },
-  restaurantImage: { width: 62, height: 62, borderRadius: 16, backgroundColor: COLORS.soft },
+  headerGradient: { width: '100%', overflow: 'hidden' },
+  gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  leftCol: { flexDirection: 'column', alignItems: 'center' },
+  tabtrackLogo: {},
+  logoWrap: { backgroundColor: 'rgba(255,255,255,0.12)' },
+  restaurantImage: { backgroundColor: '#fff' },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 2 },
+  totalLabel: { color: 'rgba(255,255,255,0.95)', marginBottom: 6 },
+  totalRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  totalNumber: { color: '#fff', fontWeight: '900', letterSpacing: 0.6 },
+  totalCurrency: { color: '#fff', marginLeft: 6, marginBottom: 3, opacity: 0.95 },
+  rightThanks: { marginTop: 10, alignItems: 'flex-end' },
+  thanksText: { color: '#fff', fontWeight: '700' },
+  itemsTipText: { color: 'rgba(255,255,255,0.9)', marginTop: 4, fontWeight: '600' },
   securityLine: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
-    marginTop: 12,
+    marginTop: 16,
     marginBottom: 10,
   },
   securityText: { color: COLORS.muted, fontSize: 12, marginLeft: 6, flex: 1 },
@@ -1491,14 +1537,12 @@ const styles = StyleSheet.create({
   primaryButton: {
     height: 52,
     borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: COLORS.accent,
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,
   },
-  primaryButtonText: { color: COLORS.accent, fontSize: 14, fontWeight: '900' },
+  primaryButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
   manualContent: { paddingTop: 10 },
   cardPreview: {
     minHeight: 190,
@@ -1581,13 +1625,12 @@ const styles = StyleSheet.create({
     flex: 1.35,
     height: 50,
     borderRadius: 15,
-    backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: COLORS.accent,
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
+  primaryButtonTextWhite: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
   noticeBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(10,10,10,0.48)',

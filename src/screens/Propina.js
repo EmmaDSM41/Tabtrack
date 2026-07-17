@@ -465,13 +465,13 @@ export default function Propina() {
             {/* <TouchableOpacity style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(12)), 10, 18) }]} onPress={applyAndReturn} activeOpacity={0.9}><Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(15), 14, 18) }]}>{buttonLabel}</Text></TouchableOpacity> */}
 
             <LinearGradient
-              colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+              colors={['#0b58ff', '#0b58ff', '#0b58ff']}
               start={{ x: 0, y: 1 }}
               end={{ x: 1, y: 0 }}
               style={[styles.primaryButton, { paddingVertical: clampLocal(Math.round(rf(10)), 10, 16), marginTop: 12 }]}
             >
               <TouchableOpacity onPress={payNow} activeOpacity={0.9} style={{ width: '100%', alignItems: 'center', paddingVertical: 6 }}>
-                <Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(14), 13, 18) }]}>Pagar</Text>
+                <Text style={[styles.primaryButtonText, { fontSize: clampLocal(rf(14), 13, 18) }]}>Continuar al pago</Text>
               </TouchableOpacity>
             </LinearGradient>
           </View>
