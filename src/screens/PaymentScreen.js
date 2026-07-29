@@ -23,7 +23,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { StripeProvider, CardField, confirmPayment, confirmSetupIntent, initStripe } from '@stripe/stripe-react-native';
+import {
+  StripeProvider,
+  CardField,
+  confirmPayment,
+  confirmSetupIntent,
+  initStripe,
+  isPlatformPaySupported,
+  confirmPlatformPayPayment,
+} from '@stripe/stripe-react-native';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
@@ -31,6 +39,10 @@ const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
 const TABTRACK_LOGO = require('../../assets/images/logo2.png');
 
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
+
+const MIN_IOS_VERSION_FOR_APPLE_PAY = 10;
+
+const PAYMENT_METHODS_ENVIRONMENT = 'sandbox';
 
 const COLORS = {
   bg: '#ffffff',
@@ -72,6 +84,18 @@ const splitAmountByIndex = (amount, parts, index) => {
   return fromCents(base + extra);
 };
 const isValidEmail = (value) => /^\S+@\S+\.\S+$/.test(String(value || '').trim());
+
+// --- Helpers de sistema operativo / compatibilidad con Apple Pay ---
+const isIosVersionCompatibleWithApplePay = () => {
+  if (Platform.OS !== 'ios') return false;
+  const majorVersion = parseInt(String(Platform.Version).split('.')[0], 10);
+  return Number.isFinite(majorVersion) && majorVersion >= MIN_IOS_VERSION_FOR_APPLE_PAY;
+};
+
+const isApplePayGatewayName = (gateway) => {
+  const g = String(gateway || '').toLowerCase().trim();
+  return g === 'applepay' || g === 'apple_pay';
+};
 
 function Toast({ message, visible, success }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -218,6 +242,9 @@ export default function PaymentMarketplace() {
   const [savingCard, setSavingCard] = useState(false);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
+  // Compatibilidad de Apple Pay a nivel dispositivo (SO + versión + soporte real de Stripe/Wallet).
+  const [applePayDeviceSupported, setApplePayDeviceSupported] = useState(false);
+
   const [notice, setNotice] = useState({ visible: false, title: '', message: '' });
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -320,18 +347,10 @@ export default function PaymentMarketplace() {
     };
   };
 
+  // Nuevo formato simplificado de /payments: solo importa configured + enabled.
   const isPaymentGatewayReady = (payment) => {
     if (!payment) return false;
-    const requiredFlags = [
-      payment.admin_enabled,
-      payment.configured,
-      payment.integrated,
-      payment.onboarding_completed,
-      payment.payments_enabled,
-      payment.provider_ready,
-      payment.ready_to_process,
-    ];
-    return requiredFlags.every((flag) => flag === true);
+    return payment.configured === true && payment.enabled === true;
   };
 
   const parseRestaurantPayments = (json) => {
@@ -347,7 +366,9 @@ export default function PaymentMarketplace() {
         ...payment,
         gateway: normalizeGateway(payment.gateway ?? payment.provider ?? payment.name),
       }))
-      .filter((payment) => payment.gateway);
+      .filter((payment) => payment.gateway)
+      // Apple Pay solo se considera disponible si además el dispositivo lo soporta (iOS + versión + wallet configurado).
+      .filter((payment) => (isApplePayGatewayName(payment.gateway) ? applePayDeviceSupported : true));
   };
 
   const loadRestaurantPayments = useCallback(async () => {
@@ -373,7 +394,7 @@ export default function PaymentMarketplace() {
       console.warn('loadRestaurantPayments exception', err);
       return [];
     }
-  }, [buildRestaurantPaymentsUrl, getAuthHeaders, restaurante_id]);
+  }, [buildRestaurantPaymentsUrl, getAuthHeaders, restaurante_id, applePayDeviceSupported]);
 
   const resolveAvailableGateways = (restaurantGateways, normalizedMethods) => {
     const readyGateways = Array.from(new Set((restaurantGateways || []).map(normalizeGateway).filter(Boolean)));
@@ -448,6 +469,25 @@ export default function PaymentMarketplace() {
     return () => { mounted = false; };
   }, []);
 
+  // Detecta si el dispositivo (SO + versión) y el SDK de Stripe soportan Apple Pay.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!isIosVersionCompatibleWithApplePay()) {
+        if (mounted) setApplePayDeviceSupported(false);
+        return;
+      }
+      try {
+        const supported = await isPlatformPaySupported({ applePay: true });
+        if (mounted) setApplePayDeviceSupported(Boolean(supported));
+      } catch (err) {
+        console.warn('isPlatformPaySupported error', err);
+        if (mounted) setApplePayDeviceSupported(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const loadMarketplaceMethods = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
@@ -473,13 +513,22 @@ export default function PaymentMarketplace() {
         return;
       }
 
-      const arr = Array.isArray(json?.payment_methods)
-        ? json.payment_methods
-        : (Array.isArray(json?.data?.payment_methods)
-          ? json.data.payment_methods
-          : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : [])));
+  
+      const envBucket = json?.environments?.[PAYMENT_METHODS_ENVIRONMENT];
+      const arr = Array.isArray(envBucket?.payment_methods)
+        ? envBucket.payment_methods
+        : (Array.isArray(json?.payment_methods)
+          ? json.payment_methods
+          : (Array.isArray(json?.data?.payment_methods)
+            ? json.data.payment_methods
+            : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []))));
 
-      const normalized = arr.map(normalizePaymentMethod);
+      const normalized = arr
+        .map(normalizePaymentMethod)
+        // Si el método guardado/predeterminado es Apple Pay pero el dispositivo no es compatible
+        // (Android, o iOS con versión no soportada), se descarta y se cae a los demás métodos.
+        .filter((m) => (isApplePayGatewayName(m.gateway) ? applePayDeviceSupported : true));
+
       const gateways = resolveAvailableGateways(restaurantGateways, normalized);
       const filtered = normalized.filter((m) => gateways.includes(normalizeGateway(m.gateway)));
       const preferred = filtered.find((m) => Boolean(m.is_preferred)) || filtered[0] || null;
@@ -495,7 +544,7 @@ export default function PaymentMarketplace() {
     } finally {
       setLoadingMethods(false);
     }
-  }, [buildPaymentMethodsUrl, getAuthHeaders, loadRestaurantPayments, restaurante_id, resolveUsuarioAppId, showToast]);
+  }, [buildPaymentMethodsUrl, getAuthHeaders, loadRestaurantPayments, restaurante_id, resolveUsuarioAppId, showToast, applePayDeviceSupported]);
 
   useEffect(() => {
     if (usuarioAppId) loadMarketplaceMethods();
@@ -690,14 +739,15 @@ export default function PaymentMarketplace() {
     };
   };
 
-  const createTransaction = async ({ gateway, savedMethod = null }) => {
+  // walletType: cuando se paga con Apple Pay, gateway sigue siendo 'stripe' y se agrega wallet_type: 'apple_pay'.
+   
+  const createTransaction = async ({ gateway, savedMethod = null, walletType = null }) => {
     await ensureToken();
     const customer = await resolveCustomerForPayment();
     const chargeInfo = await getChargeInfoForTransaction();
     const body = {
       sucursal_id,
       gateway,
-      environment: restaurantPaymentEnvironment || environment,
       monto_subtotal: Number(chargeInfo.baseAmount) || 0,
       monto_propina: Number(chargeInfo.tipAmount) || 0,
       moneda: moneda || 'MXN',
@@ -709,6 +759,8 @@ export default function PaymentMarketplace() {
       return_url: params.return_url ?? params.returnUrl ?? undefined,
       flow: 'elements',
     };
+
+    if (walletType) body.wallet_type = walletType;
 
     if (savedMethod) {
       body.mobile_payment_method_id = savedMethod.id ?? savedMethod.mobile_payment_method_id ?? null;
@@ -743,7 +795,14 @@ export default function PaymentMarketplace() {
       if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId));
     } catch (e) {}
 
-    return { transactionId, clientSecret, checkoutUrl, stripeAccountId: accountId, chargeInfo, raw: json };
+    return {
+      transactionId,
+      clientSecret,
+      checkoutUrl,
+      stripeAccountId: accountId,
+      chargeInfo,
+      raw: json,
+    };
   };
 
   const navigateSuccess = (amount = displayAmount) => {
@@ -778,6 +837,11 @@ export default function PaymentMarketplace() {
     const gateway = normalizeGateway(method.gateway);
     if (!gateway) {
       showToast('El método seleccionado no tiene gateway', false);
+      return;
+    }
+
+    if (isApplePayGatewayName(gateway)) {
+      await payWithApplePay();
       return;
     }
 
@@ -902,12 +966,71 @@ export default function PaymentMarketplace() {
     }
   };
 
+   const buildApplePayCartItems = (chargeInfo) => [
+    {
+      label: 'Total',
+      amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)),
+    },
+  ];
+
+  const payWithApplePay = async () => {
+    if (!applePayDeviceSupported) {
+      showToast('Apple Pay no está disponible en este dispositivo', false);
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      validateBeforePayment();
+      await resolveCustomerForPayment();
+
+      const tx = await createTransaction({ gateway: 'stripe', walletType: 'apple_pay' });
+      if (!tx.clientSecret) throw new Error('El servidor no devolvió client_secret');
+
+      const accountIdToUse = tx.stripeAccountId || stripeAccountId || null;
+      await configureStripeForAccount(accountIdToUse);
+      if (accountIdToUse) setStripeAccountId(accountIdToUse);
+
+      const { error, paymentIntent } = await confirmPlatformPayPayment(tx.clientSecret, {
+        applePay: {
+          cartItems: buildApplePayCartItems(tx.chargeInfo),
+          merchantCountryCode: 'MX',
+          currencyCode: moneda || 'MXN',
+        },
+      });
+
+      if (error) throw new Error(error.message || 'Error al confirmar el pago con Apple Pay');
+
+      const status = String(paymentIntent?.status ?? '').toLowerCase();
+      if (['succeeded', 'requires_capture', 'processing', 'requires_confirmation'].includes(status)) {
+        const poll = await pollSplitsUntilPaid(tx.transactionId);
+        if (poll.ok) {
+          navigateSuccess(tx.chargeInfo?.totalAmount);
+          return;
+        }
+        showPaymentError('Pago pendiente', 'Apple Pay confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
+        return;
+      }
+
+      showPaymentError('Pago no completado', `Estado del pago: ${String(paymentIntent?.status)}`, JSON.stringify(paymentIntent));
+    } catch (err) {
+      console.warn('payWithApplePay error', err);
+      showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con Apple Pay.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const openManualGateway = (gateway) => {
     const normalized = normalizeGateway(gateway);
     if (normalized === 'stripe' || normalized === 'card') {
       setManualCardDetails(null);
       setCardHolderName('');
       setScreen('manual-card');
+      return;
+    }
+    if (isApplePayGatewayName(normalized)) {
+      payWithApplePay();
       return;
     }
     setNotice({
@@ -935,7 +1058,7 @@ export default function PaymentMarketplace() {
     const g = normalizeGateway(gateway);
     if (g === 'stripe' || g === 'card') return 'Tarjeta';
     if (g === 'paypal') return 'PayPal';
-    if (g === 'applepay' || g === 'apple_pay') return 'Apple Pay';
+    if (isApplePayGatewayName(g)) return 'Apple Pay';
     if (g === 'openpay') return 'OpenPay';
     return g ? g.toUpperCase() : 'Método';
   };
@@ -961,7 +1084,7 @@ export default function PaymentMarketplace() {
         </View>
       );
     }
-    if (g === 'applepay' || g === 'apple_pay') {
+    if (isApplePayGatewayName(g)) {
       return (
         <View style={styles.applePayLogo}>
           <Ionicons name="logo-apple" size={22} color={COLORS.text} />
@@ -1027,21 +1150,29 @@ export default function PaymentMarketplace() {
   const renderGatewayOption = (gateway) => {
     const g = normalizeGateway(gateway);
     const isCard = g === 'stripe' || g === 'card';
+    const isApplePay = isApplePayGatewayName(g);
 
     return (
       <TouchableOpacity key={g} style={styles.gatewayOption} activeOpacity={0.88} onPress={() => openManualGateway(g)}>
         <View style={styles.gatewayLogoWrap}>{renderGatewayLogo(g)}</View>
         <View style={styles.gatewayCopy}>
-          <Text style={styles.gatewayTitle}>{isCard ? 'Tarjeta de crédito o débito' : gatewayLabel(g)}</Text>
-          <Text style={styles.gatewaySub}>{isCard ? 'Paga con una tarjeta bancaria.' : 'Disponible en este restaurante.'}</Text>
+          <Text style={styles.gatewayTitle}>
+            {isCard ? 'Tarjeta de crédito o débito' : isApplePay ? 'Apple Pay' : gatewayLabel(g)}
+          </Text>
+          <Text style={styles.gatewaySub}>
+            {isCard
+              ? 'Paga con una tarjeta bancaria.'
+              : isApplePay
+                ? 'Paga rápido y seguro con Apple Pay.'
+                : 'Disponible en este restaurante.'}
+          </Text>
         </View>
         <Ionicons name="chevron-forward" size={19} color={COLORS.accent} />
       </TouchableOpacity>
     );
   };
 
-  // --- Banner degradado edge-to-edge (mismo patrón que Escanear) ---
-  const logoWidth = clamp(Math.round(wp(28)), 80, 140);
+   const logoWidth = clamp(Math.round(wp(28)), 80, 140);
   const restaurantImgSize = clamp(Math.round(wp(16)), 48, 96);
   const rightColMaxWidth = Math.round(Math.min(Math.max(wp(36), 120), 220));
   const totalNumberFont = clamp(rf(7.5), 20, 36);

@@ -21,12 +21,24 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StripeProvider, CardField, confirmSetupIntent, initStripe } from '@stripe/stripe-react-native';
+import {
+  StripeProvider,
+  CardField,
+  confirmSetupIntent,
+  initStripe,
+  isPlatformPaySupported,
+} from '@stripe/stripe-react-native';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
 
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
+
+
+const PAYMENT_ENVIRONMENT = 'sandbox';
+
+
+const APPLE_PAY_MIN_IOS_VERSION = 10;
 
 const COLORS = {
   bg: '#ffffff',
@@ -111,13 +123,18 @@ export default function PaymentMethods({ navigation, route }) {
   const [savePreferred, setSavePreferred] = useState(true);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
-  const [selectedPreferred, setSelectedPreferred] = useState(null);
+  // Selección única de método preferido, sin importar si es tarjeta, Apple Pay o PayPal.
+  // { type: 'saved_card' | 'apple_pay' | 'paypal' | null, id: string|number|null }
+  const [preferredSelection, setPreferredSelection] = useState({ type: null, id: null });
   const [settingPreferredId, setSettingPreferredId] = useState(null);
+  const [settingQuickPreferred, setSettingQuickPreferred] = useState(null); // 'apple_pay' | 'paypal' | null
   const [deletingCardId, setDeletingCardId] = useState(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [cardToDelete, setCardToDelete] = useState(null);
+  const [selectedPreferred, setSelectedPreferred] = useState(null);
 
-  const [quickPreferred, setQuickPreferred] = useState(null);
+  // Soporte real de Apple Pay en este dispositivo (solo puede ser true en iOS).
+  const [applePaySupported, setApplePaySupported] = useState(false);
 
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -147,7 +164,9 @@ export default function PaymentMethods({ navigation, route }) {
   const buildSetupIntentUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/stripe/setup-intent`, [hostBase]);
   const buildListPaymentMethodsUrl = useCallback((userId) => `${hostBase()}/api/mobileapp/payment-methods?usuario_app_id=${encodeURIComponent(userId)}`, [hostBase]);
   const buildDeletePaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe`, [hostBase]);
-  const buildPreferredPaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}/preferred`, [hostBase]);
+  // El endpoint de "preferido" ya no recibe el id en la URL: ahora es un endpoint
+  // fijo y todo el detalle (usuario, ambiente, tipo, id del método) va en el body.
+  const buildPreferredPaymentMethodUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/preferred`, [hostBase]);
 
   const showToast = useCallback((message, success = false, duration = 1700) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -195,6 +214,8 @@ export default function PaymentMethods({ navigation, route }) {
     exp_year: pm.exp_year ?? pm.card_exp_year ?? null,
     is_preferred: pm.is_preferred ?? pm.preferred ?? false,
     status: pm.status ?? pm.state ?? '',
+    environment: pm.environment ?? PAYMENT_ENVIRONMENT,
+    type: pm.type ?? 'saved_card',
     gateway: 'stripe',
     raw: pm,
   });
@@ -230,11 +251,28 @@ export default function PaymentMethods({ navigation, route }) {
         showToast('No se pudieron cargar tus tarjetas', false);
         return;
       }
+ 
+      const envBucket = json?.environments?.[PAYMENT_ENVIRONMENT];
+      const arr = Array.isArray(envBucket?.payment_methods)
+        ? envBucket.payment_methods
+        : Array.isArray(json?.payment_methods)
+          ? json.payment_methods
+          : Array.isArray(json?.data)
+            ? json.data
+            : Array.isArray(json)
+              ? json
+              : [];
 
-      const arr = Array.isArray(json?.payment_methods)
-        ? json.payment_methods
-        : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []));
-      setCards(arr.map(normalizePaymentMethod));
+      const normalized = arr.map(normalizePaymentMethod);
+      setCards(normalized);
+
+      // Si alguna tarjeta viene marcada como preferida desde el API, sincroniza
+      // la selección global. Si ninguna tarjeta es preferida no se toca la
+      // selección (podría ser Apple Pay o PayPal, que este endpoint no reporta).
+      const preferredCard = normalized.find(pm => pm.is_preferred);
+      if (preferredCard) {
+        setPreferredSelection({ type: 'saved_card', id: preferredCard.id });
+      }
     } catch (err) {
       console.warn('loadCards exception', err);
       showToast('No se pudo conectar al servidor', false);
@@ -264,6 +302,29 @@ export default function PaymentMethods({ navigation, route }) {
         if (profileImg) setProfileUrl(profileImg);
       } catch (e) {
         console.warn('Error leyendo AsyncStorage', e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Detecta si el dispositivo/versión de SO soporta Apple Pay.
+  // Solo puede ser true en iOS; en Android siempre queda en false.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (Platform.OS !== 'ios') {
+        if (mounted) setApplePaySupported(false);
+        return;
+      }
+      try {
+        const supported = await isPlatformPaySupported({ applePay: true });
+        if (mounted) setApplePaySupported(Boolean(supported));
+      } catch (e) {
+        // Fallback si isPlatformPaySupported no está disponible en esta versión del SDK:
+        // se asume soporte a partir de la versión mínima de iOS configurada.
+        console.warn('isPlatformPaySupported no disponible, usando fallback por versión', e);
+        const majorVersion = parseInt(String(Platform.Version), 10);
+        if (mounted) setApplePaySupported(!Number.isNaN(majorVersion) && majorVersion >= APPLE_PAY_MIN_IOS_VERSION);
       }
     })();
     return () => { mounted = false; };
@@ -312,6 +373,7 @@ export default function PaymentMethods({ navigation, route }) {
       body: JSON.stringify({
         usuario_app_id: userId,
         set_preferred: Boolean(savePreferred),
+        environment: PAYMENT_ENVIRONMENT,
       }),
     });
     const json = await res.json().catch(() => null);
@@ -375,6 +437,52 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
+  // Función unificada para marcar cualquier método (tarjeta, Apple Pay o PayPal)
+  // como preferido, usando el nuevo endpoint /payment-methods/preferred.
+  // type: 'saved_card' | 'apple_pay' | 'paypal'
+  const setPreferredMethod = async ({ type, paymentMethodId = null, clientPlatform }) => {
+    const userId = await resolveUsuarioAppId();
+    if (!userId) {
+      showToast('No se encontró usuario_app_id', false);
+      return false;
+    }
+
+    const body = {
+      usuario_app_id: userId,
+      environment: PAYMENT_ENVIRONMENT,
+      type,
+      payment_method_id: paymentMethodId,
+    };
+
+    // Apple Pay no tiene payment_method_id (siempre null) pero sí necesita
+    // indicar la plataforma del cliente.
+    if (type === 'apple_pay') {
+      body.client_platform = clientPlatform || Platform.OS;
+    }
+
+    try {
+      await ensureToken();
+      const res = await fetch(buildPreferredPaymentMethodUrl(), {
+        
+        method: 'PUT',
+        headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-preferred') }),
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        console.warn('setPreferredMethod error', res.status, json);
+        showToast(`No se pudo actualizar el método predeterminado (${res.status})`, false);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('setPreferredMethod exception', err);
+      showToast('Error al actualizar el método predeterminado', false);
+      return false;
+    }
+  };
+
   const togglePreferredCard = async (card) => {
     const cardId = card.id ?? card.mobile_payment_method_id ?? card.external_payment_method_id;
     if (!cardId) {
@@ -382,42 +490,45 @@ export default function PaymentMethods({ navigation, route }) {
       return;
     }
 
-    const userId = await resolveUsuarioAppId();
-    if (!userId) {
-      showToast('No se encontró usuario_app_id', false);
-      return;
-    }
-
-    const wasPreferred = Boolean(card.is_preferred);
-
     setSettingPreferredId(cardId);
     try {
-      await ensureToken();
-      const res = await fetch(buildPreferredPaymentMethodUrl(cardId), {
-        method: 'PATCH',
-        headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-preferred') }),
-        body: JSON.stringify({ usuario_app_id: userId, preferred: !wasPreferred }),
-      });
-      const json = await res.json().catch(() => null);
+      const ok = await setPreferredMethod({ type: 'saved_card', paymentMethodId: cardId });
+      if (!ok) return;
 
-      if (!res.ok) {
-        console.warn('togglePreferredCard error', res.status, json);
-        showToast(`No se pudo actualizar la tarjeta predeterminada (${res.status})`, false);
-        return;
-      }
-
+      setPreferredSelection({ type: 'saved_card', id: cardId });
+      setCards(prev => prev.map(item => ({ ...item, is_preferred: String(item.id) === String(cardId) })));
       setSelectedPreferred(null);
-      setCards(prev => prev.map(item => {
-        if (String(item.id) === String(cardId)) return { ...item, is_preferred: !wasPreferred };
-        return wasPreferred ? item : { ...item, is_preferred: false };
-      }));
-      showToast(wasPreferred ? 'Tarjeta ya no es predeterminada' : 'Tarjeta predeterminada actualizada', true);
+      showToast('Tarjeta predeterminada actualizada', true);
       await loadCards();
-    } catch (err) {
-      console.warn('togglePreferredCard exception', err);
-      showToast('Error al actualizar la tarjeta predeterminada', false);
     } finally {
       setSettingPreferredId(null);
+    }
+  };
+
+   const setApplePayPreferred = async () => {
+    setSettingQuickPreferred('apple_pay');
+    try {
+      const ok = await setPreferredMethod({ type: 'apple_pay', paymentMethodId: null, clientPlatform: 'ios' });
+      if (!ok) return;
+      setPreferredSelection({ type: 'apple_pay', id: null });
+      setCards(prev => prev.map(item => ({ ...item, is_preferred: false })));
+      showToast('Apple Pay establecido como predeterminado', true);
+    } finally {
+      setSettingQuickPreferred(null);
+    }
+  };
+
+   const setPaypalPreferred = async () => {
+    setSettingQuickPreferred('paypal');
+    try {
+   
+      const ok = await setPreferredMethod({ type: 'paypal', paymentMethodId: null });
+      if (!ok) return;
+      setPreferredSelection({ type: 'paypal', id: null });
+      setCards(prev => prev.map(item => ({ ...item, is_preferred: false })));
+      showToast('PayPal establecido como predeterminado', true);
+    } finally {
+      setSettingQuickPreferred(null);
     }
   };
 
@@ -452,6 +563,11 @@ export default function PaymentMethods({ navigation, route }) {
 
       setCards(prev => prev.filter(item => String(item.id) !== String(cardId)));
       setSelectedPreferred(null);
+      setPreferredSelection(prev => (
+        prev.type === 'saved_card' && String(prev.id) === String(cardId)
+          ? { type: null, id: null }
+          : prev
+      ));
       showToast('Tarjeta eliminada', true);
     } catch (err) {
       console.warn('deleteCard exception', err);
@@ -488,33 +604,43 @@ export default function PaymentMethods({ navigation, route }) {
     return { text: 'CARD', style: 'generic' };
   };
 
-  const toggleQuickPreferred = (key) => {
-    setQuickPreferred(prev => (prev === key ? null : key));
-  };
-
   const renderExternalWallets = () => (
     <View style={styles.walletBlock}>
       <Text style={styles.blockTitle}>Métodos de pago rápido</Text>
 
-      <View style={styles.walletOption}>
-        <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
-          <View style={styles.walletLogo}>
-            <Ionicons name="logo-apple" size={24} color={COLORS.text} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.walletOptionTitle}>Apple Pay</Text>
-            {quickPreferred === 'applepay' ? (
-              <View style={styles.preferredChip}>
-                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
-                <Text style={styles.preferredChipText}>Predeterminado</Text>
-              </View>
-            ) : null}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.cardIconButton} onPress={() => toggleQuickPreferred('applepay')}>
-          <Ionicons name={quickPreferred === 'applepay' ? 'star' : 'star-outline'} size={19} color={quickPreferred === 'applepay' ? COLORS.gold : COLORS.muted} />
-        </TouchableOpacity>
-      </View>
+      {applePaySupported ? (
+        <View style={styles.walletOption}>
+          <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
+            <View style={styles.walletLogo}>
+              <Ionicons name="logo-apple" size={24} color={COLORS.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletOptionTitle}>Apple Pay</Text>
+              {preferredSelection.type === 'apple_pay' ? (
+                <View style={styles.preferredChip}>
+                  <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+                  <Text style={styles.preferredChipText}>Predeterminado</Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cardIconButton}
+            onPress={setApplePayPreferred}
+            disabled={settingQuickPreferred === 'apple_pay'}
+          >
+            {settingQuickPreferred === 'apple_pay' ? (
+              <ActivityIndicator size="small" />
+            ) : (
+              <Ionicons
+                name={preferredSelection.type === 'apple_pay' ? 'star' : 'star-outline'}
+                size={19}
+                color={preferredSelection.type === 'apple_pay' ? COLORS.gold : COLORS.muted}
+              />
+            )}
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View style={styles.walletOption}>
         <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
@@ -523,7 +649,7 @@ export default function PaymentMethods({ navigation, route }) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.walletOptionTitle}>PayPal</Text>
-            {quickPreferred === 'paypal' ? (
+            {preferredSelection.type === 'paypal' ? (
               <View style={styles.preferredChip}>
                 <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
                 <Text style={styles.preferredChipText}>Predeterminado</Text>
@@ -531,8 +657,20 @@ export default function PaymentMethods({ navigation, route }) {
             ) : null}
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.cardIconButton} onPress={() => toggleQuickPreferred('paypal')}>
-          <Ionicons name={quickPreferred === 'paypal' ? 'star' : 'star-outline'} size={19} color={quickPreferred === 'paypal' ? COLORS.gold : COLORS.muted} />
+        <TouchableOpacity
+          style={styles.cardIconButton}
+          onPress={setPaypalPreferred}
+          disabled={settingQuickPreferred === 'paypal'}
+        >
+          {settingQuickPreferred === 'paypal' ? (
+            <ActivityIndicator size="small" />
+          ) : (
+            <Ionicons
+              name={preferredSelection.type === 'paypal' ? 'star' : 'star-outline'}
+              size={19}
+              color={preferredSelection.type === 'paypal' ? COLORS.gold : COLORS.muted}
+            />
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -544,7 +682,7 @@ export default function PaymentMethods({ navigation, route }) {
     const mark = getBrandMark(card.brand);
     const last4 = card.last4 || '----';
     const exp = card.exp_month && card.exp_year ? `${card.exp_month}/${String(card.exp_year).slice(-2)}` : '--/--';
-    const isPreferred = Boolean(card.is_preferred);
+    const isPreferred = preferredSelection.type === 'saved_card' && String(preferredSelection.id) === String(cardId);
     const isSelected = String(selectedPreferred?.id ?? selectedPreferred?.external_payment_method_id ?? '') === String(cardId);
     const deleting = String(deletingCardId) === String(cardId);
     const settingPreferred = String(settingPreferredId) === String(cardId);
