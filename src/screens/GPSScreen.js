@@ -141,6 +141,7 @@ function generateMapHtml(userLat, userLng, locations, markerSrc, markerCount) {
 
         function makePopupHtml(idx, loc) {
           var title = loc.nombre || loc.name || 'Sin nombre';
+          var restaurantName = loc.restaurantName || loc.restaurant_name || '';
           var desc = loc.descripcion || loc.short_description || loc.direccion || loc.description || '';
           var img = loc.imagen_logo_url || loc.image || loc.logo || '${fallbackImg}';
           var r = Number(loc.rating || loc.avg_rating || 0);
@@ -151,7 +152,7 @@ function generateMapHtml(userLat, userLng, locations, markerSrc, markerCount) {
                       '<div class="custom-row">' +
                         (img ? '<img class="custom-thumb" src="'+ img +'" onerror="this.style.display=\\'none\\'"/>' : '') +
                         '<div class="custom-info">' +
-                          '<div class="custom-name">' + (title) + '</div>' +
+                          '<div class="custom-name">' + (restaurantName ? '<div style="font-size:12px;color:#888;font-weight:600;margin-bottom:2px;">' + restaurantName + '</div>' : '') + title + '</div>' +
                           '<div class="custom-desc">' + (desc||'') + '</div>' +
                         '</div>' +
                       '</div>' +
@@ -249,6 +250,7 @@ export default function GPSScreen() {
     locationsArr.push({
       id: obj.id ?? obj.restaurante_id ?? null,
       name: obj.name ?? obj.nombre ?? fallbackName ?? '',
+      restaurantName: fallbackName || null,
       short_description: obj.short_description ?? obj.direccion ?? obj.descripcion ?? obj.description ?? '',
       latitude: lat,
       longitude: lng,
@@ -530,7 +532,7 @@ export default function GPSScreen() {
           rid = payload.id;
         }
 
-        navigation.navigate('Branch', {
+        navigation.navigate('Restaurant', {
           id: rid,
           branch: branchObj,
           logo: branchObj?.logo ?? branchObj?.imagen_logo_url ?? null,

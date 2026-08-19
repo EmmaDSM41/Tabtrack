@@ -21,6 +21,11 @@ import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/nativ
 import Ionicons from "react-native-vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+// NUEVO: se necesitan para poder recargar la sucursal por API cuando la
+// pantalla se abre "en frío" desde el deep link de compartir (sin haber
+// navegado normalmente desde la lista, así que no llega el objeto completo
+// por params, solo los ids).
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const tabtrackLogo = require("../../assets/images/logo2.png");
 const placeholderBanner = require("../../assets/images/restaurante.jpeg");
@@ -29,6 +34,21 @@ const tiktokIcon = require("../../assets/images/tik_tok.jpg");
 
 const GLOBAL_FAVORITES_KEY = 'favorites';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
+
+// NUEVO: mismo endpoint base que usa RestaurantsScreen para listar
+// sucursales de un restaurante. Se reutiliza aquí solo para el caso de
+// carga en frío (deep link).
+const API_URL = 'https://127.0.0.1/api/restaurantes';
+
+// NUEVO: esquema propio de la app, registrado en App.tsx (linking),
+// AndroidManifest.xml y (del lado de iOS, por tu compañero) el Info.plist.
+const APP_SCHEME = 'tabtrack://';
+
+const getAuthHeaders = (extra = {}) => {
+  const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
+  if (TOKEN && TOKEN.trim()) base.Authorization = `Bearer ${TOKEN}`;
+  return base;
+};
 
 const getUserIdentifier = async () => {
   try {
@@ -81,15 +101,33 @@ export default function RestaurantDetailScreen() {
     route.params?.sucursal ??
     null;
 
+  // CAMBIADO: cuando la pantalla se abre desde el deep link de compartir,
+  // route.params trae 'restauranteId' y 'sucursalId' (así se declaró en la
+  // config de linking de App.tsx), en vez del objeto completo. idParam
+  // ahora también contempla ese caso.
   const idParam = (() => {
     if (route.params?.id) return String(route.params.id);
+    if (route.params?.sucursalId) return String(route.params.sucursalId);
     if (!branchParam) return null;
     return String(
       branchParam.id ?? branchParam.sucursal_id ?? branchParam.restaurante_id ?? branchParam._id ?? null
     );
   })();
 
+  // NUEVO: id del restaurante padre, ya sea porque vino en el objeto de la
+  // sucursal (restaurante_id, agregado en RestaurantsScreen) o porque vino
+  // directo en la URL del deep link (restauranteId).
+  const restauranteIdParam = (() => {
+    if (route.params?.restauranteId) return String(route.params.restauranteId);
+    if (branchParam?.restaurante_id) return String(branchParam.restaurante_id);
+    if (branchParam?.raw?.restaurante_id) return String(branchParam.raw.restaurante_id);
+    return null;
+  })();
+
   const [data, setData] = useState(branchParam ?? null);
+  // NUEVO: solo se usa para mostrar un loader mientras se resuelve la
+  // carga en frío desde el deep link (cuando no llegó branchParam).
+  const [resolvingFromLink, setResolvingFromLink] = useState(!branchParam);
   const [slideIndex, setSlideIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const scrollRef = useRef(null);
@@ -101,14 +139,57 @@ export default function RestaurantDetailScreen() {
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimerRef = useRef(null);
 
+  // CAMBIADO: antes este efecto no hacía nada si no venía 'data' (dejaba un
+  // comentario "opcional"). Ahora sí resuelve la sucursal por API cuando la
+  // pantalla se abrió desde el deep link (solo tenemos restauranteId +
+  // sucursalId, sin el objeto completo).
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (data) return;
-      // si no vino el objeto, podrías cargarlo por id aquí (opcional)
+      if (data) { setResolvingFromLink(false); return; }
+
+      if (!restauranteIdParam || !idParam) {
+        setResolvingFromLink(false);
+        return;
+      }
+
+      try {
+        await ensureToken();
+        const url = `${API_URL.replace(/\/$/, '')}/${encodeURIComponent(restauranteIdParam)}/sucursales`;
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json().catch(() => null);
+
+        let branches = [];
+        if (Array.isArray(json?.sucursales)) branches = json.sucursales;
+        else if (Array.isArray(json?.data)) branches = json.data;
+        else if (Array.isArray(json?.results)) branches = json.results;
+        else if (Array.isArray(json)) branches = json;
+
+        const found = branches.find(b => String(b?.id) === String(idParam));
+
+        if (!mounted) return;
+
+        if (found) {
+          // Se guarda el objeto tal cual lo entrega la API (mismos nombres
+          // de campo: nombre, descripcion, direccion, imagen_logo_url,
+          // etc.), más restaurante_id para que "compartir" y "favoritos"
+          // sigan funcionando igual que cuando se navega desde la lista.
+          setData({ ...found, id: String(found.id ?? idParam), restaurante_id: restauranteIdParam });
+        } else {
+          console.warn('[RestaurantDetailScreen] No se encontró la sucursal del link:', { restauranteIdParam, idParam });
+          _showToast('No se encontró la sucursal');
+        }
+      } catch (e) {
+        console.warn('[RestaurantDetailScreen] Error resolviendo sucursal desde deep link:', e);
+        if (mounted) _showToast('No se pudo cargar la sucursal');
+      } finally {
+        if (mounted) setResolvingFromLink(false);
+      }
     })();
     return () => { mounted = false; if (toastTimerRef.current) clearTimeout(toastTimerRef.current); };
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, restauranteIdParam, idParam]);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
@@ -232,14 +313,39 @@ export default function RestaurantDetailScreen() {
     }
   };
 
+  // NUEVO: arma el deep link de esta sucursal. Devuelve null si no
+  // tenemos ambos ids (restaurante + sucursal), en cuyo caso se comparte
+  // solo el texto, como antes.
+  const buildShareLink = () => {
+    const restId = data?.restaurante_id ?? data?.raw?.restaurante_id ?? restauranteIdParam ?? null;
+    const sucId = idParam ?? data?.id ?? null;
+    if (!restId || !sucId) return null;
+    return `${APP_SCHEME}restaurante/${encodeURIComponent(restId)}/sucursal/${encodeURIComponent(sucId)}`;
+  };
+
   const onShare = async () => {
     if (!data) return;
     const title = data.nombre || data.name || "Sucursal";
     const address = data.direccion || data.address || "";
     const phone = data.telefono_sucursal ? `Tel: ${data.telefono_sucursal}` : "";
-    const message = `${title}\n${address}\n${phone}`;
+    // CAMBIADO: ahora se arma y se incluye el deep link de la sucursal en
+    // el mensaje. Si quien lo recibe ya tiene la app instalada y su app de
+    // mensajería vuelve el link tocable (WhatsApp normalmente sí lo hace),
+    // al tocarlo se abre directo esta pantalla. Si no tiene la app
+    // instalada, el link no hace nada (no hay servidor detrás que lo
+    // redirija a una tienda de apps o página web).
+    const link = buildShareLink();
+    const message = [title, address, phone, link ? `Ver en la app: ${link}` : null]
+      .filter(Boolean)
+      .join('\n');
     try {
-      await Share.share({ message, title });
+      await Share.share({
+        message,
+        title,
+        // 'url' solo lo usa iOS de forma nativa; en Android se ignora, por
+        // eso el link también va incluido en 'message' arriba.
+        ...(Platform.OS === 'ios' && link ? { url: link } : {}),
+      });
     } catch (err) {
       console.warn("Share error", err);
       _showToast('No se pudo abrir opciones de compartir');
@@ -321,6 +427,45 @@ export default function RestaurantDetailScreen() {
     } catch (e) {
       return null;
     }
+  };
+
+  // NUEVO: el API no regresa un campo 'direccion'/'address' ya armado, solo
+  // las partes sueltas (calle, numero_ext, numero_int, colonia, municipio,
+  // ciudad, estado, codigo_postal). Esta función arma un texto de
+  // dirección legible a partir de esas partes, revisando tanto 'd'
+  // directamente (cuando la pantalla se cargó desde el deep link, donde
+  // 'data' es el objeto crudo del API) como 'd.raw' (cuando se navegó
+  // normal desde el listado, donde el objeto viene "mapeado" y las partes
+  // originales quedaron guardadas dentro de 'raw').
+  const buildAddressFromParts = (d) => {
+    if (!d) return null;
+    const get = (key) => d?.[key] ?? d?.raw?.[key] ?? null;
+
+    const calle = get('calle');
+    const numExt = get('numero_ext') ?? get('numero_exterior');
+    const numInt = get('numero_int') ?? get('numero_interior');
+    const colonia = get('colonia');
+    const municipio = get('municipio');
+    const ciudad = get('ciudad');
+    const estado = get('estado');
+    const cp = get('codigo_postal');
+
+    let streetPart = [calle, numExt ? `#${numExt}` : null].filter(Boolean).join(' ');
+    if (numInt) streetPart = streetPart ? `${streetPart}, Int. ${numInt}` : `Int. ${numInt}`;
+
+    const localityPart = (municipio && ciudad && String(municipio).trim() !== String(ciudad).trim())
+      ? `${municipio}, ${ciudad}`
+      : (municipio || ciudad || null);
+
+    const parts = [
+      streetPart || null,
+      colonia,
+      localityPart,
+      estado,
+      cp ? `C.P. ${cp}` : null,
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(', ') : null;
   };
 
   const getReservationUrl = () => {
@@ -592,7 +737,7 @@ export default function RestaurantDetailScreen() {
 
           <View style={styles.divider} />
           <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Dirección</Text>
-          <Text style={[styles.paragraph, { fontSize: PARAGRAPH_FONT }]}>{data.direccion || data.address || "—"}</Text>
+          <Text style={[styles.paragraph, { fontSize: PARAGRAPH_FONT }]}>{data.direccion || data.address || buildAddressFromParts(data) || "—"}</Text>
 
           { data.telefono_sucursal ? (
             <>

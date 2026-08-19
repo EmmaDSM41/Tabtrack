@@ -742,6 +742,7 @@ export default function ExperiencesScreen() {
             <Text numberOfLines={1} style={sheetStyles.personName}>{tx.name}</Text>
             <Text style={sheetStyles.personTime}>{tx.timestamp}</Text>
             <Text style={sheetStyles.personMeta}>{tx.items.length} artículo{tx.items.length === 1 ? '' : 's'}</Text>
+            {tx.restaurant ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Restaurante: {tx.restaurant}</Text> : null}
 
             {tx.approved_by ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Aprobado por: {tx.approved_by.nombre}</Text> : null}
             {(!tx.approved_by && tx.opened_by) ? <Text style={{ color: '#6b7280', marginTop: 4 }}>Abierto por: {tx.opened_by.nombre}</Text> : null}

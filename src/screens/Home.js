@@ -87,7 +87,7 @@ function GPSStackScreen() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="GPSMain" component={GPSScreen} />
-      <Stack.Screen name="Branch" component={Branch} />
+      <Stack.Screen name="Restaurant" component={RestaurantDetailScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Reservation" component={Reservation} />
     </Stack.Navigator>

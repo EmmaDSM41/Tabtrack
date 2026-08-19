@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
 import {
   StripeProvider,
   CardField,
@@ -34,11 +35,11 @@ const API_HOST_CONST = 'https://api.tab-track.com';
 
 const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
 
-
 const PAYMENT_ENVIRONMENT = 'sandbox';
 
-
 const APPLE_PAY_MIN_IOS_VERSION = 10;
+
+const PAYPAL_RETURN_URL = 'http://127.0.0.1:3000/paypal/vault/approved';
 
 const COLORS = {
   bg: '#ffffff',
@@ -52,7 +53,7 @@ const COLORS = {
   danger: '#d92d20',
   success: '#176b3a',
   softBlue: '#f6f7f9',
-  blue:'#0b58ff',
+  blue: '#0b58ff',
   gold: '#f3e305',
 };
 
@@ -97,7 +98,7 @@ function SmallToast({ message, visible, success }) {
 
 export default function PaymentMethods({ navigation, route }) {
   const params = route?.params ?? {};
-  const { width: dimWidth, height: dimHeight } = Dimensions.get('window');
+  const { width: dimWidth } = Dimensions.get('window');
   const rf = p => Math.round(PixelRatio.roundToNearestPixel((Number(p) / 100) * dimWidth));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -123,23 +124,29 @@ export default function PaymentMethods({ navigation, route }) {
   const [savePreferred, setSavePreferred] = useState(true);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
-  // Selección única de método preferido, sin importar si es tarjeta, Apple Pay o PayPal.
-  // { type: 'saved_card' | 'apple_pay' | 'paypal' | null, id: string|number|null }
   const [preferredSelection, setPreferredSelection] = useState({ type: null, id: null });
   const [settingPreferredId, setSettingPreferredId] = useState(null);
-  const [settingQuickPreferred, setSettingQuickPreferred] = useState(null); // 'apple_pay' | 'paypal' | null
+  const [settingQuickPreferred, setSettingQuickPreferred] = useState(null);
   const [deletingCardId, setDeletingCardId] = useState(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [cardToDelete, setCardToDelete] = useState(null);
   const [selectedPreferred, setSelectedPreferred] = useState(null);
 
-  // Soporte real de Apple Pay en este dispositivo (solo puede ser true en iOS).
   const [applePaySupported, setApplePaySupported] = useState(false);
+
+  // Estados del WebView modal de PayPal
+  const [paypalConnecting, setPaypalConnecting] = useState(false);
+  const [paypalModalVisible, setPaypalModalVisible] = useState(false);
+  const [paypalWebViewUrl, setPaypalWebViewUrl] = useState(null);
+  const [paypalWebViewLoading, setPaypalWebViewLoading] = useState(true);
+  const paypalSetupTokenIdRef = useRef(null);
 
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [toastSuccess, setToastSuccess] = useState(false);
   const toastTimeoutRef = useRef(null);
+
+  const [paypalMethodId, setPaypalMethodId] = useState(null);
 
   const getInitials = (name) => {
     if (!name) return null;
@@ -164,9 +171,9 @@ export default function PaymentMethods({ navigation, route }) {
   const buildSetupIntentUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/stripe/setup-intent`, [hostBase]);
   const buildListPaymentMethodsUrl = useCallback((userId) => `${hostBase()}/api/mobileapp/payment-methods?usuario_app_id=${encodeURIComponent(userId)}`, [hostBase]);
   const buildDeletePaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe`, [hostBase]);
-  // El endpoint de "preferido" ya no recibe el id en la URL: ahora es un endpoint
-  // fijo y todo el detalle (usuario, ambiente, tipo, id del método) va en el body.
   const buildPreferredPaymentMethodUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/preferred`, [hostBase]);
+  const buildPaypalSetupTokenUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/paypal/setup-token`, [hostBase]);
+  const buildPaypalConfirmUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/paypal/confirm`, [hostBase]);
 
   const showToast = useCallback((message, success = false, duration = 1700) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -216,16 +223,22 @@ export default function PaymentMethods({ navigation, route }) {
     status: pm.status ?? pm.state ?? '',
     environment: pm.environment ?? PAYMENT_ENVIRONMENT,
     type: pm.type ?? 'saved_card',
+    category: pm.category ?? (pm.type && pm.type !== 'saved_card' ? 'wallet' : 'card'),
     gateway: 'stripe',
     raw: pm,
   });
 
   const resolveUsuarioAppId = useCallback(async () => {
     if (usuarioAppId) return usuarioAppId;
-    const stored = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
-    if (stored) {
-      setUsuarioAppId(stored);
-      return stored;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const stored = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
+      if (stored) {
+        setUsuarioAppId(stored);
+        return stored;
+      }
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
     }
     return '';
   }, [usuarioAppId]);
@@ -251,7 +264,7 @@ export default function PaymentMethods({ navigation, route }) {
         showToast('No se pudieron cargar tus tarjetas', false);
         return;
       }
- 
+
       const envBucket = json?.environments?.[PAYMENT_ENVIRONMENT];
       const arr = Array.isArray(envBucket?.payment_methods)
         ? envBucket.payment_methods
@@ -264,14 +277,27 @@ export default function PaymentMethods({ navigation, route }) {
               : [];
 
       const normalized = arr.map(normalizePaymentMethod);
-      setCards(normalized);
+      const savedCards = normalized.filter(pm => pm.type === 'saved_card');
+      setCards(savedCards);
+// justo después de: const savedCards = normalized.filter(...)
+const paypalEntry = normalized.find(pm => pm.type === 'paypal');
+if (paypalEntry) {
+  setPaypalMethodId(paypalEntry.id ?? paypalEntry.external_payment_method_id ?? null);
+}
 
-      // Si alguna tarjeta viene marcada como preferida desde el API, sincroniza
-      // la selección global. Si ninguna tarjeta es preferida no se toca la
-      // selección (podría ser Apple Pay o PayPal, que este endpoint no reporta).
-      const preferredCard = normalized.find(pm => pm.is_preferred);
-      if (preferredCard) {
-        setPreferredSelection({ type: 'saved_card', id: preferredCard.id });
+      const preferredEntry = normalized.find(pm => pm.is_preferred);
+      if (preferredEntry) {
+        if (preferredEntry.type === 'saved_card') {
+          setPreferredSelection({ type: 'saved_card', id: preferredEntry.id });
+        } else if (preferredEntry.type === 'apple_pay') {
+          setPreferredSelection({ type: 'apple_pay', id: null });
+        } else if (preferredEntry.type === 'paypal') {
+          setPreferredSelection({ type: 'paypal', id: null });
+         } else {
+          setPreferredSelection({ type: null, id: null });
+        }
+      } else {
+        setPreferredSelection({ type: null, id: null });
       }
     } catch (err) {
       console.warn('loadCards exception', err);
@@ -291,10 +317,8 @@ export default function PaymentMethods({ navigation, route }) {
         const email = await AsyncStorage.getItem(AS_KEYS.USER_EMAIL) || await AsyncStorage.getItem(AS_KEYS.USER_MAIL);
         const userId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
         const profileImg = await AsyncStorage.getItem(AS_KEYS.USER_PROFILE_URL);
-
         const displayName = full || `${nombre ?? ''} ${apellido ?? ''}`.trim() || 'Usuario';
         if (!mounted) return;
-
         setUsername(displayName);
         if (!userFullname) setUserFullname(displayName);
         if (!userEmail && email) setUserEmail(email);
@@ -307,8 +331,13 @@ export default function PaymentMethods({ navigation, route }) {
     return () => { mounted = false; };
   }, []);
 
-  // Detecta si el dispositivo/versión de SO soporta Apple Pay.
-  // Solo puede ser true en iOS; en Android siempre queda en false.
+  useEffect(() => {
+    if (!usuarioAppId) return;
+    AsyncStorage.setItem(AS_KEYS.USER_USUARIO_APP_ID, String(usuarioAppId)).catch((e) => {
+      console.warn('No se pudo guardar usuario_app_id en AsyncStorage', e);
+    });
+  }, [usuarioAppId]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -320,8 +349,6 @@ export default function PaymentMethods({ navigation, route }) {
         const supported = await isPlatformPaySupported({ applePay: true });
         if (mounted) setApplePaySupported(Boolean(supported));
       } catch (e) {
-        // Fallback si isPlatformPaySupported no está disponible en esta versión del SDK:
-        // se asume soporte a partir de la versión mínima de iOS configurada.
         console.warn('isPlatformPaySupported no disponible, usando fallback por versión', e);
         const majorVersion = parseInt(String(Platform.Version), 10);
         if (mounted) setApplePaySupported(!Number.isNaN(majorVersion) && majorVersion >= APPLE_PAY_MIN_IOS_VERSION);
@@ -410,11 +437,7 @@ export default function PaymentMethods({ navigation, route }) {
       await configureStripeForAccount(accountIdToUse);
       if (accountIdToUse) setStripeAccountId(accountIdToUse);
 
-      const billingDetails = {
-        email: userEmail || '',
-        name: cardHolderName || '',
-      };
-
+      const billingDetails = { email: userEmail || '', name: cardHolderName || '' };
       const result = await confirmSetupIntent(setupResp.clientSecret, {
         paymentMethodType: 'Card',
         paymentMethodData: { billingDetails },
@@ -437,9 +460,6 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
-  // Función unificada para marcar cualquier método (tarjeta, Apple Pay o PayPal)
-  // como preferido, usando el nuevo endpoint /payment-methods/preferred.
-  // type: 'saved_card' | 'apple_pay' | 'paypal'
   const setPreferredMethod = async ({ type, paymentMethodId = null, clientPlatform }) => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
@@ -454,8 +474,6 @@ export default function PaymentMethods({ navigation, route }) {
       payment_method_id: paymentMethodId,
     };
 
-    // Apple Pay no tiene payment_method_id (siempre null) pero sí necesita
-    // indicar la plataforma del cliente.
     if (type === 'apple_pay') {
       body.client_platform = clientPlatform || Platform.OS;
     }
@@ -463,7 +481,6 @@ export default function PaymentMethods({ navigation, route }) {
     try {
       await ensureToken();
       const res = await fetch(buildPreferredPaymentMethodUrl(), {
-        
         method: 'PUT',
         headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-preferred') }),
         body: JSON.stringify(body),
@@ -489,12 +506,10 @@ export default function PaymentMethods({ navigation, route }) {
       showToast('No se encontró el id de la tarjeta', false);
       return;
     }
-
     setSettingPreferredId(cardId);
     try {
       const ok = await setPreferredMethod({ type: 'saved_card', paymentMethodId: cardId });
       if (!ok) return;
-
       setPreferredSelection({ type: 'saved_card', id: cardId });
       setCards(prev => prev.map(item => ({ ...item, is_preferred: String(item.id) === String(cardId) })));
       setSelectedPreferred(null);
@@ -505,30 +520,141 @@ export default function PaymentMethods({ navigation, route }) {
     }
   };
 
-   const setApplePayPreferred = async () => {
+  const setApplePayPreferred = async () => {
     setSettingQuickPreferred('apple_pay');
     try {
-      const ok = await setPreferredMethod({ type: 'apple_pay', paymentMethodId: null, clientPlatform: 'ios' });
+      const ok = await setPreferredMethod({ type: 'apple_pay', paymentMethodId: null, clientPlatform: Platform.OS });
       if (!ok) return;
       setPreferredSelection({ type: 'apple_pay', id: null });
       setCards(prev => prev.map(item => ({ ...item, is_preferred: false })));
       showToast('Apple Pay establecido como predeterminado', true);
+      await loadCards();
     } finally {
       setSettingQuickPreferred(null);
     }
   };
 
-   const setPaypalPreferred = async () => {
+  const setPaypalPreferred = async () => {
     setSettingQuickPreferred('paypal');
     try {
-   
-      const ok = await setPreferredMethod({ type: 'paypal', paymentMethodId: null });
+      const ok = await setPreferredMethod({ type: 'paypal', paymentMethodId: paypalMethodId });
       if (!ok) return;
       setPreferredSelection({ type: 'paypal', id: null });
       setCards(prev => prev.map(item => ({ ...item, is_preferred: false })));
       showToast('PayPal establecido como predeterminado', true);
+      await loadCards();
     } finally {
       setSettingQuickPreferred(null);
+    }
+  };
+
+  // Paso 2: Confirma el token con el backend una vez que PayPal aprobó.
+  const confirmPaypalSetup = useCallback(async (setupTokenId) => {
+    const userId = await resolveUsuarioAppId();
+    if (!userId || !setupTokenId) {
+      setPaypalConnecting(false);
+      return;
+    }
+
+    try {
+      await ensureToken();
+      const res = await fetch(buildPaypalConfirmUrl(), {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
+        body: JSON.stringify({
+          usuario_app_id: userId,
+          setup_token_id: setupTokenId,
+          set_preferred: false,
+          environment: PAYMENT_ENVIRONMENT,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        console.warn('confirmPaypalSetup error', res.status, json);
+        showToast('No se pudo confirmar la vinculación con PayPal', false);
+        return;
+      }
+
+      paypalSetupTokenIdRef.current = null;
+      showToast('PayPal vinculado correctamente', true);
+      await loadCards();
+    } catch (err) {
+      console.warn('confirmPaypalSetup exception', err);
+      showToast('Error al confirmar PayPal', false);
+    } finally {
+      setPaypalConnecting(false);
+    }
+  }, [buildPaypalConfirmUrl, getAuthHeaders, loadCards, resolveUsuarioAppId, showToast]);
+
+  // Paso 1: Pide el setup_token y abre el WebView con el approval_url de PayPal.
+  const startPaypalSetup = useCallback(async () => {
+    const userId = await resolveUsuarioAppId();
+    if (!userId) {
+      showToast('No se encontró usuario_app_id', false);
+      return;
+    }
+
+    setPaypalConnecting(true);
+    try {
+      await ensureToken();
+      const res = await fetch(buildPaypalSetupTokenUrl(), {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
+        body: JSON.stringify({
+          usuario_app_id: userId,
+          environment: PAYMENT_ENVIRONMENT,
+          return_url: PAYPAL_RETURN_URL,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        console.warn('startPaypalSetup error', res.status, json);
+        showToast('No se pudo iniciar la vinculación con PayPal', false);
+        setPaypalConnecting(false);
+        return;
+      }
+
+      const approvalUrl = json?.approval_url;
+      const setupTokenId = json?.setup_token_id;
+
+      if (!approvalUrl || !setupTokenId) {
+        showToast('Respuesta inválida del servidor', false);
+        setPaypalConnecting(false);
+        return;
+      }
+
+      // Guarda el token y abre el WebView modal con la URL de aprobación.
+      paypalSetupTokenIdRef.current = setupTokenId;
+      setPaypalWebViewUrl(approvalUrl);
+      setPaypalWebViewLoading(true);
+      setPaypalModalVisible(true);
+      // paypalConnecting permanece true hasta que el flujo termina o se cancela.
+    } catch (err) {
+      console.warn('startPaypalSetup exception', err);
+      showToast('Error al conectar con PayPal', false);
+      setPaypalConnecting(false);
+    }
+  }, [buildPaypalSetupTokenUrl, getAuthHeaders, resolveUsuarioAppId, showToast]);
+
+  // Cierra el WebView modal y limpia el estado de PayPal.
+  const closePaypalModal = () => {
+    setPaypalModalVisible(false);
+    setPaypalWebViewUrl(null);
+    paypalSetupTokenIdRef.current = null;
+    setPaypalConnecting(false);
+  };
+
+  // Se dispara en cada cambio de URL dentro del WebView.
+  // Cuando detecta el return_url de PayPal, cierra el modal y confirma el token.
+  const handlePaypalWebViewNavigation = (navState) => {
+    const { url } = navState;
+    if (url && url.includes('paypal/vault/approved')) {
+      setPaypalModalVisible(false);
+      setPaypalWebViewUrl(null);
+      const tokenToConfirm = paypalSetupTokenIdRef.current;
+      confirmPaypalSetup(tokenToConfirm);
     }
   };
 
@@ -538,7 +664,6 @@ export default function PaymentMethods({ navigation, route }) {
       showToast('No se encontró el id de la tarjeta', false);
       return;
     }
-
     const userId = await resolveUsuarioAppId();
     if (!userId) {
       showToast('No se encontró usuario_app_id', false);
@@ -604,13 +729,62 @@ export default function PaymentMethods({ navigation, route }) {
     return { text: 'CARD', style: 'generic' };
   };
 
+  // Modal con WebView que carga la página de login de PayPal.
+  // Se cierra automáticamente al detectar el return_url.
+  const renderPaypalWebViewModal = () => (
+    <Modal
+      visible={paypalModalVisible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={closePaypalModal}
+    >
+      <SafeAreaView style={styles.paypalModal}>
+        {/* Header del modal */}
+        <View style={styles.paypalModalHeader}>
+          <TouchableOpacity onPress={closePaypalModal} style={styles.headerIconButton}>
+            <Ionicons name="close" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.paypalModalTitle}>Vincular PayPal</Text>
+          <View style={styles.headerIconButton} />
+        </View>
+
+        {/* Indicador de carga encima del WebView */}
+        {paypalWebViewLoading ? (
+          <View style={styles.paypalWebViewLoader}>
+            <ActivityIndicator size="large" color={COLORS.blue} />
+            <Text style={styles.paypalWebViewLoaderText}>Cargando PayPal...</Text>
+          </View>
+        ) : null}
+
+        {/* WebView con la página de autorización de PayPal */}
+        {paypalWebViewUrl ? (
+          <WebView
+            source={{ uri: paypalWebViewUrl }}
+            style={styles.paypalWebView}
+            onNavigationStateChange={handlePaypalWebViewNavigation}
+            onLoadStart={() => setPaypalWebViewLoading(true)}
+            onLoadEnd={() => setPaypalWebViewLoading(false)}
+            javaScriptEnabled
+            domStorageEnabled
+            startInLoadingState={false}
+          />
+        ) : null}
+      </SafeAreaView>
+    </Modal>
+  );
+
   const renderExternalWallets = () => (
     <View style={styles.walletBlock}>
       <Text style={styles.blockTitle}>Métodos de pago rápido</Text>
 
       {applePaySupported ? (
         <View style={styles.walletOption}>
-          <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
+          <TouchableOpacity
+            style={styles.walletOptionMain}
+            activeOpacity={0.88}
+            onPress={setApplePayPreferred}
+            disabled={settingQuickPreferred === 'apple_pay'}
+          >
             <View style={styles.walletLogo}>
               <Ionicons name="logo-apple" size={24} color={COLORS.text} />
             </View>
@@ -643,13 +817,23 @@ export default function PaymentMethods({ navigation, route }) {
       ) : null}
 
       <View style={styles.walletOption}>
-        <TouchableOpacity style={styles.walletOptionMain} activeOpacity={0.88} onPress={() => showToast('Próximamente disponible', false)}>
+        <TouchableOpacity
+          style={styles.walletOptionMain}
+          activeOpacity={0.88}
+          onPress={startPaypalSetup}
+          disabled={paypalConnecting}
+        >
           <View style={styles.walletLogo}>
             <Ionicons name="logo-paypal" size={23} color="#003087" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.walletOptionTitle}>PayPal</Text>
-            {preferredSelection.type === 'paypal' ? (
+            {paypalConnecting && !paypalModalVisible ? (
+              <View style={styles.preferredChip}>
+                <ActivityIndicator size="small" color={COLORS.blue} style={{ marginRight: 4 }} />
+                <Text style={styles.preferredChipText}>Conectando...</Text>
+              </View>
+            ) : preferredSelection.type === 'paypal' ? (
               <View style={styles.preferredChip}>
                 <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
                 <Text style={styles.preferredChipText}>Predeterminado</Text>
@@ -759,11 +943,6 @@ export default function PaymentMethods({ navigation, route }) {
       </View>
 
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: pagePadding }]} keyboardShouldPersistTaps="always">
-        <View style={styles.sectionHeaderRow}>
-          <Ionicons name="wallet-outline" size={20} color={COLORS.blue} />
-          <Text style={styles.pageHeading}>Configura tus métodos de pago</Text>
-        </View>
-
         {renderExternalWallets()}
 
         <View style={styles.cardsBlock}>
@@ -798,6 +977,9 @@ export default function PaymentMethods({ navigation, route }) {
           )}
         </View>
       </ScrollView>
+
+      {/* Modal WebView de PayPal */}
+      {renderPaypalWebViewModal()}
 
       <DeleteConfirmModal
         visible={deleteConfirmVisible}
@@ -856,7 +1038,6 @@ export default function PaymentMethods({ navigation, route }) {
 
           <View style={styles.formBlock}>
             <Text style={styles.formTitle}>Datos de la tarjeta</Text>
-
             <View style={styles.inputWrap}>
               <Ionicons name="person-outline" size={18} color={COLORS.muted} style={{ marginRight: 8 }} />
               <TextInput
@@ -868,7 +1049,6 @@ export default function PaymentMethods({ navigation, route }) {
                 autoCapitalize="words"
               />
             </View>
-
             <View style={styles.stripeFieldWrap}>
               <CardField
                 postalCodeEnabled={false}
@@ -883,7 +1063,6 @@ export default function PaymentMethods({ navigation, route }) {
                 onCardChange={setStripeCardDetails}
               />
             </View>
-
             <View style={styles.preferenceRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.preferenceTitle}>Usar como método de pago predeterminado</Text>
@@ -936,7 +1115,6 @@ function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
           </View>
           <Text style={styles.deleteTitle}>Eliminar tarjeta</Text>
           <Text style={styles.deleteMessage}>Esta tarjeta se quitará de tus métodos de pago guardados.</Text>
-
           <View style={styles.deleteCardPreview}>
             <Ionicons name="card-outline" size={19} color={COLORS.text} style={{ marginRight: 8 }} />
             <View style={{ flex: 1 }}>
@@ -944,7 +1122,6 @@ function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
               <Text style={styles.deleteCardSub}>Esta acción no se puede deshacer.</Text>
             </View>
           </View>
-
           <View style={styles.deleteButtons}>
             <TouchableOpacity style={styles.deleteCancelButton} onPress={onClose} disabled={deleting}>
               <Text style={styles.deleteCancelText}>Cancelar</Text>
@@ -981,8 +1158,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    color: COLORS.text,
-    fontSize: 17,
+    color: COLORS.blue,
+    fontSize: 18,
     fontWeight: '800',
     flex: 1,
     textAlign: 'center',
@@ -1399,6 +1576,44 @@ const styles = StyleSheet.create({
     color: COLORS.blue,
     fontSize: 14,
     fontWeight: '900',
+  },
+  // Modal WebView de PayPal
+  paypalModal: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  paypalModalHeader: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+  },
+  paypalModalTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '800',
+    flex: 1,
+    textAlign: 'center',
+  },
+  paypalWebView: {
+    flex: 1,
+  },
+  paypalWebViewLoader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bg,
+    zIndex: 10,
+  },
+  paypalWebViewLoaderText: {
+    marginTop: 12,
+    color: COLORS.muted,
+    fontSize: 14,
+    fontWeight: '700',
   },
   deleteOverlay: {
     flex: 1,

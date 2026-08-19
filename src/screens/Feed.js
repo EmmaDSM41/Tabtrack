@@ -40,9 +40,35 @@ const USER_ENVIRONMENT_KEY = 'user_environment';
 const STAR_COLOR = '#ffbf00';
 const BLUE = '#0046ff';
 
+// NUEVO: valores por defecto de los filtros de precio. Representan el
+// estado "sin filtro" (todo el rango posible), para que al entrar a la
+// pantalla se muestren todos los restaurantes sin que el filtro de precio
+// excluya nada.
+const DEFAULT_MIN_PRICE = 0;
+const DEFAULT_MAX_PRICE = 2000;
+// NUEVO: radio de búsqueda por defecto en 0 (filtro inactivo). Solo tiene
+// efecto una vez que la ubicación está activada (useLocation === true).
+const DEFAULT_SEARCH_RADIUS_KM = 0;
+
 const normalizeEnvironment = (value) => {
   if (value === null || value === undefined) return '';
   return String(value).trim().toLowerCase();
+};
+
+// NUEVO: determina si un restaurante viene marcado como activo en el
+// listado de la API (campo 'activo'). Si el restaurante trae
+// explícitamente activo === false (o "false" como string), se descarta
+// junto con todas sus sucursales. Si el campo no viene en la respuesta,
+// se asume activo para no ocultar restaurantes por falta de dato.
+const isRestaurantActive = (rest) => {
+  if (!rest) return false;
+  const raw = rest.activo ?? rest.active ?? rest?.raw?.activo ?? rest?.raw?.active;
+  if (raw === undefined || raw === null) return true;
+  if (typeof raw === 'boolean') return raw;
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'false' || s === '0' || s === 'no') return false;
+  if (s === 'true' || s === '1' || s === 'si' || s === 'sí') return true;
+  return true;
 };
 
 const getAuthHeaders = (extra = {}) => {
@@ -342,8 +368,11 @@ export default function RestaurantsScreen() {
   ];
   const [cuisine, setCuisine] = useState('todos');
 
-  const [minPrice, setMinPrice] = useState(0);
-  const [maxPrice, setMaxPrice] = useState(500);
+  // CAMBIADO: rango de precios por defecto ahora cubre todo el rango
+  // posible (0 - 2000) para que, sin tocar el filtro, no se excluya a
+  // ningún restaurante.
+  const [minPrice, setMinPrice] = useState(DEFAULT_MIN_PRICE);
+  const [maxPrice, setMaxPrice] = useState(DEFAULT_MAX_PRICE);
 
   const [loading, setLoading] = useState(true);
 
@@ -354,7 +383,13 @@ export default function RestaurantsScreen() {
 
   const [useLocation, setUseLocation] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [searchRadiusKm, setSearchRadiusKm] = useState(5);
+  // CAMBIADO: radio de búsqueda inicia en 0 (filtro inactivo por defecto).
+  const [searchRadiusKm, setSearchRadiusKm] = useState(DEFAULT_SEARCH_RADIUS_KM);
+
+  // NUEVO: estado para el aviso de confirmación al mover el radio de
+  // búsqueda sin tener la ubicación activada todavía.
+  const [showRadiusConfirm, setShowRadiusConfirm] = useState(false);
+  const [pendingRadius, setPendingRadius] = useState(null);
 
   const runShowToast = (message) => {
     setToastMessage(message);
@@ -386,48 +421,87 @@ export default function RestaurantsScreen() {
     }
   };
 
+  // CAMBIADO: ahora devuelve un booleano (true = ubicación obtenida con
+  // éxito, false = no se pudo activar), para poder encadenar acciones
+  // (como aplicar el radio de búsqueda pendiente) solo si tuvo éxito.
+  // También se quitó el toast de "Ubicación obtenida" que ya no se
+  // necesita mostrar.
   const requestLocationAndActivate = async () => {
     try {
       const ok = await hasLocationPermission();
       if (!ok) {
         runShowToast('Permiso de ubicación denegado');
         setUseLocation(false);
-        return;
+        return false;
       }
 
-      Geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords || {};
-          if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-            setUserLocation({ latitude, longitude });
-            setUseLocation(true);
-            runShowToast('Ubicación obtenida');
-          } else {
+      return await new Promise((resolve) => {
+        Geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords || {};
+            if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+              setUserLocation({ latitude, longitude });
+              setUseLocation(true);
+              resolve(true);
+            } else {
+              setUserLocation(null);
+              setUseLocation(false);
+              runShowToast('No se pudo obtener ubicación válida');
+              resolve(false);
+            }
+          },
+          (error) => {
+            console.warn('requestLocationAndActivate - geolocation error', error);
             setUserLocation(null);
             setUseLocation(false);
-            runShowToast('No se pudo obtener ubicación válida');
-          }
-        },
-        (error) => {
-          console.warn('requestLocationAndActivate - geolocation error', error);
-          setUserLocation(null);
-          setUseLocation(false);
-          if (error && error.code === 1) {
-            runShowToast('Permiso de ubicación denegado');
-          } else if (error && error.code === 2) {
-            runShowToast('No se encontró la ubicación del dispositivo');
-          } else {
-            runShowToast(error?.message ? String(error.message) : 'Error obteniendo ubicación');
-          }
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-      );
+            if (error && error.code === 1) {
+              runShowToast('Permiso de ubicación denegado');
+            } else if (error && error.code === 2) {
+              runShowToast('No se encontró la ubicación del dispositivo');
+            } else {
+              runShowToast(error?.message ? String(error.message) : 'Error obteniendo ubicación');
+            }
+            resolve(false);
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        );
+      });
     } catch (e) {
       console.warn('requestLocationAndActivate exception', e);
       setUserLocation(null);
       setUseLocation(false);
       runShowToast('Error solicitando permiso de ubicación');
+      return false;
     }
+  };
+
+  // NUEVO: se dispara cuando el usuario suelta el slider de radio de
+  // búsqueda sin tener la ubicación activada. Guarda el valor que quería
+  // poner y muestra el aviso de confirmación.
+  const handleRadiusSlidingComplete = (val) => {
+    if (useLocation) return;
+    setPendingRadius(val);
+    setShowRadiusConfirm(true);
+  };
+
+  // NUEVO: el usuario aceptó activar la ubicación desde el aviso del radio
+  // de búsqueda. Si se obtiene la ubicación con éxito, se aplica el radio
+  // que había intentado poner.
+  const handleAcceptRadiusConfirm = async () => {
+    setShowRadiusConfirm(false);
+    const ok = await requestLocationAndActivate();
+    if (ok && pendingRadius != null) {
+      setSearchRadiusKm(pendingRadius);
+    }
+    setPendingRadius(null);
+  };
+
+  // NUEVO: el usuario canceló el aviso; el radio de búsqueda se mantiene
+  // desactivado (vuelve a su valor anterior porque nunca se actualizó el
+  // estado real del filtro).
+  const handleCancelRadiusConfirm = () => {
+    setShowRadiusConfirm(false);
+    setPendingRadius(null);
   };
 
   useEffect(() => {
@@ -455,7 +529,19 @@ export default function RestaurantsScreen() {
         }
         if (!mounted) return;
 
-        const allRestaurants = Array.isArray(list) ? list : [];
+        const allRestaurantsRaw = Array.isArray(list) ? list : [];
+
+        // NUEVO: solo se procesan (y por lo tanto solo se listan sus
+        // sucursales) los restaurantes que vienen marcados como activos.
+        // Los que traen activo === false quedan fuera desde aquí, así no
+        // se gastan peticiones de detalle/sucursales en restaurantes que
+        // no deben mostrarse.
+        const allRestaurants = allRestaurantsRaw.filter(isRestaurantActive);
+
+        console.warn('[RestaurantsScreen] restaurantes activos vs total recibido:', {
+          activos: allRestaurants.length,
+          total: allRestaurantsRaw.length,
+        });
 
         const restNameMap = {};
         const restEnvironmentMap = {};
@@ -842,7 +928,12 @@ export default function RestaurantsScreen() {
         if (pMax < minPrice || pMin > maxPrice) matchPrice = false;
         else matchPrice = true;
       } else {
-        if (minPrice === 0 && maxPrice === 500) matchPrice = true;
+        // CAMBIADO: el estado "sin filtro de precio" ahora es
+        // minPrice === DEFAULT_MIN_PRICE && maxPrice === DEFAULT_MAX_PRICE
+        // (antes era 0-500), para que coincida con los nuevos valores por
+        // defecto del filtro y no oculte restaurantes sin datos de precio
+        // cuando el usuario no ha tocado el filtro.
+        if (minPrice === DEFAULT_MIN_PRICE && maxPrice === DEFAULT_MAX_PRICE) matchPrice = true;
         else matchPrice = false;
       }
 
@@ -873,7 +964,6 @@ export default function RestaurantsScreen() {
 
   useEffect(() => {
     applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, minRating, city, restaurants, cuisine, minPrice, maxPrice, useLocation, userLocation, searchRadiusKm, environment]);
 
   const toggleFavorite = async (item) => {
@@ -1040,15 +1130,28 @@ export default function RestaurantsScreen() {
                 <View style={{ marginTop: 8, paddingHorizontal: 6 }}>
                   <Slider
                     style={styles.slider}
-                    minimumValue={1}
+                    minimumValue={0}
                     maximumValue={50}
                     step={1}
                     value={searchRadiusKm}
-                    onValueChange={val => setSearchRadiusKm(val)}
+                    onValueChange={(val) => {
+                      // CAMBIADO: si la ubicación no está activada todavía,
+                      // el filtro de radio no se aplica en vivo; se espera a
+                      // que el usuario suelte el slider para pedir
+                      // confirmación (ver onSlidingComplete).
+                      if (useLocation) {
+                        setSearchRadiusKm(val);
+                      }
+                    }}
+                    onSlidingComplete={handleRadiusSlidingComplete}
                     minimumTrackTintColor={STAR_COLOR}
                     maximumTrackTintColor="#ddd"
                   />
-                  <Text style={{ color: '#444', marginTop: 6 }}>Mostrando restaurantes dentro de {searchRadiusKm} km</Text>
+                  <Text style={{ color: '#444', marginTop: 6 }}>
+                    {useLocation
+                      ? `Mostrando restaurantes dentro de ${searchRadiusKm} km`
+                      : 'Actívala para usar el radio de búsqueda'}
+                  </Text>
                 </View>
 
                 <Text style={styles.modalLabel}>Rating</Text>
@@ -1123,11 +1226,11 @@ export default function RestaurantsScreen() {
                     setCity('Todos');
                     setMinRating(0);
                     setCuisine('todos');
-                    setMinPrice(0);
-                    setMaxPrice(500);
+                    setMinPrice(DEFAULT_MIN_PRICE);
+                    setMaxPrice(DEFAULT_MAX_PRICE);
                     setUseLocation(false);
                     setUserLocation(null);
-                    setSearchRadiusKm(5);
+                    setSearchRadiusKm(DEFAULT_SEARCH_RADIUS_KM);
                   }}
                   style={styles.clearButton}
                 >
@@ -1146,6 +1249,29 @@ export default function RestaurantsScreen() {
               </View>
             </View>
           </SafeAreaView>
+        </Modal>
+      )}
+
+      {/* NUEVO: aviso de confirmación al mover el radio de búsqueda sin
+          tener la ubicación activada. Chico, centrado, no invasivo. */}
+      {showRadiusConfirm && (
+        <Modal visible={showRadiusConfirm} transparent animationType="fade" onRequestClose={handleCancelRadiusConfirm}>
+          <View style={styles.confirmOverlay}>
+            <View style={styles.confirmBox}>
+              <Text style={styles.confirmTitle}>Activar ubicación</Text>
+              <Text style={styles.confirmText}>
+                Para usar el radio de búsqueda necesitamos activar tu ubicación precisa. ¿Deseas activarla?
+              </Text>
+              <View style={styles.confirmActions}>
+                <TouchableOpacity onPress={handleCancelRadiusConfirm} style={styles.confirmCancelBtn}>
+                  <Text style={styles.confirmCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleAcceptRadiusConfirm} style={styles.confirmAcceptBtn}>
+                  <Text style={styles.confirmAcceptText}>Aceptar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </Modal>
       )}
 
@@ -1218,12 +1344,12 @@ function RestaurantCard({
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>{mainName}</Text>
           {secondName ? <Text style={styles.name} numberOfLines={1}>{secondName}</Text> : null}
-          {restaurant.city ? <Text style={styles.sub}>{restaurant.city}</Text> : null}
+          {(restaurant.short_description || restaurant.full_description) ? (
+            <Text style={styles.sub} numberOfLines={1}>{restaurant.short_description || restaurant.full_description}</Text>
+          ) : null}
           {restaurant.tipo_comida_raw ? (
             <Text style={styles.shortDesc}>{restaurant.tipo_comida_raw}</Text>
-          ) : (
-            restaurant.short_description ? <Text style={styles.shortDesc}>{restaurant.short_description}</Text> : null
-          )}
+          ) : null}
         </View>
 
         <View style={{ justifyContent: 'center', alignItems: 'flex-end' }}>
@@ -1389,4 +1515,27 @@ const styles = StyleSheet.create({
   },
   toastText: { color: '#fff', flex: 1, marginRight: 12 },
   toastLink: { color: '#4EA1FF', fontWeight: '700', marginLeft: 8 },
+
+  // NUEVO: estilos para el aviso de confirmación del radio de búsqueda.
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  confirmBox: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+  },
+  confirmTitle: { fontSize: 16, fontWeight: '700', color: '#222', marginBottom: 8 },
+  confirmText: { fontSize: 14, color: '#555', lineHeight: 20 },
+  confirmActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
+  confirmCancelBtn: { paddingVertical: 8, paddingHorizontal: 14, marginRight: 8, justifyContent: 'center' },
+  confirmCancelText: { color: '#555', fontWeight: '600' },
+  confirmAcceptBtn: { backgroundColor: '#0046ff', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, justifyContent: 'center' },
+  confirmAcceptText: { color: '#fff', fontWeight: '700' },
 });

@@ -268,6 +268,7 @@ export default function VerificationScreen({ navigation, route }) {
         try {
           await AsyncStorage.setItem('user_verified', '1');
           await AsyncStorage.setItem('user_double_verification', '1');
+          await AsyncStorage.removeItem('pendingVerification');
         } catch (e) {
           console.warn('persist local verification flag error', e);
         }

@@ -1210,7 +1210,7 @@ export default function Dividir() {
           <View style={{ height: Math.round(hp(1)) }} />
 
           <LinearGradient
-            colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+            colors={['#0046ff', '#0046ff', '#0046ff']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={[styles.shareButtonGradient, { width: shareBtnWidth, marginTop: Math.round(hp(1)) }]}

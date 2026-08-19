@@ -578,6 +578,17 @@ export default function EqualSplit() {
   const modalWidth = Math.round(Math.min(width - 48, 360));
   const logoSize = Math.round(clamp(rf(12), 80, 140));
 
+  // Entre más largo sea el total (más dígitos), menos margen izquierdo le
+  // damos a la columna derecha, para que le quede más ancho disponible al
+  // número y no se recorte, manteniendo el mismo tamaño de letra.
+  const totalLen = String(totalStr).length;
+  const rightColMarginBase = isNarrow ? wp(42) : wp(30);
+  const rightColMarginMin = isNarrow ? wp(4) : wp(2);
+  const rightColMarginStep = isNarrow ? wp(5.2) : wp(4.4);
+  const rightColMarginLeft = Math.round(
+    clamp(rightColMarginBase - Math.max(0, totalLen - 3) * rightColMarginStep, rightColMarginMin, rightColMarginBase)
+  );
+
   const styles = useMemo(() => makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow }), [wp, hp, rf, clamp, width, height, contentWidth, modalWidth, logoSize, sidePad, isNarrow]);
 
   return (
@@ -605,11 +616,15 @@ export default function EqualSplit() {
               </View>
             </View>
 
-            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: Math.round(wp(42)) } : { marginLeft: Math.round(wp(30)) }]}>
+            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: rightColMarginLeft, marginRight: Math.round(wp(0.5)) } : { marginLeft: rightColMarginLeft, marginRight: Math.round(wp(0.5)) }]}>
               <Text style={styles.totalLabel}>Total</Text>
 
               <View style={styles.totalRow}>
-                <Text style={[styles.totalNumber, { fontSize: totalFont }]} numberOfLines={1} ellipsizeMode="clip">
+                <Text
+                  style={[styles.totalNumber, { fontSize: totalFont }]}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
                   {totalStr}
                 </Text>
                 <Text style={styles.totalCurrency}> MXN</Text>

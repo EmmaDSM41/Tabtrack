@@ -16,21 +16,31 @@ export default function SplashScreen({ navigation }) {
         const uid = await AsyncStorage.getItem('user_usuario_app_id');
         const valid = await AsyncStorage.getItem('user_valid');
         const email = await AsyncStorage.getItem('user_email');
+        const pendingVerification =
+          await AsyncStorage.getItem('pendingVerification');
 
         const hasSession = !!(uid || (valid && (valid === 'true' || valid === '1')) || email);
 
         let targetRoute = 'Welcome';
 
-        if (hasSession) {
+        if (pendingVerification) {
+
+          targetRoute = 'Verificacion';
+
+        } else if (hasSession) {
+
           const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
           const residenceRaw = await AsyncStorage.getItem('user_residence_activo');
-          const residenceActive = ['true', '1'].includes(String(residenceRaw ?? '').toLowerCase());
+          const residenceActive = ['true', '1'].includes(
+            String(residenceRaw ?? '').toLowerCase()
+          );
 
           if (defaultHome === 'residence' && residenceActive) {
             targetRoute = 'HomeResidence';
           } else {
             targetRoute = 'Home';
           }
+
         }
 
         timer = setTimeout(() => {

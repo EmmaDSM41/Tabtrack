@@ -268,6 +268,8 @@ export default function Escanear() {
   const [conflictAlertTitle, setConflictAlertTitle] = useState('');
   const [conflictAlertMessage, setConflictAlertMessage] = useState('');
 
+  const [noOpenAccountVisible, setNoOpenAccountVisible] = useState(false);
+
   const showStyledAlert = (t, m) => { setStyledAlertTitle(t || 'Aviso'); setStyledAlertMessage(m || ''); setStyledAlertVisible(true); };
   const hideStyledAlert = () => setStyledAlertVisible(false);
 
@@ -431,6 +433,19 @@ export default function Escanear() {
       const nextRestauranteId = json.restaurante_id ?? json.restaurante ?? null;
       const nextSucursalId = json.sucursal_id ?? json.sucursal ?? null;
 
+      const rawItems = Array.isArray(json.items) ? json.items : [];
+      const saleIdFromJson = json.sale_id ?? json.venta_id ?? json.id ?? null;
+
+      // Si no hay items y tampoco un identificador de venta/cuenta, es que
+      // no hay ninguna cuenta abierta para este código escaneado.
+      if ((!rawItems || rawItems.length === 0) && !saleIdFromJson) {
+        if (isMountedRef.current) {
+          setLoading(false);
+          setNoOpenAccountVisible(true);
+        }
+        return;
+      }
+
       if (isMountedRef.current) {
         setMesaId(json.mesa_id ?? json.mesa ?? null);
         setMesero(json.mesero ?? json.cajero ?? null);
@@ -446,8 +461,6 @@ export default function Escanear() {
       const possibleImage = json.imagen_banner_url ?? json.imagen_url ?? json.imagen ?? json.image_url ?? json.image ?? null;
       if (possibleImage && String(possibleImage).trim()) setRestaurantImageUri(String(possibleImage).trim());
       else setRestaurantImageUri(null);
-
-      const rawItems = Array.isArray(json.items) ? json.items : [];
 
       if (nextRestauranteId && nextSucursalId) {
         try {
@@ -469,8 +482,20 @@ export default function Escanear() {
         return s + safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
       }, 0);
 
+      // Si la venta trae descuento, "total_consumo" ya viene neto (con el
+      // descuento aplicado), pero la suma de "precio_item" de los items
+      // sigue siendo la del precio ORIGINAL (sin descuento). Sin este ajuste,
+      // esa diferencia hace que el detector de abajo crea erróneamente que
+      // "precio_item" es un precio unitario (cuando en realidad ya es el
+      // total de la línea) y termine multiplicando de más los items con
+      // cantidad > 1 (ej. el agua x7 saliendo con un total inflado).
+      const discountAmountForHeuristic = safeNum(
+        json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0
+      );
+      const reportedTotalBeforeDiscount = reportedTotalFromJson + discountAmountForHeuristic;
+
       const EPS = 0.5;
-      const precioItemRepresentaTotalDeLinea = (reportedTotalFromJson > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalFromJson) <= EPS);
+      const precioItemRepresentaTotalDeLinea = (reportedTotalBeforeDiscount > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalBeforeDiscount) <= EPS);
 
       const expandedItems = [];
       rawItems.forEach((it, idx) => {
@@ -1384,6 +1409,28 @@ const itemsForDividir = (items || []).map((it) => ({
           </View>
         </View>
       )}
+
+      {noOpenAccountVisible && (
+        <View style={styles.conflictBackdrop}>
+          <View style={[styles.noAccountBox, { width: Math.min(layoutWidth - 32, Math.max(wp(78), 320)) }]}>
+            <View style={styles.noAccountIconWrap}>
+              <Ionicons name="receipt-outline" size={30} color="#0046ff" />
+            </View>
+
+            <Text style={styles.noAccountTitle}>Sin cuenta abierta</Text>
+            <Text style={styles.noAccountMessage}>No hay ninguna cuenta abierta para este código. Vuelve a escanear para intentarlo de nuevo.</Text>
+
+            <TouchableOpacity
+              onPress={() => { setNoOpenAccountVisible(false); navigation.navigate('QRMain'); }}
+              style={styles.noAccountBtn}
+              activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.noAccountBtnText}>Volver</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1480,4 +1527,53 @@ const styles = StyleSheet.create({
   conflictMessage: { color: '#111', fontSize: 14, lineHeight: 20 },
   conflictBtn: { backgroundColor: '#0046ff', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginLeft: 8 },
   conflictBtnText: { color: '#fff', fontWeight: '800' },
+
+  noAccountBox: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 26,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    elevation: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18,
+  },
+  noAccountIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#eaf0ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  noAccountTitle: {
+    fontWeight: '800',
+    color: '#111',
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  noAccountMessage: {
+    color: '#5b6472',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 22,
+  },
+  noAccountBtn: {
+    width: '100%',
+    backgroundColor: '#0046ff',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noAccountBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 16,
+  },
 });

@@ -180,6 +180,13 @@ export default function Cuenta({ navigation }) {
         } catch (errSend) {
           console.warn('Error enviando código de verificación:', errSend);
         }
+        await AsyncStorage.setItem(
+  'pendingVerification',
+  JSON.stringify({
+    email: mail,
+    createdAt: Date.now(),
+  })
+);
 
         navigation.dispatch(
           CommonActions.reset({

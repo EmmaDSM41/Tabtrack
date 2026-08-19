@@ -4,6 +4,7 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -33,6 +34,7 @@ import {
   confirmPlatformPayPayment,
 } from '@stripe/stripe-react-native';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { getClientMetadataId } from '../native/magnes';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
@@ -245,6 +247,9 @@ export default function PaymentMarketplace() {
   // Compatibilidad de Apple Pay a nivel dispositivo (SO + versión + soporte real de Stripe/Wallet).
   const [applePayDeviceSupported, setApplePayDeviceSupported] = useState(false);
 
+  // --- MAGNES: ID de dispositivo para PayPal Fraud Protection ---
+  const [paypalClientMetadataId, setPaypalClientMetadataId] = useState(null);
+
   const [notice, setNotice] = useState({ visible: false, title: '', message: '' });
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -257,17 +262,17 @@ export default function PaymentMarketplace() {
   const fallbackEqualSplitTip = tipPercent > 0 ? round2(fallbackEqualSplitBase * (tipPercent / 100)) : Number(tipAmount || 0);
   const displayCharge = comingFromEqualSplit
     ? (equalSplitCharge ?? {
-        paidCount: 0,
-        baseAmount: fallbackEqualSplitBase,
-        tipAmount: fallbackEqualSplitTip,
-        totalAmount: round2(fallbackEqualSplitBase + fallbackEqualSplitTip),
-      })
+      paidCount: 0,
+      baseAmount: fallbackEqualSplitBase,
+      tipAmount: fallbackEqualSplitTip,
+      totalAmount: round2(fallbackEqualSplitBase + fallbackEqualSplitTip),
+    })
     : {
-        paidCount: 0,
-        baseAmount: subtotalAmount,
-        tipAmount: Number(tipAmount || 0),
-        totalAmount: rawDisplayAmount,
-      };
+      paidCount: 0,
+      baseAmount: subtotalAmount,
+      tipAmount: Number(tipAmount || 0),
+      totalAmount: rawDisplayAmount,
+    };
   const displayAmount = round2(displayCharge.totalAmount);
   const pagePadding = Math.max(18, Math.round(width * 0.055));
   const totalText = `${formatMoney(displayAmount)} ${moneda}`;
@@ -330,8 +335,19 @@ export default function PaymentMarketplace() {
 
   const normalizeGateway = (value) => String(value || '').toLowerCase().trim();
 
+  // --- Detección de wallets (Apple Pay) que vienen del API con gateway:"stripe" ---
+  const isWalletApplePayPayload = (pm) => {
+    const rawType = String(pm?.type ?? pm?.wallet_type ?? '').toLowerCase().trim();
+    const rawCategory = String(pm?.category ?? '').toLowerCase().trim();
+    if (rawType === 'apple_pay' || rawType === 'applepay') return true;
+    if (rawCategory === 'wallet' && rawType.includes('apple')) return true;
+    return false;
+  };
+
   const normalizePaymentMethod = (pm) => {
-    const gateway = normalizeGateway(pm.gateway ?? pm.provider ?? pm.payment_gateway ?? pm.tipo_gateway ?? pm.raw?.gateway);
+    let gateway = normalizeGateway(pm.gateway ?? pm.provider ?? pm.payment_gateway ?? pm.tipo_gateway ?? pm.raw?.gateway);
+    if (isWalletApplePayPayload(pm)) gateway = 'apple_pay';
+
     return {
       id: pm.id ?? pm.mobile_payment_method_id ?? pm.payment_method_id ?? null,
       mobile_payment_method_id: pm.mobile_payment_method_id ?? pm.id ?? null,
@@ -347,7 +363,6 @@ export default function PaymentMarketplace() {
     };
   };
 
-  // Nuevo formato simplificado de /payments: solo importa configured + enabled.
   const isPaymentGatewayReady = (payment) => {
     if (!payment) return false;
     return payment.configured === true && payment.enabled === true;
@@ -367,7 +382,6 @@ export default function PaymentMarketplace() {
         gateway: normalizeGateway(payment.gateway ?? payment.provider ?? payment.name),
       }))
       .filter((payment) => payment.gateway)
-      // Apple Pay solo se considera disponible si además el dispositivo lo soporta (iOS + versión + wallet configurado).
       .filter((payment) => (isApplePayGatewayName(payment.gateway) ? applePayDeviceSupported : true));
   };
 
@@ -488,6 +502,20 @@ export default function PaymentMarketplace() {
     return () => { mounted = false; };
   }, []);
 
+  // --- MAGNES: recolectar device ID para PayPal Fraud Protection al montar la pantalla ---
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const id = await getClientMetadataId();
+        if (mounted && id) setPaypalClientMetadataId(id);
+      } catch (err) {
+        console.warn('Magnes getClientMetadataId error', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const loadMarketplaceMethods = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
@@ -513,7 +541,6 @@ export default function PaymentMarketplace() {
         return;
       }
 
-  
       const envBucket = json?.environments?.[PAYMENT_METHODS_ENVIRONMENT];
       const arr = Array.isArray(envBucket?.payment_methods)
         ? envBucket.payment_methods
@@ -525,8 +552,6 @@ export default function PaymentMarketplace() {
 
       const normalized = arr
         .map(normalizePaymentMethod)
-        // Si el método guardado/predeterminado es Apple Pay pero el dispositivo no es compatible
-        // (Android, o iOS con versión no soportada), se descarta y se cae a los demás métodos.
         .filter((m) => (isApplePayGatewayName(m.gateway) ? applePayDeviceSupported : true));
 
       const gateways = resolveAvailableGateways(restaurantGateways, normalized);
@@ -555,7 +580,7 @@ export default function PaymentMarketplace() {
       if (usuarioAppId) loadMarketplaceMethods();
     });
     return () => {
-      try { if (typeof unsub === 'function') unsub(); } catch (e) {}
+      try { if (typeof unsub === 'function') unsub(); } catch (e) { }
     };
   }, [navigation, usuarioAppId, loadMarketplaceMethods]);
 
@@ -740,11 +765,14 @@ export default function PaymentMarketplace() {
   };
 
   // walletType: cuando se paga con Apple Pay, gateway sigue siendo 'stripe' y se agrega wallet_type: 'apple_pay'.
-   
+  // Para PayPal: flow cambia a 'checkout' y se agrega paypal_client_metadata_id de Magnes.
   const createTransaction = async ({ gateway, savedMethod = null, walletType = null }) => {
     await ensureToken();
     const customer = await resolveCustomerForPayment();
     const chargeInfo = await getChargeInfoForTransaction();
+
+    // --- CAMBIO: flow depende del gateway ---
+    const isPaypal = normalizeGateway(gateway) === 'paypal';
     const body = {
       sucursal_id,
       gateway,
@@ -757,8 +785,13 @@ export default function PaymentMarketplace() {
       mesa_id: mesa_id ?? null,
       items_pagados: buildItemsForGateway(chargeInfo.baseAmount),
       return_url: params.return_url ?? params.returnUrl ?? undefined,
-      flow: 'elements',
+      flow: isPaypal ? 'checkout' : 'elements',
     };
+
+    // --- CAMBIO: agregar Magnes device ID cuando es PayPal ---
+    if (isPaypal && paypalClientMetadataId) {
+      body.paypal_client_metadata_id = paypalClientMetadataId;
+    }
 
     if (walletType) body.wallet_type = walletType;
 
@@ -793,7 +826,7 @@ export default function PaymentMarketplace() {
 
     try {
       if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId));
-    } catch (e) {}
+    } catch (e) { }
 
     return {
       transactionId,
@@ -828,6 +861,7 @@ export default function PaymentMarketplace() {
     return true;
   };
 
+  // --- CAMBIO: payWithSavedMethod ahora conecta el flujo de PayPal ---
   const payWithSavedMethod = async (method) => {
     if (!method) {
       showToast('Selecciona un método de pago', false);
@@ -845,10 +879,16 @@ export default function PaymentMarketplace() {
       return;
     }
 
+    // --- CAMBIO: PayPal con método guardado usa el mismo flujo de checkout ---
+    if (gateway === 'paypal') {
+      await payWithPaypal(method);
+      return;
+    }
+
     if (gateway !== 'stripe') {
       setNotice({
         visible: true,
-        title: gateway === 'paypal' ? 'PayPal pronto disponible' : 'Método preparado',
+        title: 'Método preparado',
         message: 'Este método ya queda preparado en la pantalla, pero aún falta conectar su flujo de pago.',
       });
       return;
@@ -880,7 +920,7 @@ export default function PaymentMarketplace() {
     const res = await fetch(buildSetupIntentUrl(), {
       method: 'POST',
       headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
-      body: JSON.stringify({ usuario_app_id: userId, set_preferred: true }),
+      body: JSON.stringify({ usuario_app_id: userId, set_preferred: true, environment: PAYMENT_METHODS_ENVIRONMENT, }),
     });
     const json = await res.json().catch(() => null);
 
@@ -966,7 +1006,7 @@ export default function PaymentMarketplace() {
     }
   };
 
-   const buildApplePayCartItems = (chargeInfo) => [
+  const buildApplePayCartItems = (chargeInfo) => [
     {
       label: 'Total',
       amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)),
@@ -1021,6 +1061,35 @@ export default function PaymentMarketplace() {
     }
   };
 
+  // --- NUEVO: flujo de pago con PayPal (flow: checkout + Magnes) ---
+  const payWithPaypal = async (savedMethod = null) => {
+      console.log('[PayPal] clientMetadataId:', paypalClientMetadataId); // 👈 temporal
+    setProcessing(true);
+    try {
+      validateBeforePayment();
+      const tx = await createTransaction({ gateway: 'paypal', savedMethod });
+
+      // PayPal con flow checkout: el servidor retorna checkout_url para redirigir al usuario.
+      // El backend ya procesa el pago internamente; solo esperamos que los splits queden pagados.
+      if (tx.checkoutUrl) {
+        await Linking.openURL(tx.checkoutUrl);
+      }
+
+      const poll = await pollSplitsUntilPaid(tx.transactionId);
+      if (poll.ok) {
+        navigateSuccess(tx.chargeInfo?.totalAmount);
+      } else {
+        showPaymentError('Pago pendiente', 'El servidor aún no refleja la venta como pagada con PayPal.', JSON.stringify(poll));
+      }
+    } catch (err) {
+      console.warn('payWithPaypal error', err);
+      showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con PayPal.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // --- CAMBIO: openManualGateway ahora conecta PayPal ---
   const openManualGateway = (gateway) => {
     const normalized = normalizeGateway(gateway);
     if (normalized === 'stripe' || normalized === 'card') {
@@ -1033,9 +1102,13 @@ export default function PaymentMarketplace() {
       payWithApplePay();
       return;
     }
+    if (normalized === 'paypal') {
+      payWithPaypal(null);
+      return;
+    }
     setNotice({
       visible: true,
-      title: normalized === 'paypal' ? 'PayPal pronto disponible' : 'Método preparado',
+      title: 'Método preparado',
       message: 'Este método se mostrará aquí cuando su integración esté lista para marketplace.',
     });
   };
@@ -1079,8 +1152,8 @@ export default function PaymentMarketplace() {
     if (g === 'paypal') {
       return (
         <View style={styles.paypalLogo}>
-          <Ionicons name="logo-paypal" size={22} color="#003087" />
-          <Text style={styles.paypalText}>PayPal</Text>
+          <Text style={styles.paypalTextPay}>Pay</Text>
+          <Text style={styles.paypalTextPal}>Pal</Text>
         </View>
       );
     }
@@ -1098,6 +1171,45 @@ export default function PaymentMarketplace() {
   const preferredMethod = methods.find((m) => Boolean(m.is_preferred)) || null;
   const hasMethods = methods.length > 0;
   const gatewaysForEmptyState = availableGateways;
+
+  const methodGatewaySet = useMemo(
+    () => new Set(methods.map((m) => normalizeGateway(m.gateway))),
+    [methods]
+  );
+
+  const placeholderGatewayMethods = useMemo(() => {
+    return availableGateways
+      .filter((g) => {
+        const norm = normalizeGateway(g);
+        if (!norm) return false;
+        if (norm === 'stripe' || norm === 'card') return false;
+        if (methodGatewaySet.has(norm)) return false;
+        return true;
+      })
+      .map((g) => {
+        const norm = normalizeGateway(g);
+        return {
+          id: `placeholder-${norm}`,
+          mobile_payment_method_id: null,
+          external_payment_method_id: null,
+          gateway: norm,
+          brand: '',
+          last4: '',
+          exp_month: null,
+          exp_year: null,
+          is_preferred: false,
+          status: '',
+          isPlaceholder: true,
+          raw: null,
+        };
+      });
+  }, [availableGateways, methodGatewaySet]);
+
+  const preferredKey = preferredMethod ? String(preferredMethod.id ?? preferredMethod.external_payment_method_id) : null;
+  const otherMethodsList = useMemo(() => {
+    const nonPreferred = methods.filter((m) => String(m.id ?? m.external_payment_method_id) !== preferredKey);
+    return [...nonPreferred, ...placeholderGatewayMethods];
+  }, [methods, placeholderGatewayMethods, preferredKey]);
 
   const renderBrandMark = (brand) => {
     const mark = getBrandMark(brand);
@@ -1119,6 +1231,59 @@ export default function PaymentMarketplace() {
     const methodId = method.id ?? method.external_payment_method_id;
     const selected = selectedMethod && String(selectedMethod.id ?? selectedMethod.external_payment_method_id) === String(methodId);
     const preferred = Boolean(method.is_preferred);
+    const gateway = normalizeGateway(method.gateway);
+    const isCardGateway = gateway === 'stripe' || gateway === 'card';
+    const isPaypalGateway = gateway === 'paypal';
+
+    // --- CAMBIO: PayPal ocupa toda la fila con el logo completo ---
+    if (isPaypalGateway) {
+      return (
+        <TouchableOpacity
+          key={`${gateway}-${methodId}`}
+          style={[styles.methodRow, selected && styles.methodRowSelected, styles.methodRowPaypal]}
+          activeOpacity={0.88}
+          onPress={() => setSelectedMethod(method)}
+        >
+          <View style={styles.paypalLogoFull}>
+            <Text style={styles.paypalTextPay}>Pay</Text>
+            <Text style={styles.paypalTextPal}>Pal</Text>
+          </View>
+          {preferred ? (
+            <View style={styles.preferredChip}>
+              <Ionicons name="star" size={11} color={COLORS.accent} style={{ marginRight: 3 }} />
+              <Text style={styles.preferredChipText}>Predeterminado</Text>
+            </View>
+          ) : null}
+          <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? COLORS.accent : COLORS.muted} style={{ marginLeft: 8 }} />
+        </TouchableOpacity>
+      );
+    }
+
+    if (!isCardGateway) {
+      return (
+        <TouchableOpacity
+          key={`${gateway}-${methodId}`}
+          style={[styles.methodRow, selected && styles.methodRowSelected]}
+          activeOpacity={0.88}
+          onPress={() => setSelectedMethod(method)}
+        >
+          <View style={styles.gatewayLogoWrap}>{renderGatewayLogo(gateway)}</View>
+          <View style={{ flex: 1 }}>
+            <View style={styles.methodTitleLine}>
+              <Text style={styles.methodTitle}>{gatewayLabel(gateway)}</Text>
+              {preferred ? (
+                <View style={styles.preferredChip}>
+                  <Ionicons name="star" size={11} color={COLORS.accent} style={{ marginRight: 3 }} />
+                  <Text style={styles.preferredChipText}>Predeterminado</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? COLORS.accent : COLORS.muted} />
+        </TouchableOpacity>
+      );
+    }
+
     const last4 = method.last4 || '----';
     const exp = method.exp_month && method.exp_year ? `${method.exp_month}/${String(method.exp_year).slice(-2)}` : '--/--';
 
@@ -1172,7 +1337,7 @@ export default function PaymentMarketplace() {
     );
   };
 
-   const logoWidth = clamp(Math.round(wp(28)), 80, 140);
+  const logoWidth = clamp(Math.round(wp(28)), 80, 140);
   const restaurantImgSize = clamp(Math.round(wp(16)), 48, 96);
   const rightColMaxWidth = Math.round(Math.min(Math.max(wp(36), 120), 220));
   const totalNumberFont = clamp(rf(7.5), 20, 36);
@@ -1258,17 +1423,34 @@ export default function PaymentMarketplace() {
                       <Text style={styles.blockSub}>Selecciona un método y confirma el pago.</Text>
                     </View>
                   </View>
-                  {methods.map(renderMethodRow)}
+                  {otherMethodsList.map(renderMethodRow)}
                   <TouchableOpacity style={styles.linkRow} onPress={() => openManualGateway('stripe')}>
                     <Ionicons name="add" size={18} color={COLORS.accent} />
                     <Text style={styles.linkRowText}>Usar una tarjeta nueva</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
-
-              <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={() => payWithSavedMethod(selectedMethod)} disabled={processing || !selectedMethod}>
-                {processing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>}
-              </TouchableOpacity>
+              <LinearGradient
+                colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.primaryButtonGradient}
+              >
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  activeOpacity={0.9}
+                  onPress={() => payWithSavedMethod(selectedMethod)}
+                  disabled={processing || !selectedMethod}
+                >
+                  {processing ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      Pagar {totalText}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </LinearGradient>
             </>
           ) : (
             <View style={styles.featureBlock}>
@@ -1427,7 +1609,7 @@ function NoticeModal({ notice, onClose }) {
           </View>
           <Text style={styles.noticeTitle}>{notice.title}</Text>
           <Text style={styles.noticeMessage}>{notice.message}</Text>
-          <TouchableOpacity style={styles.noticeButton} onPress={onClose}>
+          <TouchableOpacity style={styles.noticeButton} onClose={onClose}>
             <Text style={styles.noticeButtonText}>Entendido</Text>
           </TouchableOpacity>
         </View>
@@ -1511,6 +1693,18 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
   },
   methodRowSelected: { borderColor: COLORS.text },
+  // --- NUEVO: fila de PayPal con fondo amarillo completo ---
+  methodRowPaypal: {
+    backgroundColor: '#FFC439',
+    borderColor: '#FFC439',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  paypalLogoFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   brandMark: {
     width: 52,
     height: 36,
@@ -1616,19 +1810,24 @@ const styles = StyleSheet.create({
   paypalLogo: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#d9e5ff',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFC439',
   },
-  paypalText: {
+  paypalTextPay: {
     color: '#003087',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '900',
-    marginLeft: 6,
+    fontStyle: 'italic',
+  },
+  paypalTextPal: {
+    color: '#009cde',
+    fontSize: 17,
+    fontWeight: '900',
+    fontStyle: 'italic',
   },
   applePayLogo: {
     flexDirection: 'row',
@@ -1665,15 +1864,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  primaryButton: {
+  primaryButtonGradient: {
     height: 52,
     borderRadius: 16,
-    backgroundColor: COLORS.accent,
+    marginTop: 16,
+    overflow: 'hidden',
+  },
+  primaryButton: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
+    backgroundColor: 'transparent',
   },
-  primaryButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   manualContent: { paddingTop: 10 },
   cardPreview: {
     minHeight: 190,
