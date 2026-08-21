@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   SafeAreaView,
   View,
@@ -15,6 +15,10 @@ import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Mensaje genérico que verá el cliente, sin importar el error real del back
+const GENERIC_ERROR_MESSAGE =
+  'No pudimos procesar tu pago. Por favor verifica tus datos e intenta nuevamente.';
 
 export default function ErrorPago() {
   const navigation = useNavigation();
@@ -38,7 +42,22 @@ export default function ErrorPago() {
 
   const styles = makeStyles({ width, height, clamp, wp, hp, rf, insets });
 
-  const displayedMessage = String(message || 'Ocurrió un problema procesando el pago.');
+  // Mensaje real que vino del API, solo para logging interno (no se muestra al usuario)
+  const rawMessage = String(message || 'Ocurrió un problema procesando el pago.');
+
+  // Mensaje genérico que sí ve el cliente
+  const displayedMessage = GENERIC_ERROR_MESSAGE;
+
+  useEffect(() => {
+    // Aquí se loguea el error real del back para diagnóstico interno.
+    // Se puede reemplazar console.error por el logger/Sentry/Crashlytics que usen.
+    console.error('[ErrorPago] Detalle interno del error de pago:', {
+      rawMessage,
+      title,
+      transactionId,
+      timestamp: new Date().toISOString(),
+    });
+  }, [rawMessage, title, transactionId]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { paddingBottom: Math.max(16, insets.bottom + 8) }]}>

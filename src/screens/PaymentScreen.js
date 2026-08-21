@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   AppState,
   Image,
@@ -246,7 +245,6 @@ export default function PaymentMarketplace() {
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
   const [applePayDeviceSupported, setApplePayDeviceSupported] = useState(false);
-
   const [paypalClientMetadataId, setPaypalClientMetadataId] = useState(null);
   const [paypalNoticeVisible, setPaypalNoticeVisible] = useState(false);
   const [notice, setNotice] = useState({ visible: false, title: '', message: '' });
@@ -385,7 +383,6 @@ export default function PaymentMarketplace() {
 
   const loadRestaurantPayments = useCallback(async () => {
     if (!restaurante_id) return [];
-
     try {
       await ensureToken();
       const res = await fetch(buildRestaurantPaymentsUrl(restaurante_id), {
@@ -393,12 +390,10 @@ export default function PaymentMarketplace() {
         headers: getAuthHeaders(),
       });
       const json = await res.json().catch(() => null);
-
       if (!res.ok) {
         console.warn('loadRestaurantPayments error', res.status, json);
         return [];
       }
-
       const readyPayments = parseRestaurantPayments(json);
       setRestaurantPaymentEnvironment(json?.environment ?? json?.data?.environment ?? '');
       return readyPayments.map((payment) => payment.gateway);
@@ -417,10 +412,7 @@ export default function PaymentMarketplace() {
   const resolveUsuarioAppId = useCallback(async () => {
     if (usuarioAppId) return usuarioAppId;
     const stored = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
-    if (stored) {
-      setUsuarioAppId(stored);
-      return stored;
-    }
+    if (stored) { setUsuarioAppId(stored); return stored; }
     return '';
   }, [usuarioAppId]);
 
@@ -434,7 +426,6 @@ export default function PaymentMarketplace() {
       email = String(storedEmail || '').trim();
       if (email) setUserEmail(email);
     }
-
     if (!name) {
       const storedFull = await AsyncStorage.getItem(AS_KEYS.USER_FULLNAME);
       const storedNombre = await AsyncStorage.getItem(AS_KEYS.USER_NOMBRE);
@@ -442,7 +433,6 @@ export default function PaymentMarketplace() {
       name = String(storedFull || `${storedNombre ?? ''} ${storedApellido ?? ''}`.trim()).trim();
       if (name) setUserFullname(name);
     }
-
     if (!userId) {
       const storedUserId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
       userId = String(storedUserId || '').trim();
@@ -452,12 +442,7 @@ export default function PaymentMarketplace() {
     if (!name || name.length < 2) throw new Error('Ingresa el nombre del titular de la tarjeta');
     if (!email || !isValidEmail(email)) throw new Error('Ingresa un correo electrónico válido');
 
-    return {
-      email,
-      name,
-      usuarioAppId: userId,
-      transactionUsuarioAppId: email,
-    };
+    return { email, name, usuarioAppId: userId, transactionUsuarioAppId: email };
   }, [resolveUsuarioAppId, userEmail, userFullname]);
 
   useEffect(() => {
@@ -474,9 +459,7 @@ export default function PaymentMarketplace() {
         if (!userEmail && email) setUserEmail(email);
         if (!userFullname && name) setUserFullname(name);
         if (!usuarioAppId && userId) setUsuarioAppId(userId);
-      } catch (err) {
-        console.warn('PaymentMarketplace AsyncStorage error', err);
-      }
+      } catch (err) { console.warn('PaymentMarketplace AsyncStorage error', err); }
     })();
     return () => { mounted = false; };
   }, []);
@@ -484,10 +467,7 @@ export default function PaymentMarketplace() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!isIosVersionCompatibleWithApplePay()) {
-        if (mounted) setApplePayDeviceSupported(false);
-        return;
-      }
+      if (!isIosVersionCompatibleWithApplePay()) { if (mounted) setApplePayDeviceSupported(false); return; }
       try {
         const supported = await isPlatformPaySupported({ applePay: true });
         if (mounted) setApplePayDeviceSupported(Boolean(supported));
@@ -505,19 +485,14 @@ export default function PaymentMarketplace() {
       try {
         const id = await getClientMetadataId();
         if (mounted && id) setPaypalClientMetadataId(id);
-      } catch (err) {
-        console.warn('Magnes getClientMetadataId error', err);
-      }
+      } catch (err) { console.warn('Magnes getClientMetadataId error', err); }
     })();
     return () => { mounted = false; };
   }, []);
 
   const loadMarketplaceMethods = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
-    if (!userId) {
-      showToast('No se encontró usuario_app_id', false);
-      return;
-    }
+    if (!userId) { showToast('No se encontró usuario_app_id', false); return; }
 
     setLoadingMethods(true);
     try {
@@ -591,10 +566,7 @@ export default function PaymentMarketplace() {
     if (!FIXED_STRIPE_PUBLISHABLE_KEY || FIXED_STRIPE_PUBLISHABLE_KEY === 'pk_test_REPLACE_ME') {
       throw new Error('Falta configurar FIXED_STRIPE_PUBLISHABLE_KEY');
     }
-    await initStripe({
-      publishableKey: FIXED_STRIPE_PUBLISHABLE_KEY,
-      stripeAccountId: accountId || undefined,
-    });
+    await initStripe({ publishableKey: FIXED_STRIPE_PUBLISHABLE_KEY, stripeAccountId: accountId || undefined });
   };
 
   const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120000, intervalMs = 3000) => {
@@ -606,10 +578,7 @@ export default function PaymentMarketplace() {
 
     while (!pollingRef.current.stopRequested && Date.now() - start < timeoutMs) {
       try {
-        const res = await fetch(buildSplitsUrl(transactionId), {
-          method: 'GET',
-          headers: getAuthHeaders(),
-        });
+        const res = await fetch(buildSplitsUrl(transactionId), { method: 'GET', headers: getAuthHeaders() });
         const json = await res.json().catch(() => null);
         if (res.ok) {
           const splitsArr = Array.isArray(json?.splits) ? json.splits : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
@@ -622,25 +591,15 @@ export default function PaymentMarketplace() {
         } else {
           pollingRef.current.lastResult = { status: res.status, body: json };
         }
-      } catch (err) {
-        pollingRef.current.lastResult = { exception: String(err) };
-      }
+      } catch (err) { pollingRef.current.lastResult = { exception: String(err) }; }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
-
     return { ok: false, reason: 'timeout', last: pollingRef.current.lastResult };
   };
 
   const buildItemsForGateway = (baseAmount) => {
     if (comingFromEqualSplit) {
-      return [
-        {
-          codigo_item: String(1),
-          nombre_item: 'pago por partes iguales',
-          cantidad: 1,
-          precio_unitario: Number(baseAmount || 0),
-        },
-      ];
+      return [{ codigo_item: String(1), nombre_item: 'pago por partes iguales', cantidad: 1, precio_unitario: Number(baseAmount || 0) }];
     }
     return (Array.isArray(items) ? items : []).map((it) => ({
       codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
@@ -662,20 +621,14 @@ export default function PaymentMarketplace() {
 
     try {
       await ensureToken();
-      const res = await fetch(buildSaleSplitsUrl(sucursal_id, sale_id), {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      const res = await fetch(buildSaleSplitsUrl(sucursal_id, sale_id), { method: 'GET', headers: getAuthHeaders() });
       const json = await res.json().catch(() => null);
-
       if (!res.ok) {
         const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, 0);
         const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
         return { paidCount: 0, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
       }
-
       const splitsArr = Array.isArray(json?.splits) ? json.splits : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
-
       const paidEqualSplits = splitsArr.filter((s) => {
         const estado = String(s.estado ?? '').toLowerCase();
         if (estado !== 'paid') return false;
@@ -683,11 +636,9 @@ export default function PaymentMarketplace() {
         const name = String(s.nombre_item ?? s.nombre ?? s.name ?? '').toLowerCase();
         return code === '1' || /partes iguales|pago por partes iguales|pago por partes/i.test(name);
       });
-
       const paidCount = paidEqualSplits.length;
       const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, paidCount);
       const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
-
       return { paidCount, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
     } catch (err) {
       console.warn('resolveEqualSplitCharge error', err);
@@ -713,19 +664,13 @@ export default function PaymentMarketplace() {
       setEqualSplitCharge(info);
       return info;
     }
-    return {
-      paidCount: 0,
-      baseAmount: subtotalAmount,
-      tipAmount: Number(tipAmount || 0),
-      totalAmount: round2(subtotalAmount + Number(tipAmount || 0)),
-    };
+    return { paidCount: 0, baseAmount: subtotalAmount, tipAmount: Number(tipAmount || 0), totalAmount: round2(subtotalAmount + Number(tipAmount || 0)) };
   };
 
   const createTransaction = async ({ gateway, savedMethod = null, walletType = null }) => {
     await ensureToken();
     const customer = await resolveCustomerForPayment();
     const chargeInfo = await getChargeInfoForTransaction();
-
     const isPaypal = normalizeGateway(gateway) === 'paypal';
     const body = {
       sucursal_id,
@@ -741,42 +686,23 @@ export default function PaymentMarketplace() {
       return_url: params.return_url ?? params.returnUrl ?? undefined,
       flow: isPaypal ? 'checkout' : 'elements',
     };
-
-    if (isPaypal && paypalClientMetadataId) {
-      body.paypal_client_metadata_id = paypalClientMetadataId;
-    }
-
+    if (isPaypal && paypalClientMetadataId) body.paypal_client_metadata_id = paypalClientMetadataId;
     if (walletType) body.wallet_type = walletType;
-
     if (savedMethod) {
       body.mobile_payment_method_id = savedMethod.id ?? savedMethod.mobile_payment_method_id ?? null;
       if (customer.usuarioAppId) body.usuario_app_uuid = customer.usuarioAppId;
     }
 
-    const res = await fetch(buildTransactionUrl(), {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(buildTransactionUrl(), { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(body) });
     const json = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      throw new Error(json?.message || json?.error || `Error del servidor (${res.status})`);
-    }
+    if (!res.ok) throw new Error(json?.message || json?.error || `Error del servidor (${res.status})`);
 
     const transactionId = json?.transaction_id ?? json?.data?.transaction_id ?? json?.transactionId ?? null;
-    const clientSecret =
-      json?.client_secret || json?.payment_intent_client_secret || json?.data?.client_secret ||
-      json?.paymentIntentClientSecret || json?.clientSecret || null;
+    const clientSecret = json?.client_secret || json?.payment_intent_client_secret || json?.data?.client_secret || json?.paymentIntentClientSecret || json?.clientSecret || null;
     const checkoutUrl = json?.checkout_url ?? json?.data?.checkout_url ?? null;
     const accountId = extractStripeAccountId(json);
-
     if (!transactionId) throw new Error('El servidor no devolvió transaction_id');
-
-    try {
-      if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId));
-    } catch (e) { }
-
+    try { if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId)); } catch (e) { }
     return { transactionId, clientSecret, checkoutUrl, stripeAccountId: accountId, chargeInfo, raw: json };
   };
 
@@ -803,73 +729,39 @@ export default function PaymentMarketplace() {
     return true;
   };
 
-  // --- NUEVO: verifica si hay método de PayPal guardado y muestra alerta si no ---
-  const hasPaypalMethodSaved = () => {
-    return methods.some((m) => normalizeGateway(m.gateway) === 'paypal' && !m.isPlaceholder);
-  };
-
-const showPaypalNotConfiguredAlert = () => {
-  setPaypalNoticeVisible(true);
-};
+  const hasPaypalMethodSaved = () => methods.some((m) => normalizeGateway(m.gateway) === 'paypal' && !m.isPlaceholder);
+  const showPaypalNotConfiguredAlert = () => setPaypalNoticeVisible(true);
 
   const payWithSavedMethod = async (method) => {
-    if (!method) {
-      showToast('Selecciona un método de pago', false);
-      return;
-    }
-
+    if (!method) { showToast('Selecciona un método de pago', false); return; }
     const gateway = normalizeGateway(method.gateway);
-    if (!gateway) {
-      showToast('El método seleccionado no tiene gateway', false);
-      return;
-    }
-
-    if (isApplePayGatewayName(gateway)) {
-      await payWithApplePay();
-      return;
-    }
-
+    if (!gateway) { showToast('El método seleccionado no tiene gateway', false); return; }
+    if (isApplePayGatewayName(gateway)) { await payWithApplePay(); return; }
     if (gateway === 'paypal') {
-      // --- CAMBIO: si es placeholder (no configurado), muestra alerta en vez de intentar el pago ---
-      if (method.isPlaceholder || !hasPaypalMethodSaved()) {
-        showPaypalNotConfiguredAlert();
-        return;
-      }
+      if (method.isPlaceholder || !hasPaypalMethodSaved()) { showPaypalNotConfiguredAlert(); return; }
       await payWithPaypal(method);
       return;
     }
-
     if (gateway !== 'stripe') {
-      setNotice({
-        visible: true,
-        title: 'Método preparado',
-        message: 'Este método ya queda preparado en la pantalla, pero aún falta conectar su flujo de pago.',
-      });
+      setNotice({ visible: true, title: 'Método preparado', message: 'Este método ya queda preparado en la pantalla, pero aún falta conectar su flujo de pago.' });
       return;
     }
-
     setProcessing(true);
     try {
       validateBeforePayment();
       const tx = await createTransaction({ gateway, savedMethod: method });
       const poll = await pollSplitsUntilPaid(tx.transactionId);
-      if (poll.ok) {
-        navigateSuccess(tx.chargeInfo?.totalAmount);
-      } else {
-        showPaymentError('Pago pendiente', 'El servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
-      }
+      if (poll.ok) { navigateSuccess(tx.chargeInfo?.totalAmount); }
+      else { showPaymentError('Pago pendiente', 'El servidor aún no refleja la venta como pagada.', JSON.stringify(poll)); }
     } catch (err) {
       console.warn('payWithSavedMethod error', err);
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con el método guardado.');
-    } finally {
-      setProcessing(false);
-    }
+    } finally { setProcessing(false); }
   };
 
   const createSetupIntentOnServer = async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) throw new Error('Falta usuario_app_id');
-
     await ensureToken();
     const res = await fetch(buildSetupIntentUrl(), {
       method: 'POST',
@@ -877,13 +769,8 @@ const showPaypalNotConfiguredAlert = () => {
       body: JSON.stringify({ usuario_app_id: userId, set_preferred: true, environment: PAYMENT_METHODS_ENVIRONMENT }),
     });
     const json = await res.json().catch(() => null);
-
     if (!res.ok) throw new Error(json?.message || json?.error || `Error del servidor (${res.status})`);
-
-    const clientSecret =
-      json?.client_secret || json?.data?.client_secret ||
-      json?.setup_intent_client_secret || json?.setupIntentClientSecret || null;
-
+    const clientSecret = json?.client_secret || json?.data?.client_secret || json?.setup_intent_client_secret || json?.setupIntentClientSecret || null;
     if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
     return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
   };
@@ -893,49 +780,29 @@ const showPaypalNotConfiguredAlert = () => {
     const accountIdToUse = setup.stripeAccountId || stripeAccountId || null;
     await configureStripeForAccount(accountIdToUse);
     if (accountIdToUse) setStripeAccountId(accountIdToUse);
-
     const billingDetails = { email: userEmail, name: cardHolderName };
-    const res = await confirmSetupIntent(setup.clientSecret, {
-      paymentMethodType: 'Card',
-      paymentMethodData: { billingDetails },
-    });
-
+    const res = await confirmSetupIntent(setup.clientSecret, { paymentMethodType: 'Card', paymentMethodData: { billingDetails } });
     if (res.error) throw new Error(res.error.message || 'No se pudo guardar la tarjeta');
     return res.setupIntent;
   };
 
   const payWithManualStripeCard = async ({ save }) => {
-    if (!manualCardDetails || !manualCardDetails.complete) {
-      showToast('Ingresa los datos completos de la tarjeta', false);
-      return;
-    }
-    if (!cardHolderName || !cardHolderName.trim()) {
-      showToast('Ingresa el nombre del titular', false);
-      return;
-    }
-
+    if (!manualCardDetails || !manualCardDetails.complete) { showToast('Ingresa los datos completos de la tarjeta', false); return; }
+    if (!cardHolderName || !cardHolderName.trim()) { showToast('Ingresa el nombre del titular', false); return; }
     setProcessing(true);
     setSavingCard(Boolean(save));
     try {
       validateBeforePayment();
       await resolveCustomerForPayment();
       if (save) await confirmAndSaveCard();
-
       const tx = await createTransaction({ gateway: 'stripe' });
       if (!tx.clientSecret) throw new Error('El servidor no devolvió client_secret');
-
       const accountIdToUse = tx.stripeAccountId || stripeAccountId || null;
       await configureStripeForAccount(accountIdToUse);
       if (accountIdToUse) setStripeAccountId(accountIdToUse);
-
       const billingDetails = { email: userEmail, name: cardHolderName };
-      const { error, paymentIntent } = await confirmPayment(tx.clientSecret, {
-        paymentMethodType: 'Card',
-        paymentMethodData: { billingDetails },
-      });
-
+      const { error, paymentIntent } = await confirmPayment(tx.clientSecret, { paymentMethodType: 'Card', paymentMethodData: { billingDetails } });
       if (error) throw new Error(error.message || 'Error al confirmar el pago con Stripe');
-
       const status = String(paymentIntent?.status ?? '').toLowerCase();
       if (['succeeded', 'requires_capture', 'processing', 'requires_confirmation'].includes(status)) {
         const poll = await pollSplitsUntilPaid(tx.transactionId);
@@ -943,49 +810,30 @@ const showPaypalNotConfiguredAlert = () => {
         showPaymentError('Pago pendiente', 'Stripe confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
         return;
       }
-
       showPaymentError('Pago no completado', `Estado del pago: ${String(paymentIntent?.status)}`, JSON.stringify(paymentIntent));
     } catch (err) {
       console.warn('payWithManualStripeCard error', err);
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago.');
-    } finally {
-      setProcessing(false);
-      setSavingCard(false);
-    }
+    } finally { setProcessing(false); setSavingCard(false); }
   };
 
-  const buildApplePayCartItems = (chargeInfo) => [
-    { label: 'Total', amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)) },
-  ];
+  const buildApplePayCartItems = (chargeInfo) => [{ label: 'Total', amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)) }];
 
   const payWithApplePay = async () => {
-    if (!applePayDeviceSupported) {
-      showToast('Apple Pay no está disponible en este dispositivo', false);
-      return;
-    }
-
+    if (!applePayDeviceSupported) { showToast('Apple Pay no está disponible en este dispositivo', false); return; }
     setProcessing(true);
     try {
       validateBeforePayment();
       await resolveCustomerForPayment();
-
       const tx = await createTransaction({ gateway: 'stripe', walletType: 'apple_pay' });
       if (!tx.clientSecret) throw new Error('El servidor no devolvió client_secret');
-
       const accountIdToUse = tx.stripeAccountId || stripeAccountId || null;
       await configureStripeForAccount(accountIdToUse);
       if (accountIdToUse) setStripeAccountId(accountIdToUse);
-
       const { error, paymentIntent } = await confirmPlatformPayPayment(tx.clientSecret, {
-        applePay: {
-          cartItems: buildApplePayCartItems(tx.chargeInfo),
-          merchantCountryCode: 'MX',
-          currencyCode: moneda || 'MXN',
-        },
+        applePay: { cartItems: buildApplePayCartItems(tx.chargeInfo), merchantCountryCode: 'MX', currencyCode: moneda || 'MXN' },
       });
-
       if (error) throw new Error(error.message || 'Error al confirmar el pago con Apple Pay');
-
       const status = String(paymentIntent?.status ?? '').toLowerCase();
       if (['succeeded', 'requires_capture', 'processing', 'requires_confirmation'].includes(status)) {
         const poll = await pollSplitsUntilPaid(tx.transactionId);
@@ -993,43 +841,27 @@ const showPaypalNotConfiguredAlert = () => {
         showPaymentError('Pago pendiente', 'Apple Pay confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
         return;
       }
-
       showPaymentError('Pago no completado', `Estado del pago: ${String(paymentIntent?.status)}`, JSON.stringify(paymentIntent));
     } catch (err) {
       console.warn('payWithApplePay error', err);
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con Apple Pay.');
-    } finally {
-      setProcessing(false);
-    }
+    } finally { setProcessing(false); }
   };
 
-  // flujo de pago con PayPal con AppState para reducir tiempo de espera
+  // --- PayPal: abre checkout_url y hace polling con intervalMs reducido a 1500ms ---
+  // Se quitó el AppState listener porque en Android causaba que el polling
+  // iniciara más tarde de lo esperado, aumentando el tiempo total de espera.
   const payWithPaypal = async (savedMethod = null) => {
     console.log('[PayPal] clientMetadataId:', paypalClientMetadataId);
     setProcessing(true);
     try {
       validateBeforePayment();
       const tx = await createTransaction({ gateway: 'paypal', savedMethod });
-
-      if (tx.checkoutUrl) {
-        await Linking.openURL(tx.checkoutUrl);
-      }
-
-      // Espera a que el usuario regrese a la app antes de iniciar el polling.
-      // Si tarda más de 3 minutos en volver, arranca el polling de todas formas.
-      await new Promise((resolve) => {
-        const timeoutId = setTimeout(resolve, 180000);
-        const subscription = AppState.addEventListener('change', (nextState) => {
-          if (nextState === 'active') {
-            clearTimeout(timeoutId);
-            subscription.remove();
-            resolve();
-          }
-        });
-      });
-
-      // Polling con intervalo corto (1500ms) porque el usuario ya aprobó en PayPal.
-      const poll = await pollSplitsUntilPaid(tx.transactionId, 60000, 1500);
+      if (tx.checkoutUrl) await Linking.openURL(tx.checkoutUrl);
+      // Polling directo con intervalo de 1500ms (la mitad del default de Stripe).
+      // No usamos AppState porque en Android el evento 'active' no llega de forma
+      // confiable cuando se regresa de un browser externo, lo que causaba delays extras.
+      const poll = await pollSplitsUntilPaid(tx.transactionId, 120000, 1500);
       if (poll.ok) {
         navigateSuccess(tx.chargeInfo?.totalAmount);
       } else {
@@ -1038,12 +870,9 @@ const showPaypalNotConfiguredAlert = () => {
     } catch (err) {
       console.warn('payWithPaypal error', err);
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con PayPal.');
-    } finally {
-      setProcessing(false);
-    }
+    } finally { setProcessing(false); }
   };
 
-  // --- CAMBIO: openManualGateway verifica si PayPal está configurado antes de proceder ---
   const openManualGateway = (gateway) => {
     const normalized = normalizeGateway(gateway);
     if (normalized === 'stripe' || normalized === 'card') {
@@ -1052,23 +881,13 @@ const showPaypalNotConfiguredAlert = () => {
       setScreen('manual-card');
       return;
     }
-    if (isApplePayGatewayName(normalized)) {
-      payWithApplePay();
-      return;
-    }
+    if (isApplePayGatewayName(normalized)) { payWithApplePay(); return; }
     if (normalized === 'paypal') {
-      if (!hasPaypalMethodSaved()) {
-        showPaypalNotConfiguredAlert();
-        return;
-      }
+      if (!hasPaypalMethodSaved()) { showPaypalNotConfiguredAlert(); return; }
       payWithPaypal(null);
       return;
     }
-    setNotice({
-      visible: true,
-      title: 'Método preparado',
-      message: 'Este método se mostrará aquí cuando su integración esté lista para marketplace.',
-    });
+    setNotice({ visible: true, title: 'Método preparado', message: 'Este método se mostrará aquí cuando su integración esté lista para marketplace.' });
   };
 
   const getBrandMark = (brand) => {
@@ -1107,14 +926,15 @@ const showPaypalNotConfiguredAlert = () => {
 
   const renderGatewayLogo = (gateway) => {
     const g = normalizeGateway(gateway);
-    if (g === 'paypal') {
-      return (
-        <View style={styles.paypalLogo}>
-          <Text style={styles.paypalTextPay}>Pay</Text>
-          <Text style={styles.paypalTextPal}>Pal</Text>
-        </View>
-      );
-    }
+if (g === 'paypal') {
+  return (
+    <Image
+      source={require('../../assets/images/PaypalN.png')}
+      style={{ width: 90, height: 34 }}
+      resizeMode="contain"
+    />
+  );
+}
     if (isApplePayGatewayName(g)) {
       return (
         <View style={styles.applePayLogo}>
@@ -1130,10 +950,7 @@ const showPaypalNotConfiguredAlert = () => {
   const hasMethods = methods.length > 0;
   const gatewaysForEmptyState = availableGateways;
 
-  const methodGatewaySet = useMemo(
-    () => new Set(methods.map((m) => normalizeGateway(m.gateway))),
-    [methods]
-  );
+  const methodGatewaySet = useMemo(() => new Set(methods.map((m) => normalizeGateway(m.gateway))), [methods]);
 
   const placeholderGatewayMethods = useMemo(() => {
     return availableGateways
@@ -1146,20 +963,7 @@ const showPaypalNotConfiguredAlert = () => {
       })
       .map((g) => {
         const norm = normalizeGateway(g);
-        return {
-          id: `placeholder-${norm}`,
-          mobile_payment_method_id: null,
-          external_payment_method_id: null,
-          gateway: norm,
-          brand: '',
-          last4: '',
-          exp_month: null,
-          exp_year: null,
-          is_preferred: false,
-          status: '',
-          isPlaceholder: true,
-          raw: null,
-        };
+        return { id: `placeholder-${norm}`, mobile_payment_method_id: null, external_payment_method_id: null, gateway: norm, brand: '', last4: '', exp_month: null, exp_year: null, is_preferred: false, status: '', isPlaceholder: true, raw: null };
       });
   }, [availableGateways, methodGatewaySet]);
 
@@ -1201,10 +1005,13 @@ const showPaypalNotConfiguredAlert = () => {
           activeOpacity={0.88}
           onPress={() => setSelectedMethod(method)}
         >
-          <View style={styles.paypalLogoFull}>
-            <Text style={styles.paypalTextPay}>Pay</Text>
-            <Text style={styles.paypalTextPal}>Pal</Text>
-          </View>
+<View style={styles.paypalLogoFull}>
+  <Image
+    source={require('../../assets/images/PaypalN.png')}
+    style={{ width: 90, height: 34 }}
+    resizeMode="contain"
+  />
+</View>
           {preferred ? (
             <View style={styles.preferredChip}>
               <Ionicons name="star" size={11} color={COLORS.accent} style={{ marginRight: 3 }} />
@@ -1273,7 +1080,6 @@ const showPaypalNotConfiguredAlert = () => {
     const g = normalizeGateway(gateway);
     const isCard = g === 'stripe' || g === 'card';
     const isApplePay = isApplePayGatewayName(g);
-
     return (
       <TouchableOpacity key={g} style={styles.gatewayOption} activeOpacity={0.88} onPress={() => openManualGateway(g)}>
         <View style={styles.gatewayLogoWrap}>{renderGatewayLogo(g)}</View>
@@ -1395,11 +1201,7 @@ const showPaypalNotConfiguredAlert = () => {
                   onPress={() => payWithSavedMethod(selectedMethod)}
                   disabled={processing || !selectedMethod}
                 >
-                  {processing ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>
-                  )}
+                  {processing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>}
                 </TouchableOpacity>
               </LinearGradient>
             </>
@@ -1475,38 +1277,17 @@ const showPaypalNotConfiguredAlert = () => {
             <Text style={styles.blockSub}>Puedes pagar ahora y, si quieres, guardarla para futuros pagos.</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="person-outline" size={18} color={COLORS.muted} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Nombre del titular"
-                value={cardHolderName}
-                onChangeText={setCardHolderName}
-                placeholderTextColor="#9a9a9a"
-                autoCapitalize="words"
-              />
+              <TextInput style={styles.input} placeholder="Nombre del titular" value={cardHolderName} onChangeText={setCardHolderName} placeholderTextColor="#9a9a9a" autoCapitalize="words" />
             </View>
             <View style={styles.inputWrap}>
               <Ionicons name="mail-outline" size={18} color={COLORS.muted} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Correo electrónico"
-                value={userEmail}
-                onChangeText={setUserEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholderTextColor="#9a9a9a"
-              />
+              <TextInput style={styles.input} placeholder="Correo electrónico" value={userEmail} onChangeText={setUserEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} placeholderTextColor="#9a9a9a" />
             </View>
             <View style={styles.stripeFieldWrap}>
               <CardField
                 postalCodeEnabled={false}
                 placeholders={{ number: '4242 4242 4242 4242' }}
-                cardStyle={{
-                  borderRadius: 8,
-                  backgroundColor: COLORS.surface,
-                  textColor: COLORS.text,
-                  placeholderColor: '#9a9a9a',
-                }}
+                cardStyle={{ borderRadius: 8, backgroundColor: COLORS.surface, textColor: COLORS.text, placeholderColor: '#9a9a9a' }}
                 style={{ width: '100%', height: 52 }}
                 onCardChange={setManualCardDetails}
               />
@@ -1516,12 +1297,7 @@ const showPaypalNotConfiguredAlert = () => {
                 <Text style={styles.saveRowTitle}>Guardar tarjeta</Text>
                 <Text style={styles.saveRowSub}>Se guardará como método predeterminado si el pago es exitoso.</Text>
               </View>
-              <Switch
-                value={saveCard}
-                onValueChange={setSaveCard}
-                trackColor={{ false: '#d8d4ce', true: COLORS.accent }}
-                thumbColor="#ffffff"
-              />
+              <Switch value={saveCard} onValueChange={setSaveCard} trackColor={{ false: '#d8d4ce', true: COLORS.accent }} thumbColor="#ffffff" />
             </View>
           </View>
         </ScrollView>
@@ -1542,19 +1318,19 @@ const showPaypalNotConfiguredAlert = () => {
     </SafeAreaView>
   );
 
-return (
-  <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
-    {screen === 'manual-card' ? renderManualCardScreen() : renderCheckoutScreen()}
-    <PaypalNotConfiguredModal
-      visible={paypalNoticeVisible}
-      onCancel={() => setPaypalNoticeVisible(false)}
-      onGoToPayments={() => {
-        setPaypalNoticeVisible(false);
-        navigation.navigate('Payments');
-      }}
-    />
-  </StripeProvider>
-);
+  return (
+    <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
+      {screen === 'manual-card' ? renderManualCardScreen() : renderCheckoutScreen()}
+      <PaypalNotConfiguredModal
+        visible={paypalNoticeVisible}
+        onCancel={() => setPaypalNoticeVisible(false)}
+        onGoToPayments={() => {
+          setPaypalNoticeVisible(false);
+          navigation.navigate('Payments');
+        }}
+      />
+    </StripeProvider>
+  );
 }
 
 function NoticeModal({ notice, onClose }) {
@@ -1575,6 +1351,7 @@ function NoticeModal({ notice, onClose }) {
     </Modal>
   );
 }
+
 function PaypalNotConfiguredModal({ visible, onCancel, onGoToPayments }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -1588,18 +1365,10 @@ function PaypalNotConfiguredModal({ visible, onCancel, onGoToPayments }) {
             Para pagar con PayPal primero debes vincular tu cuenta desde la sección de métodos de pago en tu perfil.
           </Text>
           <View style={styles.paypalAlertButtonsRow}>
-            <TouchableOpacity
-              style={styles.paypalAlertCancelButton}
-              onPress={onCancel}
-              activeOpacity={0.85}
-            >
+            <TouchableOpacity style={styles.paypalAlertCancelButton} onPress={onCancel} activeOpacity={0.85}>
               <Text style={styles.paypalAlertCancelText}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.paypalAlertConfirmButton}
-              onPress={onGoToPayments}
-              activeOpacity={0.85}
-            >
+            <TouchableOpacity style={styles.paypalAlertConfirmButton} onPress={onGoToPayments} activeOpacity={0.85}>
               <Text style={styles.paypalAlertConfirmText}>Ir a métodos de pago</Text>
             </TouchableOpacity>
           </View>
@@ -1710,30 +1479,11 @@ const styles = StyleSheet.create({
   noticeMessage: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center' },
   noticeButton: { width: '100%', height: 46, borderRadius: 14, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
   noticeButtonText: { color: '#fff', fontSize: 14, fontWeight: '900' },
-
   paypalAlertButtonsRow: { flexDirection: 'row', width: '100%', marginTop: 16 },
-paypalAlertCancelButton: {
-  flex: 1,
-  height: 46,
-  borderRadius: 14,
-  borderWidth: 1,
-  borderColor: COLORS.border,
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginRight: 8,
-  backgroundColor: COLORS.surface,
-},
-paypalAlertCancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '900' },
-paypalAlertConfirmButton: {
-  flex: 1,
-  height: 46,
-  borderRadius: 14,
-  backgroundColor: COLORS.accent,
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginLeft: 8,
-},
-paypalAlertConfirmText: { color: '#fff', fontSize: 14, fontWeight: '900' },
+  paypalAlertCancelButton: { flex: 1, height: 46, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', marginRight: 8, backgroundColor: COLORS.surface },
+  paypalAlertCancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '900' },
+  paypalAlertConfirmButton: { flex: 1, height: 46, borderRadius: 14, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
+  paypalAlertConfirmText: { color: '#fff', fontSize: 14, fontWeight: '900' },
 });
 
 const toastStyles = StyleSheet.create({
