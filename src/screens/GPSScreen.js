@@ -531,14 +531,17 @@ export default function GPSScreen() {
         if (rid == null && payload.id != null) {
           rid = payload.id;
         }
-
-        navigation.navigate('Restaurant', {
-          id: rid,
-          branch: branchObj,
-          logo: branchObj?.logo ?? branchObj?.imagen_logo_url ?? null,
-          banner: branchObj?.banner ?? branchObj?.imagen_banner_url ?? null,
-          raw: branchObj?.raw ?? null,
-        });
+ const restaurantName = branchObj?.restaurantName ?? branchObj?.raw?.nombre ?? '';
+  const branchName = branchObj?.nombre ?? branchObj?.name ?? '';
+  navigation.navigate('Restaurant', {
+    id: rid,
+    branch: branchObj,
+    restaurantName,
+    branchName,
+    logo: branchObj?.logo ?? branchObj?.imagen_logo_url ?? null,
+    banner: branchObj?.banner ?? branchObj?.imagen_banner_url ?? null,
+    raw: branchObj?.raw ?? null,
+  });
       } else if (payload.action === 'navigate') {
         const lat = payload.lat;
         const lng = payload.lng;

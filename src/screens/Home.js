@@ -64,6 +64,8 @@ function QRStackScreen() {
       <Stack.Screen name="ConfirmacionPago" component={ConfirmacionPago} />
       <Stack.Screen name="ErrorPago" component={ErrorPago} />
       <Stack.Screen name="StripePruebas" component={StripePruebas} />
+      <Stack.Screen name="Payments" component={PaymentMethods} />
+
     </Stack.Navigator>
   );
 }

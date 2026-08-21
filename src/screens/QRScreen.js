@@ -35,6 +35,7 @@ const STORAGE_KEYS = {
   API_HOST: 'api_host',
   API_TOKEN: 'api_token',
 };
+const DEEP_LINK_TOKEN_KEY = 'pending_deep_link_token';
 
 const WHATSAPP_FULL_URL = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
 
@@ -334,6 +335,25 @@ export default function QRScreen({ navigation }) {
       }
     })();
   }, [navigation, requestPermission]);
+
+  useEffect(() => {
+  const checkPendingDeepLink = async () => {
+    try {
+      const token = await AsyncStorage.getItem(DEEP_LINK_TOKEN_KEY);
+      if (token) {
+        await AsyncStorage.removeItem(DEEP_LINK_TOKEN_KEY);
+        console.log('[QRScreen] Token pendiente encontrado, navegando a Escanear:', token);
+        setTimeout(() => {
+          navigation.navigate('Escanear', { token });
+        }, 300);
+      }
+    } catch (e) {
+      console.warn('[QRScreen] Error leyendo deep link token', e);
+    }
+  };
+
+  checkPendingDeepLink();
+}, []);
 
   useFocusEffect(
     useCallback(() => {

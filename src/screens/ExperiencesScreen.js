@@ -148,13 +148,10 @@ export default function VisitsScreen(props) {
   const emailRef = useRef(null);
   const MAX_STORE = 100;
 
-  // ---------- NUEVO: cache local para resultados de encuestas por sucursal ----------
   const surveysMemRef = useRef({});
   const SURVEY_FIXED_ID = '8916180a-95fd-46af-bde4-60635cc7e1ab';
-  const SURVEY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
-  // -------------------------------------------------------------------------------
+  const SURVEY_CACHE_TTL_MS = 5 * 60 * 1000;
 
-  // Cambiado: por defecto buscar último mes (30 días)
   const defaultDesde = new Date();
   defaultDesde.setDate(defaultDesde.getDate() - 29);
   const [desdeDate, setDesdeDate] = useState(defaultDesde);
@@ -237,9 +234,10 @@ export default function VisitsScreen(props) {
 
   function buildNotificationText({ branch, amount, date, saleId }) {
     try {
-      // Use parseToLocalDate to ensure strings like "2026-02-27T09:43:18" are interpreted as local time
       const parsed = parseToLocalDate(date);
-      const dt = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      const dt = parsed
+        ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+        : new Date(date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
       return `Pago confirmado — ${formatMoney(Number(amount || 0))} — ${dt}`;
     } catch (e) {
       return `Pago confirmado — ${formatMoney(Number(amount || 0))}`;
@@ -604,7 +602,8 @@ export default function VisitsScreen(props) {
     return 0;
   }
 
-  // ---------- NUEVO: fetch visitas y luego ratings por sucursal ----------
+  // FIX: fetchVisitsForDesde reescrito — fuente de verdad es el primer fetch,
+  // sin fallback silencioso, sin duplicados, sin fecha inventada.
   const fetchVisitsForDesde = useCallback(async (desdeDateParam) => {
     setFetchingSales(true);
     setVisits([]);
@@ -615,6 +614,7 @@ export default function VisitsScreen(props) {
         setFetchingSales(false);
         return;
       }
+
       const desdeCandidate = (desdeDateParam instanceof Date) ? desdeDateParam : new Date(desdeDateParam);
       const hoy = new Date();
       const startOfHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -624,7 +624,11 @@ export default function VisitsScreen(props) {
       if (diffDays > MAX_RANGE_DAYS) {
         const cappedDate = new Date(startOfHoy.getTime() - (MAX_RANGE_DAYS * 24 * 60 * 60 * 1000));
         setDesdeDate(cappedDate);
-        Toast.show(`Rango muy grande. Se limita a ${MAX_RANGE_DAYS} días (desde ${formatDateYMD(cappedDate)})`, { duration: Toast.durations.LONG });
+        // FIX: Mensaje claro sobre el límite del API
+        Toast.show(
+          `El rango máximo es ${MAX_RANGE_DAYS} días. Mostrando desde ${formatDateYMD(cappedDate)}.`,
+          { duration: Toast.durations.LONG }
+        );
         desdeCandidate.setTime(cappedDate.getTime());
       }
 
@@ -632,7 +636,11 @@ export default function VisitsScreen(props) {
       const hastaStr = formatDateYMD(new Date());
 
       const base = API_BASE_URL.replace(/\/$/, '');
-      const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
+
+      // FIX: Sin &light=1 — el primer fetch ya trae toda la info necesaria
+      // (fecha_cierre_venta, items_consumidos, pagos, nombres, totales)
+      const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
+
       let resVentas;
       try {
         await ensureToken();
@@ -643,6 +651,7 @@ export default function VisitsScreen(props) {
         setFetchingSales(false);
         return;
       }
+
       if (!resVentas.ok) {
         const txt = await resVentas.text().catch(() => '');
         console.warn('ventas http error', resVentas.status, txt);
@@ -650,38 +659,23 @@ export default function VisitsScreen(props) {
         setFetchingSales(false);
         return;
       }
-      let jsonVentas = await resVentas.json().catch(() => ({}));
-      let ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
 
+      const jsonVentas = await resVentas.json().catch(() => ({}));
+      const ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
+
+      // FIX: Sin fallback silencioso — si no hay resultados, avisamos claramente
       if (!ventaArray || ventaArray.length === 0) {
-        const last30 = new Date();
-        last30.setDate(last30.getDate() - 29);
-        const last30DesdeStr = formatDateYMD(last30);
-        const last30Url = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(last30DesdeStr)}&hasta=${encodeURIComponent(hastaStr)}&light=1`;
-
-        try {
-          await ensureToken();
-          const resLast30 = await fetch(last30Url, { method: 'GET', headers: getAuthHeaders() });
-          if (resLast30 && resLast30.ok) {
-            const jsonLast = await resLast30.json().catch(() => ({}));
-            const ventaArrayLast = Array.isArray(jsonLast?.venta_id) ? jsonLast.venta_id : [];
-            if (ventaArrayLast && ventaArrayLast.length > 0) {
-              ventaArray = ventaArrayLast;
-            }
-          } else {
-          }
-        } catch (e) {
-          console.warn('fallback last30 fetch error', e);
-        }
-      }
-
-      if (!ventaArray || ventaArray.length === 0) {
-        Toast.show('No se encontraron ventas en ese rango', { duration: Toast.durations.SHORT });
+        Toast.show(
+          `No hay visitas entre ${desdeStr} y ${hastaStr}. Intenta con otro rango de fechas.`,
+          { duration: Toast.durations.LONG }
+        );
         setVisits([]);
         setFetchingSales(false);
+        setLoading(false);
         return;
       }
 
+      // FIX: Map keyed por venta_id+sucursal_id para evitar duplicados desde el inicio
       const visitsMap = new Map();
 
       for (const v of ventaArray) {
@@ -689,119 +683,81 @@ export default function VisitsScreen(props) {
           const ventaId = v?.venta_id ?? v?.sale_id ?? null;
           const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
           if (!ventaId || !sucursalId) continue;
-          const urlDetalle = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/usuarios/consumos?venta_id=${encodeURIComponent(ventaId)}&sucursal_id=${encodeURIComponent(sucursalId)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
-          await ensureToken();
-          const resDetalle = await fetch(urlDetalle, { method: 'GET', headers: getAuthHeaders() });
-          if (!resDetalle.ok) {
-            console.warn('detalle http not ok', resDetalle.status);
-            continue;
-          }
-          const jsonDet = await resDetalle.json().catch(() => null);
-          if (!jsonDet) continue;
 
-          const rootVentaId = jsonDet?.venta_id ?? ventaId;
-          const rootSucursalId = jsonDet?.sucursal_id ?? sucursalId;
-          const emailsObj = jsonDet?.emails ?? null;
+          const key = `${ventaId}_${sucursalId}`;
 
-          const upsertVisit = async (saleEntry) => {
-            const computedTotal = computeSaleTotal(saleEntry);
-            const fechaCierreRaw = saleEntry?.fecha_cierre_venta ?? new Date().toISOString();
-            const fechaCierre = fechaCierreRaw;
-            const key = `${rootVentaId}_${rootSucursalId}`;
-            const candidate = {
-              id: `${rootVentaId}_${rootSucursalId}`,
-              sale_id: rootVentaId ?? saleEntry?.venta_id ?? saleEntry?.sale_id ?? null,
-              restaurante_id: saleEntry?.restaurante_id ?? saleEntry?.restaurante ?? null,
-              sucursal_id: saleEntry?.sucursal_id ?? rootSucursalId ?? saleEntry?.sucursal ?? null,
-              restaurantName: saleEntry?.nombre_restaurante ?? null,
-              branchName: saleEntry?.nombre_sucursal ?? null,
-              restaurantImage: null,
-              bannerImage: null,
-              fecha: fechaCierre,
-              total: computedTotal,
-              moneda: 'MXN',
-              items: Array.isArray(saleEntry?.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry?.items) ? saleEntry.items : []),
-              pagos: Array.isArray(saleEntry?.pagos) ? saleEntry.pagos : (Array.isArray(jsonDet?.pagos) ? jsonDet.pagos : []),
-            };
+          // FIX: Si ya procesamos esta combinación, la saltamos (anti-duplicado)
+          if (visitsMap.has(key)) continue;
 
-            try {
-              if (candidate.restaurante_id) {
-                const restInfo = await ensureRestaurantInfo(candidate.restaurante_id, false);
+          // FIX: Fecha tomada del objeto del API, sin fallback a new Date()
+          // Si viene null, la tarjeta mostrará '—' en lugar de hora inventada
+          const fechaCierreRaw =
+            v?.fecha_cierre_venta ??
+            v?.fecha_cierre ??
+            v?.fecha_pago ??
+            v?.created_at ??
+            v?.fecha ??
+            null;
 
-                // IMPORTANTE: siempre consultar en red para no arrastrar URLs viejas
-                const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, true);
+          const computedTotal = computeSaleTotal(v);
 
-                let matchedBranch = null;
-                if (Array.isArray(branches) && branches.length > 0) {
-                  for (const b of branches) {
-                    const candidates = [b.id, b.sucursal_id, b.codigo];
-                    for (const cand of candidates) {
-                      if (cand === undefined || cand === null) continue;
-                      if (String(cand) === String(candidate.sucursal_id)) {
-                        matchedBranch = b;
-                        break;
-                      }
-                    }
-                    if (matchedBranch) break;
-                  }
-                  if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
-                }
-
-                if (matchedBranch) {
-                  const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
-                  const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
-
-                  if (logoUrl) {
-                    candidate.restaurantImage = getCacheBustedUrl(logoUrl);
-                  }
-                  if (bannerUrl) {
-                    candidate.bannerImage = getCacheBustedUrl(bannerUrl);
-                  }
-
-                  if (!candidate.branchName) candidate.branchName = branchGetName(matchedBranch);
-                }
-
-                if (!candidate.restaurantImage && restInfo) {
-                  const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
-                  if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
-                }
-              }
-            } catch (e) { }
-
-            if (visitsMap.has(key)) {
-              const existing = visitsMap.get(key);
-              const existingTs = new Date(existing.fecha).getTime() || 0;
-              const candTs = new Date(candidate.fecha).getTime() || 0;
-              const chosen = (candTs >= existingTs) ? candidate : existing;
-              chosen.total = Math.max(Number(existing.total || 0), Number(candidate.total || 0));
-              if ((!existing.items || existing.items.length === 0) && (candidate.items && candidate.items.length > 0)) {
-                chosen.items = candidate.items;
-              } else if (existing.items && candidate.items && candidate.items.length > 0 && existing.items.length !== candidate.items.length) {
-                chosen.items = (candidate.items.length > existing.items.length) ? candidate.items : existing.items;
-              } else {
-                chosen.items = existing.items || candidate.items;
-              }
-              visitsMap.set(key, chosen);
-            } else {
-              visitsMap.set(key, candidate);
-            }
+          const candidate = {
+            id: key,
+            sale_id: ventaId,
+            restaurante_id: v?.restaurante_id ?? v?.restaurante ?? null,
+            sucursal_id: sucursalId,
+            restaurantName: v?.nombre_restaurante ?? null,
+            branchName: v?.nombre_sucursal ?? null,
+            restaurantImage: null,
+            bannerImage: null,
+            fecha: fechaCierreRaw, // null si el API no la manda
+            total: computedTotal,
+            moneda: v?.moneda ?? 'MXN',
+            items: Array.isArray(v?.items_consumidos) ? v.items_consumidos : (Array.isArray(v?.items) ? v.items : []),
+            pagos: Array.isArray(v?.pagos) ? v.pagos : [],
           };
 
-          if (emailsObj && typeof emailsObj === 'object') {
-            for (const emailKey of Object.keys(emailsObj)) {
-              const arrSales = Array.isArray(emailsObj[emailKey]) ? emailsObj[emailKey] : [];
-              for (const saleEntry of arrSales) {
-                await upsertVisit(saleEntry);
+          // Enriquecer solo con logo/banner (no toca fecha ni total)
+          try {
+            if (candidate.restaurante_id) {
+              const restInfo = await ensureRestaurantInfo(candidate.restaurante_id, false);
+              const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, true);
+
+              let matchedBranch = null;
+              if (Array.isArray(branches) && branches.length > 0) {
+                for (const b of branches) {
+                  const candidateIds = [b.id, b.sucursal_id, b.codigo];
+                  for (const cId of candidateIds) {
+                    if (cId !== undefined && cId !== null && String(cId) === String(candidate.sucursal_id)) {
+                      matchedBranch = b;
+                      break;
+                    }
+                  }
+                  if (matchedBranch) break;
+                }
+                if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
+              }
+
+              if (matchedBranch) {
+                const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
+                const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
+                if (logoUrl) candidate.restaurantImage = getCacheBustedUrl(logoUrl);
+                if (bannerUrl) candidate.bannerImage = getCacheBustedUrl(bannerUrl);
+                if (!candidate.branchName) candidate.branchName = branchGetName(matchedBranch);
+              }
+
+              if (!candidate.restaurantImage && restInfo) {
+                const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
+                if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
               }
             }
-          } else {
-            const arrSalesRoot = Array.isArray(jsonDet?.data) ? jsonDet.data : (Array.isArray(jsonDet?.ventas) ? jsonDet.ventas : null);
-            if (Array.isArray(arrSalesRoot)) {
-              for (const saleEntry of arrSalesRoot) {
-                await upsertVisit(saleEntry);
-              }
-            }
+          } catch (e) {
+            console.warn('error enriqueciendo imágenes para', key, e);
           }
+
+          // FIX: Solo insertamos una vez, nunca sobreescribimos
+          visitsMap.set(key, candidate);
+
         } catch (err) {
           console.warn('error processing venta entry', err);
           continue;
@@ -809,18 +765,24 @@ export default function VisitsScreen(props) {
       }
 
       const detailedVisits = Array.from(visitsMap.values());
+
+      // FIX: Visitas sin fecha van al final al ordenar
       detailedVisits.sort((a, b) => {
-        const ta = new Date(a.fecha).getTime() || 0;
-        const tb = new Date(b.fecha).getTime() || 0;
+        const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
+        const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
         return tb - ta;
       });
 
       setVisits(detailedVisits);
 
-      // NUEVO: después de tener las visitas, pedimos ratings por sucursal (no altera imágenes ni otras lógicas)
-      fetchRatingsForVisits(detailedVisits).catch(e => console.warn('fetchRatingsForVisits after fetchVisits err', e));
+      fetchRatingsForVisits(detailedVisits).catch(e =>
+        console.warn('fetchRatingsForVisits after fetchVisits err', e)
+      );
 
-      if (!detailedVisits.length) Toast.show('No se encontraron detalles para las ventas', { duration: Toast.durations.SHORT });
+      if (!detailedVisits.length) {
+        Toast.show('No se encontraron visitas para las fechas seleccionadas.', { duration: Toast.durations.SHORT });
+      }
+
     } catch (err) {
       console.warn('fetchVisitsForDesde error', err);
       Toast.show('Error al obtener visitas (ver consola)', { duration: Toast.durations.LONG });
@@ -889,7 +851,6 @@ export default function VisitsScreen(props) {
   }
 
   function NotificationRow({ n, onPress }) {
-    // Use parseToLocalDate to correctly interpret dates without timezone as local
     const parsed = parseToLocalDate(n.date);
     const dateLabel = parsed ? parsed.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '';
     return (
@@ -910,7 +871,6 @@ export default function VisitsScreen(props) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ----------------------------- FUNCIONES DE ENCUESTAS -----------------------------
   async function fetchSurveyForBranch(sucursalId) {
     if (!sucursalId) return null;
     const key = String(sucursalId);
@@ -1008,7 +968,6 @@ export default function VisitsScreen(props) {
       console.warn('fetchRatingsForVisits err', err);
     }
   }
-  // ---------------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -1157,18 +1116,15 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const [logoError, setLogoError] = useState(false);
   const [bannerError, setBannerError] = useState(false);
 
+  // FIX: Solo parseToLocalDate, sin fallback a new Date() que podría mostrar hora incorrecta
   let lastVisitText = '—';
   try {
     if (item.fecha) {
       const parsed = parseToLocalDate(item.fecha);
       if (parsed && !Number.isNaN(parsed.getTime())) {
         lastVisitText = parsed.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-      } else {
-        const dt = new Date(item.fecha);
-        if (!Number.isNaN(dt.getTime())) {
-          lastVisitText = dt.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-        }
       }
+      // Si parseToLocalDate falla, se queda '—' — nunca mostramos hora inventada
     }
   } catch (e) { lastVisitText = '—'; }
 
@@ -1177,21 +1133,16 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const logoUri = item.restaurantImage ? String(item.restaurantImage).trim() : null;
   const bannerUri = item.bannerImage ? String(item.bannerImage).trim() : null;
 
-  // ===== Aquí renderizamos las estrellas usando item.rating (si existe) =====
   const rating = (item.rating === undefined || item.rating === null) ? null : Number(item.rating);
   const safeRating = (rating === null || Number.isNaN(rating)) ? null : Math.max(0, Math.min(5, rating));
 
-  // starSize controla tamaño de la fuente; usamos lineHeight igual para que el overlay quede alineado.
   const starSize = 16;
-  // containerWidth: un poco más ancho para evitar recorte visual; mantén proporción con font
   const containerWidth = Math.round(starSize * 1.25);
 
-  // renderPartialStar: estrella vacía detrás y una capa con overflow hidden delante para simular relleno parcial.
-  // Nos aseguramos que si fillRatio>0 pintemos al menos 1px para fracciones muy pequeñas (ej .05).
   const renderPartialStar = (index, fillRatio) => {
     const ratio = Math.max(0, Math.min(1, fillRatio));
     const fillWidth = Math.round(containerWidth * ratio);
-    const minFill = (ratio > 0 && fillWidth < 1) ? 1 : fillWidth; // pinta mínimo 1px si hay fracción
+    const minFill = (ratio > 0 && fillWidth < 1) ? 1 : fillWidth;
     return (
       <View
         key={`star_${index}`}
@@ -1200,13 +1151,12 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
           height: starSize,
           marginHorizontal: 1,
           position: 'relative',
-          alignItems: 'flex-start', // clave: anclar contenido a la izquierda
+          alignItems: 'flex-start',
           justifyContent: 'center',
         }}
         accessible={false}
         pointerEvents="none"
       >
-        {/* estrella vacía (fondo) - anclada a la izquierda */}
         <Text
           style={{
             fontSize: starSize,
@@ -1215,14 +1165,12 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
             includeFontPadding: false,
             textAlign: 'left',
             width: containerWidth,
-            // evitar escalado que pueda desalinear
             allowFontScaling: false,
           }}
         >
           ★
         </Text>
 
-        {/* capa rellena con overflow hidden - recortamos desde la derecha correctamente */}
         {ratio > 0 && (
           <View style={{ position: 'absolute', left: 0, top: 0, width: minFill, height: starSize, overflow: 'hidden' }}>
             <Text
@@ -1253,7 +1201,6 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
     }
     return renderPartialStar(i, fill);
   });
-  // =======================================================================
 
   return (
     <View style={[styles.card, { borderRadius: cardRadius }]}>

@@ -100,7 +100,8 @@ export default function RestaurantDetailScreen() {
     route.params?.restaurant ??
     route.params?.sucursal ??
     null;
-
+const restaurantNameParam = route.params?.restaurantName ?? null;
+const branchNameParam = route.params?.branchName ?? null;
   // CAMBIADO: cuando la pantalla se abre desde el deep link de compartir,
   // route.params trae 'restauranteId' y 'sucursalId' (así se declaró en la
   // config de linking de App.tsx), en vez del objeto completo. idParam
@@ -531,6 +532,22 @@ export default function RestaurantDetailScreen() {
     );
   }
 
+  // NUEVO: nombre del restaurante padre a mostrar arriba del nombre de la
+// sucursal. Prioridad: lo que llegó explícito por params (desde el mapa) >
+// lo que trae 'data' ya mapeado (restaurantName, agregado en GPSScreen) >
+// lo que pueda venir en el objeto crudo del API (raw).
+const displayRestaurantName =
+  restaurantNameParam ||
+  data?.restaurantName ||
+  data?.raw?.restaurantName ||
+  data?.raw?.nombre_restaurante ||
+  data?.raw?.restaurante?.nombre ||
+  null;
+
+// El nombre de la sucursal ya se muestra como título principal (data.nombre),
+// pero por si acaso se necesita en otro lado, se deja resuelto aquí también.
+const displayBranchName = branchNameParam || data?.nombre || data?.name || null;
+
   const avatarUri = (() => {
     const prefs = [
       data.imagen_logo_url,
@@ -714,9 +731,19 @@ export default function RestaurantDetailScreen() {
 
       <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: Math.max(32, insets.bottom + 8) }}>
         <View style={[styles.card, { width: CARD_WIDTH, paddingTop: CARD_PADDING_TOP, paddingHorizontal: CARD_PADDING_H }]}>
-          <View style={styles.titleRow}>
-            <Text style={[styles.title, { fontSize: TITLE_FONT }]} numberOfLines={2}>{data.nombre || data.name || "—"}</Text>
-          </View>
+<View style={styles.titleRow}>
+  <View style={{ flexShrink: 1 }}>
+    {displayRestaurantName ? (
+      <Text
+        style={[styles.restaurantNameLabel, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.5)) }]}
+        numberOfLines={1}
+      >
+        {displayRestaurantName}
+      </Text>
+    ) : null}
+    <Text style={[styles.title, { fontSize: TITLE_FONT }]} numberOfLines={2}>{data.nombre || data.name || "—"}</Text>
+  </View>
+</View> 
 
           <View style={styles.divider} />
           <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Descripción breve</Text>
@@ -835,6 +862,11 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
   container: { flex: 1, backgroundColor: "#000" },
   loading: { justifyContent: "center", alignItems: "center" },
+  restaurantNameLabel: {
+  color: '#8a8f98',
+  fontWeight: '600',
+  marginBottom: 2,
+},
 
   sliderContainer: { backgroundColor: "#000" },
   sliderImage: { resizeMode: "cover" },

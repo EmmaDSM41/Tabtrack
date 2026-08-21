@@ -13,7 +13,7 @@ class MagnesModule(reactContext: ReactApplicationContext) :
 
     // TODO: reemplaza con tu Client ID real de PayPal (sandbox por ahora)
     private val coreConfig = CoreConfig(
-        clientId = "TU_CLIENT_ID_DE_PAYPAL",
+        clientId = "AR--_evQ9cYcAtDImSYHotV2WDuSszmBjn5p2DNxEAq38pVsgfPa-RR-LSgYqNVSbb-zFqIq-r0x_DET",
         environment = Environment.SANDBOX
     )
 

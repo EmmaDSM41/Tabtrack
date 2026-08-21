@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -87,7 +89,6 @@ const splitAmountByIndex = (amount, parts, index) => {
 };
 const isValidEmail = (value) => /^\S+@\S+\.\S+$/.test(String(value || '').trim());
 
-// --- Helpers de sistema operativo / compatibilidad con Apple Pay ---
 const isIosVersionCompatibleWithApplePay = () => {
   if (Platform.OS !== 'ios') return false;
   const majorVersion = parseInt(String(Platform.Version).split('.')[0], 10);
@@ -244,12 +245,10 @@ export default function PaymentMarketplace() {
   const [savingCard, setSavingCard] = useState(false);
   const [stripeAccountId, setStripeAccountId] = useState(params.stripe_account_id || params.stripeAccountId || null);
 
-  // Compatibilidad de Apple Pay a nivel dispositivo (SO + versión + soporte real de Stripe/Wallet).
   const [applePayDeviceSupported, setApplePayDeviceSupported] = useState(false);
 
-  // --- MAGNES: ID de dispositivo para PayPal Fraud Protection ---
   const [paypalClientMetadataId, setPaypalClientMetadataId] = useState(null);
-
+  const [paypalNoticeVisible, setPaypalNoticeVisible] = useState(false);
   const [notice, setNotice] = useState({ visible: false, title: '', message: '' });
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -335,7 +334,6 @@ export default function PaymentMarketplace() {
 
   const normalizeGateway = (value) => String(value || '').toLowerCase().trim();
 
-  // --- Detección de wallets (Apple Pay) que vienen del API con gateway:"stripe" ---
   const isWalletApplePayPayload = (pm) => {
     const rawType = String(pm?.type ?? pm?.wallet_type ?? '').toLowerCase().trim();
     const rawCategory = String(pm?.category ?? '').toLowerCase().trim();
@@ -483,7 +481,6 @@ export default function PaymentMarketplace() {
     return () => { mounted = false; };
   }, []);
 
-  // Detecta si el dispositivo (SO + versión) y el SDK de Stripe soportan Apple Pay.
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -502,7 +499,6 @@ export default function PaymentMarketplace() {
     return () => { mounted = false; };
   }, []);
 
-  // --- MAGNES: recolectar device ID para PayPal Fraud Protection al montar la pantalla ---
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -595,7 +591,6 @@ export default function PaymentMarketplace() {
     if (!FIXED_STRIPE_PUBLISHABLE_KEY || FIXED_STRIPE_PUBLISHABLE_KEY === 'pk_test_REPLACE_ME') {
       throw new Error('Falta configurar FIXED_STRIPE_PUBLISHABLE_KEY');
     }
-
     await initStripe({
       publishableKey: FIXED_STRIPE_PUBLISHABLE_KEY,
       stripeAccountId: accountId || undefined,
@@ -615,7 +610,6 @@ export default function PaymentMarketplace() {
           method: 'GET',
           headers: getAuthHeaders(),
         });
-
         const json = await res.json().catch(() => null);
         if (res.ok) {
           const splitsArr = Array.isArray(json?.splits) ? json.splits : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
@@ -648,7 +642,6 @@ export default function PaymentMarketplace() {
         },
       ];
     }
-
     return (Array.isArray(items) ? items : []).map((it) => ({
       codigo_item: it.codigo_item ?? it.codigo ?? it.code ?? it.original_line_id ?? String(it.id ?? ''),
       nombre_item: it.name ?? it.nombre ?? '',
@@ -664,12 +657,7 @@ export default function PaymentMarketplace() {
     if (!comingFromEqualSplit || !sale_id || !sucursal_id) {
       const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, 0);
       const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
-      return {
-        paidCount: 0,
-        baseAmount,
-        tipAmount: computedTip,
-        totalAmount: round2(baseAmount + computedTip),
-      };
+      return { paidCount: 0, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
     }
 
     try {
@@ -683,17 +671,10 @@ export default function PaymentMarketplace() {
       if (!res.ok) {
         const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, 0);
         const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
-        return {
-          paidCount: 0,
-          baseAmount,
-          tipAmount: computedTip,
-          totalAmount: round2(baseAmount + computedTip),
-        };
+        return { paidCount: 0, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
       }
 
-      const splitsArr = Array.isArray(json?.splits)
-        ? json.splits
-        : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
+      const splitsArr = Array.isArray(json?.splits) ? json.splits : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
 
       const paidEqualSplits = splitsArr.filter((s) => {
         const estado = String(s.estado ?? '').toLowerCase();
@@ -707,42 +688,19 @@ export default function PaymentMarketplace() {
       const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, paidCount);
       const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
 
-      return {
-        paidCount,
-        baseAmount,
-        tipAmount: computedTip,
-        totalAmount: round2(baseAmount + computedTip),
-      };
+      return { paidCount, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
     } catch (err) {
       console.warn('resolveEqualSplitCharge error', err);
       const baseAmount = splitAmountByIndex(fallbackBase, groupPeopleCount, 0);
       const computedTip = tipPercent > 0 ? round2(baseAmount * (tipPercent / 100)) : fallbackTip;
-      return {
-        paidCount: 0,
-        baseAmount,
-        tipAmount: computedTip,
-        totalAmount: round2(baseAmount + computedTip),
-      };
+      return { paidCount: 0, baseAmount, tipAmount: computedTip, totalAmount: round2(baseAmount + computedTip) };
     }
-  }, [
-    buildSaleSplitsUrl,
-    comingFromEqualSplit,
-    getAuthHeaders,
-    groupPeopleCount,
-    sale_id,
-    splitBaseForCharge,
-    sucursal_id,
-    tipAmount,
-    tipPercent,
-  ]);
+  }, [buildSaleSplitsUrl, comingFromEqualSplit, getAuthHeaders, groupPeopleCount, sale_id, splitBaseForCharge, sucursal_id, tipAmount, tipPercent]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!comingFromEqualSplit) {
-        setEqualSplitCharge(null);
-        return;
-      }
+      if (!comingFromEqualSplit) { setEqualSplitCharge(null); return; }
       const info = await resolveEqualSplitCharge();
       if (mounted) setEqualSplitCharge(info);
     })();
@@ -755,7 +713,6 @@ export default function PaymentMarketplace() {
       setEqualSplitCharge(info);
       return info;
     }
-
     return {
       paidCount: 0,
       baseAmount: subtotalAmount,
@@ -764,14 +721,11 @@ export default function PaymentMarketplace() {
     };
   };
 
-  // walletType: cuando se paga con Apple Pay, gateway sigue siendo 'stripe' y se agrega wallet_type: 'apple_pay'.
-  // Para PayPal: flow cambia a 'checkout' y se agrega paypal_client_metadata_id de Magnes.
   const createTransaction = async ({ gateway, savedMethod = null, walletType = null }) => {
     await ensureToken();
     const customer = await resolveCustomerForPayment();
     const chargeInfo = await getChargeInfoForTransaction();
 
-    // --- CAMBIO: flow depende del gateway ---
     const isPaypal = normalizeGateway(gateway) === 'paypal';
     const body = {
       sucursal_id,
@@ -788,7 +742,6 @@ export default function PaymentMarketplace() {
       flow: isPaypal ? 'checkout' : 'elements',
     };
 
-    // --- CAMBIO: agregar Magnes device ID cuando es PayPal ---
     if (isPaypal && paypalClientMetadataId) {
       body.paypal_client_metadata_id = paypalClientMetadataId;
     }
@@ -813,12 +766,8 @@ export default function PaymentMarketplace() {
 
     const transactionId = json?.transaction_id ?? json?.data?.transaction_id ?? json?.transactionId ?? null;
     const clientSecret =
-      json?.client_secret ||
-      json?.payment_intent_client_secret ||
-      json?.data?.client_secret ||
-      json?.paymentIntentClientSecret ||
-      json?.clientSecret ||
-      null;
+      json?.client_secret || json?.payment_intent_client_secret || json?.data?.client_secret ||
+      json?.paymentIntentClientSecret || json?.clientSecret || null;
     const checkoutUrl = json?.checkout_url ?? json?.data?.checkout_url ?? null;
     const accountId = extractStripeAccountId(json);
 
@@ -828,14 +777,7 @@ export default function PaymentMarketplace() {
       if (sale_id) await AsyncStorage.setItem(`last_transaction_${sale_id}`, String(transactionId));
     } catch (e) { }
 
-    return {
-      transactionId,
-      clientSecret,
-      checkoutUrl,
-      stripeAccountId: accountId,
-      chargeInfo,
-      raw: json,
-    };
+    return { transactionId, clientSecret, checkoutUrl, stripeAccountId: accountId, chargeInfo, raw: json };
   };
 
   const navigateSuccess = (amount = displayAmount) => {
@@ -861,7 +803,15 @@ export default function PaymentMarketplace() {
     return true;
   };
 
-  // --- CAMBIO: payWithSavedMethod ahora conecta el flujo de PayPal ---
+  // --- NUEVO: verifica si hay método de PayPal guardado y muestra alerta si no ---
+  const hasPaypalMethodSaved = () => {
+    return methods.some((m) => normalizeGateway(m.gateway) === 'paypal' && !m.isPlaceholder);
+  };
+
+const showPaypalNotConfiguredAlert = () => {
+  setPaypalNoticeVisible(true);
+};
+
   const payWithSavedMethod = async (method) => {
     if (!method) {
       showToast('Selecciona un método de pago', false);
@@ -879,8 +829,12 @@ export default function PaymentMarketplace() {
       return;
     }
 
-    // --- CAMBIO: PayPal con método guardado usa el mismo flujo de checkout ---
     if (gateway === 'paypal') {
+      // --- CAMBIO: si es placeholder (no configurado), muestra alerta en vez de intentar el pago ---
+      if (method.isPlaceholder || !hasPaypalMethodSaved()) {
+        showPaypalNotConfiguredAlert();
+        return;
+      }
       await payWithPaypal(method);
       return;
     }
@@ -920,18 +874,15 @@ export default function PaymentMarketplace() {
     const res = await fetch(buildSetupIntentUrl(), {
       method: 'POST',
       headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
-      body: JSON.stringify({ usuario_app_id: userId, set_preferred: true, environment: PAYMENT_METHODS_ENVIRONMENT, }),
+      body: JSON.stringify({ usuario_app_id: userId, set_preferred: true, environment: PAYMENT_METHODS_ENVIRONMENT }),
     });
     const json = await res.json().catch(() => null);
 
     if (!res.ok) throw new Error(json?.message || json?.error || `Error del servidor (${res.status})`);
 
     const clientSecret =
-      json?.client_secret ||
-      json?.data?.client_secret ||
-      json?.setup_intent_client_secret ||
-      json?.setupIntentClientSecret ||
-      null;
+      json?.client_secret || json?.data?.client_secret ||
+      json?.setup_intent_client_secret || json?.setupIntentClientSecret || null;
 
     if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
     return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
@@ -988,10 +939,7 @@ export default function PaymentMarketplace() {
       const status = String(paymentIntent?.status ?? '').toLowerCase();
       if (['succeeded', 'requires_capture', 'processing', 'requires_confirmation'].includes(status)) {
         const poll = await pollSplitsUntilPaid(tx.transactionId);
-        if (poll.ok) {
-          navigateSuccess(tx.chargeInfo?.totalAmount);
-          return;
-        }
+        if (poll.ok) { navigateSuccess(tx.chargeInfo?.totalAmount); return; }
         showPaymentError('Pago pendiente', 'Stripe confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
         return;
       }
@@ -1007,10 +955,7 @@ export default function PaymentMarketplace() {
   };
 
   const buildApplePayCartItems = (chargeInfo) => [
-    {
-      label: 'Total',
-      amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)),
-    },
+    { label: 'Total', amount: String(round2(chargeInfo?.totalAmount ?? displayAmount)) },
   ];
 
   const payWithApplePay = async () => {
@@ -1044,10 +989,7 @@ export default function PaymentMarketplace() {
       const status = String(paymentIntent?.status ?? '').toLowerCase();
       if (['succeeded', 'requires_capture', 'processing', 'requires_confirmation'].includes(status)) {
         const poll = await pollSplitsUntilPaid(tx.transactionId);
-        if (poll.ok) {
-          navigateSuccess(tx.chargeInfo?.totalAmount);
-          return;
-        }
+        if (poll.ok) { navigateSuccess(tx.chargeInfo?.totalAmount); return; }
         showPaymentError('Pago pendiente', 'Apple Pay confirmó el pago, pero el servidor aún no refleja la venta como pagada.', JSON.stringify(poll));
         return;
       }
@@ -1061,21 +1003,33 @@ export default function PaymentMarketplace() {
     }
   };
 
-  // --- NUEVO: flujo de pago con PayPal (flow: checkout + Magnes) ---
+  // flujo de pago con PayPal con AppState para reducir tiempo de espera
   const payWithPaypal = async (savedMethod = null) => {
-      console.log('[PayPal] clientMetadataId:', paypalClientMetadataId); // 👈 temporal
+    console.log('[PayPal] clientMetadataId:', paypalClientMetadataId);
     setProcessing(true);
     try {
       validateBeforePayment();
       const tx = await createTransaction({ gateway: 'paypal', savedMethod });
 
-      // PayPal con flow checkout: el servidor retorna checkout_url para redirigir al usuario.
-      // El backend ya procesa el pago internamente; solo esperamos que los splits queden pagados.
       if (tx.checkoutUrl) {
         await Linking.openURL(tx.checkoutUrl);
       }
 
-      const poll = await pollSplitsUntilPaid(tx.transactionId);
+      // Espera a que el usuario regrese a la app antes de iniciar el polling.
+      // Si tarda más de 3 minutos en volver, arranca el polling de todas formas.
+      await new Promise((resolve) => {
+        const timeoutId = setTimeout(resolve, 180000);
+        const subscription = AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+            clearTimeout(timeoutId);
+            subscription.remove();
+            resolve();
+          }
+        });
+      });
+
+      // Polling con intervalo corto (1500ms) porque el usuario ya aprobó en PayPal.
+      const poll = await pollSplitsUntilPaid(tx.transactionId, 60000, 1500);
       if (poll.ok) {
         navigateSuccess(tx.chargeInfo?.totalAmount);
       } else {
@@ -1089,7 +1043,7 @@ export default function PaymentMarketplace() {
     }
   };
 
-  // --- CAMBIO: openManualGateway ahora conecta PayPal ---
+  // --- CAMBIO: openManualGateway verifica si PayPal está configurado antes de proceder ---
   const openManualGateway = (gateway) => {
     const normalized = normalizeGateway(gateway);
     if (normalized === 'stripe' || normalized === 'card') {
@@ -1103,6 +1057,10 @@ export default function PaymentMarketplace() {
       return;
     }
     if (normalized === 'paypal') {
+      if (!hasPaypalMethodSaved()) {
+        showPaypalNotConfiguredAlert();
+        return;
+      }
       payWithPaypal(null);
       return;
     }
@@ -1235,7 +1193,6 @@ export default function PaymentMarketplace() {
     const isCardGateway = gateway === 'stripe' || gateway === 'card';
     const isPaypalGateway = gateway === 'paypal';
 
-    // --- CAMBIO: PayPal ocupa toda la fila con el logo completo ---
     if (isPaypalGateway) {
       return (
         <TouchableOpacity
@@ -1325,11 +1282,7 @@ export default function PaymentMarketplace() {
             {isCard ? 'Tarjeta de crédito o débito' : isApplePay ? 'Apple Pay' : gatewayLabel(g)}
           </Text>
           <Text style={styles.gatewaySub}>
-            {isCard
-              ? 'Paga con una tarjeta bancaria.'
-              : isApplePay
-                ? 'Paga rápido y seguro con Apple Pay.'
-                : 'Disponible en este restaurante.'}
+            {isCard ? 'Paga con una tarjeta bancaria.' : isApplePay ? 'Paga rápido y seguro con Apple Pay.' : 'Disponible en este restaurante.'}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={19} color={COLORS.accent} />
@@ -1372,7 +1325,6 @@ export default function PaymentMarketplace() {
                 />
               </View>
             </View>
-
             <View style={[styles.rightCol, { maxWidth: rightColMaxWidth, marginRight: Math.max(12, wp(3)) }]}>
               <Text style={[styles.totalLabel, { fontSize: clamp(rf(2.6), 12, 16) }]}>Total</Text>
               <View style={[styles.totalRow, { alignItems: 'flex-end' }]}>
@@ -1430,6 +1382,7 @@ export default function PaymentMarketplace() {
                   </TouchableOpacity>
                 </View>
               ) : null}
+
               <LinearGradient
                 colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
                 start={{ x: 0, y: 0 }}
@@ -1445,9 +1398,7 @@ export default function PaymentMarketplace() {
                   {processing ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.primaryButtonText}>
-                      Pagar {totalText}
-                    </Text>
+                    <Text style={styles.primaryButtonText}>Pagar {totalText}</Text>
                   )}
                 </TouchableOpacity>
               </LinearGradient>
@@ -1560,7 +1511,6 @@ export default function PaymentMarketplace() {
                 onCardChange={setManualCardDetails}
               />
             </View>
-
             <View style={styles.saveRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.saveRowTitle}>Guardar tarjeta</Text>
@@ -1592,11 +1542,19 @@ export default function PaymentMarketplace() {
     </SafeAreaView>
   );
 
-  return (
-    <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
-      {screen === 'manual-card' ? renderManualCardScreen() : renderCheckoutScreen()}
-    </StripeProvider>
-  );
+return (
+  <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
+    {screen === 'manual-card' ? renderManualCardScreen() : renderCheckoutScreen()}
+    <PaypalNotConfiguredModal
+      visible={paypalNoticeVisible}
+      onCancel={() => setPaypalNoticeVisible(false)}
+      onGoToPayments={() => {
+        setPaypalNoticeVisible(false);
+        navigation.navigate('Payments');
+      }}
+    />
+  </StripeProvider>
+);
 }
 
 function NoticeModal({ notice, onClose }) {
@@ -1609,9 +1567,42 @@ function NoticeModal({ notice, onClose }) {
           </View>
           <Text style={styles.noticeTitle}>{notice.title}</Text>
           <Text style={styles.noticeMessage}>{notice.message}</Text>
-          <TouchableOpacity style={styles.noticeButton} onClose={onClose}>
+          <TouchableOpacity style={styles.noticeButton} onPress={onClose}>
             <Text style={styles.noticeButtonText}>Entendido</Text>
           </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+function PaypalNotConfiguredModal({ visible, onCancel, onGoToPayments }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.noticeBackdrop}>
+        <View style={styles.noticeBox}>
+          <View style={styles.noticeIcon}>
+            <Ionicons name="information-circle-outline" size={26} color={COLORS.accent} />
+          </View>
+          <Text style={styles.noticeTitle}>PayPal no configurado</Text>
+          <Text style={styles.noticeMessage}>
+            Para pagar con PayPal primero debes vincular tu cuenta desde la sección de métodos de pago en tu perfil.
+          </Text>
+          <View style={styles.paypalAlertButtonsRow}>
+            <TouchableOpacity
+              style={styles.paypalAlertCancelButton}
+              onPress={onCancel}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.paypalAlertCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.paypalAlertConfirmButton}
+              onPress={onGoToPayments}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.paypalAlertConfirmText}>Ir a métodos de pago</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1620,26 +1611,9 @@ function NoticeModal({ notice, onClose }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  header: {
-    height: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.bg,
-  },
-  headerIconButton: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    color: COLORS.text,
-    fontSize: 17,
-    fontWeight: '900',
-  },
+  header: { height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.bg },
+  headerIconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { flex: 1, textAlign: 'center', color: COLORS.text, fontSize: 17, fontWeight: '900' },
   headerGradient: { width: '100%', overflow: 'hidden' },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
   leftCol: { flexDirection: 'column', alignItems: 'center' },
@@ -1654,66 +1628,19 @@ const styles = StyleSheet.create({
   rightThanks: { marginTop: 10, alignItems: 'flex-end' },
   thanksText: { color: '#fff', fontWeight: '700' },
   itemsTipText: { color: 'rgba(255,255,255,0.9)', marginTop: 4, fontWeight: '600' },
-  securityLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    marginTop: 16,
-    marginBottom: 10,
-  },
+  securityLine: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, marginTop: 16, marginBottom: 10 },
   securityText: { color: COLORS.muted, fontSize: 12, marginLeft: 6, flex: 1 },
-  loadingBox: {
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-    borderRadius: 20,
-    padding: 22,
-    alignItems: 'center',
-  },
+  loadingBox: { borderWidth: 1, borderColor: COLORS.accent, borderRadius: 20, padding: 22, alignItems: 'center' },
   loadingText: { color: COLORS.muted, fontSize: 13, marginTop: 8 },
-  featureBlock: {
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 22,
-    backgroundColor: COLORS.surface,
-    padding: 14,
-  },
+  featureBlock: { marginTop: 14, borderWidth: 1, borderColor: COLORS.border, borderRadius: 22, backgroundColor: COLORS.surface, padding: 14 },
   blockHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   blockTitle: { color: COLORS.text, fontSize: 17, fontWeight: '900' },
   blockSub: { color: COLORS.muted, fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 10 },
-  methodRow: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 18,
-    padding: 13,
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-  },
+  methodRow: { width: '100%', borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 13, marginTop: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface },
   methodRowSelected: { borderColor: COLORS.text },
-  // --- NUEVO: fila de PayPal con fondo amarillo completo ---
-  methodRowPaypal: {
-    backgroundColor: '#FFC439',
-    borderColor: '#FFC439',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  paypalLogoFull: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  brandMark: {
-    width: 52,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    borderWidth: 1,
-  },
+  methodRowPaypal: { backgroundColor: '#FFC439', borderColor: '#FFC439', justifyContent: 'space-between', paddingHorizontal: 16 },
+  paypalLogoFull: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  brandMark: { width: 52, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginRight: 12, borderWidth: 1 },
   brandMark_visa: { backgroundColor: '#ffffff', borderColor: '#d8dde8' },
   brandMark_mastercard: { backgroundColor: '#ffffff', borderColor: '#e8ded3' },
   brandMark_amex: { backgroundColor: '#ffffff', borderColor: '#d8e7f2' },
@@ -1727,170 +1654,36 @@ const styles = StyleSheet.create({
   methodTitleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   methodTitle: { color: COLORS.text, fontSize: 15, fontWeight: '900', marginRight: 6 },
   methodSub: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
-  preferredChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eef4ff',
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
+  preferredChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#eef4ff', borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
   preferredChipText: { color: COLORS.accent, fontSize: 10, fontWeight: '900' },
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.text,
-    borderRadius: 14,
-    height: 46,
-    marginTop: 12,
-    backgroundColor: '#f7fbff',
-  },
+  linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.text, borderRadius: 14, height: 46, marginTop: 12, backgroundColor: '#f7fbff' },
   linkRowText: { color: COLORS.accent, fontSize: 13, fontWeight: '900', marginLeft: 6 },
-  gatewayOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    marginTop: 10,
-    backgroundColor: COLORS.surface,
-  },
-  gatewayLogoWrap: {
-    minWidth: 112,
-    minHeight: 42,
-    marginRight: 10,
-    justifyContent: 'center',
-  },
+  gatewayOption: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 12, marginTop: 10, backgroundColor: COLORS.surface },
+  gatewayLogoWrap: { minWidth: 112, minHeight: 42, marginRight: 10, justifyContent: 'center' },
   gatewayCopy: { flex: 1, minWidth: 0 },
-  cardNetworkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  miniVisa: {
-    width: 42,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#d8dde8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-    marginRight: 6,
-  },
+  cardNetworkRow: { flexDirection: 'row', alignItems: 'center' },
+  miniVisa: { width: 42, height: 28, borderRadius: 8, borderWidth: 1, borderColor: '#d8dde8', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff', marginRight: 6 },
   miniVisaText: { color: '#1a4fb7', fontSize: 11, fontWeight: '900', fontStyle: 'italic' },
-  miniMastercard: {
-    width: 42,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e8ded3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-    marginRight: 6,
-  },
+  miniMastercard: { width: 42, height: 28, borderRadius: 8, borderWidth: 1, borderColor: '#e8ded3', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff', marginRight: 6 },
   miniMastercardCircle: { position: 'absolute', width: 16, height: 16, borderRadius: 8 },
   miniMastercardLeft: { left: 10, backgroundColor: '#eb001b', opacity: 0.92 },
   miniMastercardRight: { right: 10, backgroundColor: '#f79e1b', opacity: 0.92 },
-  miniAmex: {
-    width: 46,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#d8e7f2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-  },
+  miniAmex: { width: 46, height: 28, borderRadius: 8, borderWidth: 1, borderColor: '#d8e7f2', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
   miniAmexText: { color: COLORS.text, fontSize: 10, fontWeight: '900' },
-  paypalLogo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'stretch',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#FFC439',
-  },
-  paypalTextPay: {
-    color: '#003087',
-    fontSize: 17,
-    fontWeight: '900',
-    fontStyle: 'italic',
-  },
-  paypalTextPal: {
-    color: '#009cde',
-    fontSize: 17,
-    fontWeight: '900',
-    fontStyle: 'italic',
-  },
-  applePayLogo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#ffffff',
-  },
-  applePayText: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: '900',
-    marginLeft: 2,
-  },
+  paypalLogo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#FFC439' },
+  paypalTextPay: { color: '#003087', fontSize: 17, fontWeight: '900', fontStyle: 'italic' },
+  paypalTextPal: { color: '#009cde', fontSize: 17, fontWeight: '900', fontStyle: 'italic' },
+  applePayLogo: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#ffffff' },
+  applePayText: { color: COLORS.text, fontSize: 15, fontWeight: '900', marginLeft: 2 },
   gatewayTitle: { color: COLORS.text, fontSize: 15, fontWeight: '900' },
   gatewaySub: { color: COLORS.muted, fontSize: 12, marginTop: 3 },
-  emptyPaymentsBox: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-    backgroundColor: '#eef4ff',
-  },
-  emptyPaymentsText: {
-    color: COLORS.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  primaryButtonGradient: {
-    height: 52,
-    borderRadius: 16,
-    marginTop: 16,
-    overflow: 'hidden',
-  },
-  primaryButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  primaryButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '900',
-  },
+  emptyPaymentsBox: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 10, backgroundColor: '#eef4ff' },
+  emptyPaymentsText: { color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: 8 },
+  primaryButtonGradient: { height: 52, borderRadius: 16, marginTop: 16, overflow: 'hidden' },
+  primaryButton: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  primaryButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
   manualContent: { paddingTop: 10 },
-  cardPreview: {
-    minHeight: 190,
-    borderRadius: 24,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 20,
-    justifyContent: 'space-between',
-  },
+  cardPreview: { minHeight: 190, borderRadius: 24, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, padding: 20, justifyContent: 'space-between' },
   cardPreviewTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardPreviewBrand: { color: COLORS.text, fontSize: 15, fontWeight: '900' },
   cardPreviewChip: { width: 34, height: 25, borderRadius: 8, backgroundColor: '#f0d89f' },
@@ -1898,139 +1691,54 @@ const styles = StyleSheet.create({
   cardPreviewBottom: { flexDirection: 'row', justifyContent: 'space-between' },
   cardPreviewLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
   cardPreviewValue: { color: COLORS.text, fontSize: 13, fontWeight: '800', marginTop: 4, maxWidth: 180 },
-  stripeFieldWrap: {
-    width: '100%',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    marginTop: 14,
-  },
-  inputWrap: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
-    backgroundColor: COLORS.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    marginTop: 10,
-  },
+  stripeFieldWrap: { width: '100%', borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, paddingHorizontal: 10, paddingVertical: 10, marginTop: 14 },
+  inputWrap: { height: 50, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: COLORS.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginTop: 10 },
   inputIcon: { marginRight: 8 },
-  input: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '700',
-    paddingVertical: 0,
-  },
-  saveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
+  input: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: '700', paddingVertical: 0 },
+  saveRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: COLORS.border },
   saveRowTitle: { color: COLORS.text, fontSize: 14, fontWeight: '900' },
   saveRowSub: { color: COLORS.muted, fontSize: 12, marginTop: 3 },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    paddingTop: 12,
-    backgroundColor: COLORS.bg,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  secondaryButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
+  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', paddingTop: 12, backgroundColor: COLORS.bg, borderTopWidth: 1, borderTopColor: COLORS.border },
+  secondaryButton: { flex: 1, height: 50, borderRadius: 15, borderWidth: 1, borderColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   secondaryButtonText: { color: COLORS.accent, fontSize: 14, fontWeight: '900' },
-  primaryButtonFooter: {
-    flex: 1.35,
-    height: 50,
-    borderRadius: 15,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
+  primaryButtonFooter: { flex: 1.35, height: 50, borderRadius: 15, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   primaryButtonTextWhite: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
-  noticeBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(10,10,10,0.48)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 22,
-  },
-  noticeBox: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 18,
-    alignItems: 'center',
-  },
-  noticeIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#eef4ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
+  noticeBackdrop: { flex: 1, backgroundColor: 'rgba(10,10,10,0.48)', alignItems: 'center', justifyContent: 'center', padding: 22 },
+  noticeBox: { width: '100%', maxWidth: 360, backgroundColor: COLORS.surface, borderRadius: 20, padding: 18, alignItems: 'center' },
+  noticeIcon: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eef4ff', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   noticeTitle: { color: COLORS.text, fontSize: 17, fontWeight: '900', textAlign: 'center' },
   noticeMessage: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center' },
-  noticeButton: {
-    width: '100%',
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-  },
+  noticeButton: { width: '100%', height: 46, borderRadius: 14, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
   noticeButtonText: { color: '#fff', fontSize: 14, fontWeight: '900' },
+
+  paypalAlertButtonsRow: { flexDirection: 'row', width: '100%', marginTop: 16 },
+paypalAlertCancelButton: {
+  flex: 1,
+  height: 46,
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginRight: 8,
+  backgroundColor: COLORS.surface,
+},
+paypalAlertCancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '900' },
+paypalAlertConfirmButton: {
+  flex: 1,
+  height: 46,
+  borderRadius: 14,
+  backgroundColor: COLORS.accent,
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginLeft: 8,
+},
+paypalAlertConfirmText: { color: '#fff', fontSize: 14, fontWeight: '900' },
 });
 
 const toastStyles = StyleSheet.create({
-  container: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: Platform.OS === 'ios' ? 84 : 64,
-    zIndex: 9999,
-    elevation: 9999,
-  },
-  toast: {
-    minWidth: 160,
-    maxWidth: '86%',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 8,
-    alignItems: 'center',
-  },
+  container: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'flex-start', paddingTop: Platform.OS === 'ios' ? 84 : 64, zIndex: 9999, elevation: 9999 },
+  toast: { minWidth: 160, maxWidth: '86%', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOpacity: 0.08, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 8, alignItems: 'center' },
   toastText: { fontSize: 13, color: COLORS.text, textAlign: 'center', fontWeight: '700' },
 });
+ 
