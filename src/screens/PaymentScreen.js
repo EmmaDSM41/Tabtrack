@@ -847,20 +847,40 @@ export default function PaymentMarketplace() {
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con Apple Pay.');
     } finally { setProcessing(false); }
   };
-
-  // --- PayPal: abre checkout_url y hace polling con intervalMs reducido a 1500ms ---
-  // Se quitó el AppState listener porque en Android causaba que el polling
-  // iniciara más tarde de lo esperado, aumentando el tiempo total de espera.
+  
   const payWithPaypal = async (savedMethod = null) => {
     console.log('[PayPal] clientMetadataId:', paypalClientMetadataId);
     setProcessing(true);
     try {
       validateBeforePayment();
+
+      // STC: se ejecuta antes de crear la transacción, solo para PayPal.
+      // Independientemente del resultado, el pago continúa normal.
+      try {
+        const userId = await resolveUsuarioAppId();
+        console.log('[PayPal STC] Enviando contexto de riesgo...', {
+          usuario_app_id: userId,
+          restaurante_id: restaurante_id,
+          paypal_client_metadata_id: paypalClientMetadataId,
+        });
+        const stcRes = await fetch(`${hostBase()}/api/mobileapp/paypal/risk/transaction-context`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            usuario_app_id: userId,
+            restaurante_id: restaurante_id,
+            paypal_client_metadata_id: paypalClientMetadataId,
+          }),
+        });
+        const stcJson = await stcRes.json().catch(() => null);
+        console.log('[PayPal STC] Status:', stcRes.status);
+        console.log('[PayPal STC] Respuesta:', JSON.stringify(stcJson));
+      } catch (stcErr) {
+        console.warn('[PayPal STC] Error al enviar contexto de riesgo (no bloquea el pago):', stcErr);
+      }
+
       const tx = await createTransaction({ gateway: 'paypal', savedMethod });
       if (tx.checkoutUrl) await Linking.openURL(tx.checkoutUrl);
-      // Polling directo con intervalo de 1500ms (la mitad del default de Stripe).
-      // No usamos AppState porque en Android el evento 'active' no llega de forma
-      // confiable cuando se regresa de un browser externo, lo que causaba delays extras.
       const poll = await pollSplitsUntilPaid(tx.transactionId, 120000, 1500);
       if (poll.ok) {
         navigateSuccess(tx.chargeInfo?.totalAmount);

@@ -55,31 +55,31 @@ function extractTokenFromDeepLink(url: string): string | null {
 export default function App() {
   const navigationRef = useRef<any>(null);
 
-  const handleDeepLink = async (url: string | null) => {
-    if (!url) return;
-    const token = extractTokenFromDeepLink(url);
-    if (!token) return;
+const handleDeepLink = async (url: string | null) => {
+  if (!url) return;
+  const token = extractTokenFromDeepLink(url);
+  if (!token) return;
 
-    console.log('[DeepLink] Token recibido:', token);
+  console.log('[DeepLink] Token recibido:', token);
 
-    // Guardamos el token para que QRScreen lo consuma si la nav no está lista
-    await AsyncStorage.setItem(DEEP_LINK_TOKEN_KEY, token);
+  await AsyncStorage.setItem(DEEP_LINK_TOKEN_KEY, token);
 
-    // Si la navegación ya está lista intentamos navegar directo
-    try {
-      if (navigationRef.current?.isReady()) {
-        navigationRef.current.navigate('Home', {
-          screen: 'QR',
-          params: {
-            screen: 'Escanear',
-            params: { token },
-          },
-        });
-      }
-    } catch (e) {
-      console.warn('[DeepLink] Error navegando directo, QRScreen lo tomará del storage', e);
+  try {
+    if (navigationRef.current?.isReady()) {
+      navigationRef.current.navigate('Home', {
+        screen: 'QR',
+        params: {
+          screen: 'Escanear',
+          params: { token },
+        },
+      });
+      // ✅ Limpiamos inmediatamente después de navegar
+      await AsyncStorage.removeItem(DEEP_LINK_TOKEN_KEY);
     }
-  };
+  } catch (e) {
+    console.warn('[DeepLink] Error navegando directo, QRScreen lo tomará del storage', e);
+  }
+};
 
   useEffect(() => {
     const validateToken = async () => {

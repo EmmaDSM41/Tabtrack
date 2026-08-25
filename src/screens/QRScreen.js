@@ -303,6 +303,7 @@ export default function QRScreen({ navigation }) {
   const scannerRef = useRef(null);
   const statusTimeoutRef = useRef(null);
   const scanLockRef = useRef(false);
+  const deepLinkConsumedRef = useRef(false);
 
   const baseHeader = 56;
   const headerHeight = clamp(rf(baseHeader), 100, 110);
@@ -336,11 +337,16 @@ export default function QRScreen({ navigation }) {
     })();
   }, [navigation, requestPermission]);
 
-  useEffect(() => {
+useEffect(() => {
   const checkPendingDeepLink = async () => {
+    // Si ya consumimos el deep link en esta instancia, no hacer nada
+    if (deepLinkConsumedRef.current) return;
+
     try {
       const token = await AsyncStorage.getItem(DEEP_LINK_TOKEN_KEY);
       if (token) {
+        // Marcamos como consumido ANTES de navegar
+        deepLinkConsumedRef.current = true;
         await AsyncStorage.removeItem(DEEP_LINK_TOKEN_KEY);
         console.log('[QRScreen] Token pendiente encontrado, navegando a Escanear:', token);
         setTimeout(() => {
