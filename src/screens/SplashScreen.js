@@ -3,6 +3,7 @@ import { Image, StyleSheet, Platform, PixelRatio, useWindowDimensions, StatusBar
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const DEFAULT_HOME_KEY = 'user_default_home';
 
@@ -16,31 +17,76 @@ export default function SplashScreen({ navigation }) {
         const uid = await AsyncStorage.getItem('user_usuario_app_id');
         const valid = await AsyncStorage.getItem('user_valid');
         const email = await AsyncStorage.getItem('user_email');
-        const pendingVerification =
-          await AsyncStorage.getItem('pendingVerification');
+        const pendingVerification = await AsyncStorage.getItem('pendingVerification');
 
+        // Sin ninguna señal de sesión → Welcome
         const hasSession = !!(uid || (valid && (valid === 'true' || valid === '1')) || email);
 
-        let targetRoute = 'Welcome';
+        if (!hasSession) {
+          timer = setTimeout(() => {
+            if (!mounted) return;
+            navigation.replace('Welcome');
+          }, 3000);
+          return;
+        }
 
-        if (pendingVerification) {
+        // ─── REFUERZO: si hay sesión, siempre consulta la API para ver doble_verificacion ───
+        // Esto cubre el caso donde pendingVerification se perdió del storage
+        let targetRoute = null;
 
-          targetRoute = 'Verificacion';
+if (email) {
+  try {
+    await ensureToken();
+    const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : null;
 
-        } else if (hasSession) {
+    const res = await fetch(
+      `https://api.tab-track.com/api/mobileapp/usuarios?mail=${encodeURIComponent(email.trim())}&presign_ttl=30`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }
+    );
+ 
+            if (res.ok) {
+              const json = await res.json();
+              const usuario = json?.usuarios?.[0] ?? null;
 
-          const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
-          const residenceRaw = await AsyncStorage.getItem('user_residence_activo');
-          const residenceActive = ['true', '1'].includes(
-            String(residenceRaw ?? '').toLowerCase()
-          );
-
-          if (defaultHome === 'residence' && residenceActive) {
-            targetRoute = 'HomeResidence';
-          } else {
-            targetRoute = 'Home';
+              if (usuario && usuario.doble_verificacion === false) {
+                // No hizo la doble verificación → forzar a pantalla de verificación
+                await AsyncStorage.setItem(
+                  'pendingVerification',
+                  JSON.stringify({ email: email.trim(), createdAt: Date.now() })
+                );
+                targetRoute = 'Verificacion';
+              }
+            }
+          } catch (apiErr) {
+            // Si la API falla, caemos al comportamiento por flags locales abajo
+            console.warn('SplashScreen: API check failed, falling back to local flags', apiErr);
           }
+        }
 
+        // Si la API no resolvió nada, usar los flags locales como fallback
+        if (targetRoute === null) {
+          if (pendingVerification) {
+            targetRoute = 'Verificacion';
+          } else {
+            // Tiene sesión y no hay nada pendiente → Home
+            const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
+            const residenceRaw = await AsyncStorage.getItem('user_residence_activo');
+            const residenceActive = ['true', '1'].includes(
+              String(residenceRaw ?? '').toLowerCase()
+            );
+
+            if (defaultHome === 'residence' && residenceActive) {
+              targetRoute = 'HomeResidence';
+            } else {
+              targetRoute = 'Home';
+            }
+          }
         }
 
         timer = setTimeout(() => {
@@ -70,7 +116,6 @@ export default function SplashScreen({ navigation }) {
 
   const topInset = Math.max((insets?.top ?? 0), (StatusBar.currentHeight ?? 0));
   const bottomInset = insets?.bottom ?? 0;
-
   const logoSize = clamp(Math.round(Math.min(width * 0.56, height * 0.4)), rf(90), 360);
 
   return (

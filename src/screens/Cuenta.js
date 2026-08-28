@@ -24,7 +24,6 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 const API_URL = 'https://api.tab-track.com/api/mobileapp/usuarios';
 const VERIF_URL = 'https://api.tab-track.com/api/mobileapp/usuarios/verification-codes';
 const PRIMARY = '#0046ff';
-
 const DRAFT_KEY = 'cuenta_form_draft_v1';
 
 export default function Cuenta({ navigation }) {
@@ -45,7 +44,6 @@ export default function Cuenta({ navigation }) {
   const [password, setPassword] = useState('');
   const [telefono, setTelefono] = useState('');
   const [firmaDeslinde, setFirmaDeslinde] = useState(false);
-
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [termsChecked, setTermsChecked] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -78,7 +76,7 @@ export default function Cuenta({ navigation }) {
         await AsyncStorage.removeItem(DRAFT_KEY);
       } catch (err) {
         console.warn('Error al restaurar draft desde focus:', err);
-        try { await AsyncStorage.removeItem(DRAFT_KEY); } catch(e) {}
+        try { await AsyncStorage.removeItem(DRAFT_KEY); } catch (e) {}
       }
     });
 
@@ -91,14 +89,8 @@ export default function Cuenta({ navigation }) {
   const saveDraftForTerms = async () => {
     try {
       const draft = {
-        nombre,
-        apellido,
-        mail,
-        password,
-        telefono,
-        firmaDeslinde,
-        privacyChecked,
-        termsChecked,
+        nombre, apellido, mail, password, telefono,
+        firmaDeslinde, privacyChecked, termsChecked,
         _savedAt: Date.now(),
       };
       await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -144,31 +136,35 @@ export default function Cuenta({ navigation }) {
       });
 
       const data = await res.json().catch(() => null);
+
       if (res.status === 201) {
-        try {
-          await AsyncStorage.removeItem(DRAFT_KEY);
-        } catch (err) {
-          console.warn('No se pudo borrar draft tras registro:', err);
-        }
+        // ─── FIX: guardar pendingVerification y email ANTES de cualquier
+        //         operación de red que pueda fallar, para que si la app
+        //         se cierra en este momento el flag ya esté guardado ───
+        const normalizedMail = String(mail).trim();
 
-        try {
-          await AsyncStorage.setItem('user_email', String(mail));
-          await AsyncStorage.setItem('email', String(mail));
-        } catch (e) {
-          console.warn('No se pudo persistir email en AsyncStorage:', e);
-        }
+        await Promise.all([
+          AsyncStorage.removeItem(DRAFT_KEY).catch(() => {}),
+          AsyncStorage.setItem('user_email', normalizedMail),
+          AsyncStorage.setItem('email', normalizedMail),
+          // Guardamos pendingVerification AQUÍ, antes del envío del código
+          AsyncStorage.setItem(
+            'pendingVerification',
+            JSON.stringify({ email: normalizedMail, createdAt: Date.now() })
+          ),
+        ]);
 
+        // Intentar enviar el código de verificación (puede fallar sin problema)
         let sendOk = false;
         try {
           await ensureToken();
-
           const sendRes = await fetch(VERIF_URL, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
             },
-            body: JSON.stringify({ email: mail }),
+            body: JSON.stringify({ email: normalizedMail }),
           });
 
           if (sendRes.ok) {
@@ -180,18 +176,12 @@ export default function Cuenta({ navigation }) {
         } catch (errSend) {
           console.warn('Error enviando código de verificación:', errSend);
         }
-        await AsyncStorage.setItem(
-  'pendingVerification',
-  JSON.stringify({
-    email: mail,
-    createdAt: Date.now(),
-  })
-);
 
+        // Navegar a Verificacion independientemente del resultado del envío
         navigation.dispatch(
           CommonActions.reset({
             index: 0,
-            routes: [{ name: 'Verificacion', params: { email: mail, verificationSent: !!sendOk } }],
+            routes: [{ name: 'Verificacion', params: { email: normalizedMail, verificationSent: !!sendOk } }],
           })
         );
 
@@ -204,7 +194,12 @@ export default function Cuenta({ navigation }) {
           }, 400);
         }
       } else {
-        Alert.alert('Error al registrar', (data && (data.error || data.message)) ? (data.error || data.message) : JSON.stringify(data));
+        Alert.alert(
+          'Error al registrar',
+          (data && (data.error || data.message))
+            ? (data.error || data.message)
+            : JSON.stringify(data)
+        );
       }
     } catch (err) {
       Alert.alert('Error de red', err.message || String(err));
@@ -228,7 +223,6 @@ export default function Cuenta({ navigation }) {
         />
 
         <Text style={styles.stepTitle}>Termina de registrarme</Text>
-
         <Text style={styles.sectionTitle}>Datos del perfil</Text>
 
         <View style={styles.group}>
@@ -279,7 +273,11 @@ export default function Cuenta({ navigation }) {
         </View>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setFirmaDeslinde(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: firmaDeslinde }}>
+          <TouchableOpacity
+            onPress={() => setFirmaDeslinde(v => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: firmaDeslinde }}
+          >
             <Ionicons
               name={firmaDeslinde ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
@@ -290,7 +288,11 @@ export default function Cuenta({ navigation }) {
         </View>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setPrivacyChecked(p => !p)} accessibilityRole="checkbox" accessibilityState={{ checked: privacyChecked }}>
+          <TouchableOpacity
+            onPress={() => setPrivacyChecked(p => !p)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: privacyChecked }}
+          >
             <Ionicons
               name={privacyChecked ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
@@ -302,32 +304,29 @@ export default function Cuenta({ navigation }) {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.termsButton}
-          onPress={onPressTerms}
-        >
-          <Text style={styles.termsButtonText}>
-            Consulta términos y condiciones
-          </Text>
+        <TouchableOpacity style={styles.termsButton} onPress={onPressTerms}>
+          <Text style={styles.termsButtonText}>Consulta términos y condiciones</Text>
         </TouchableOpacity>
 
         <View style={styles.checkboxRow}>
-          <TouchableOpacity onPress={() => setTermsChecked(t => !t)} accessibilityRole="checkbox" accessibilityState={{ checked: termsChecked }}>
+          <TouchableOpacity
+            onPress={() => setTermsChecked(t => !t)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: termsChecked }}
+          >
             <Ionicons
               name={termsChecked ? 'checkbox' : 'square-outline'}
               size={Math.round(rf(4))}
               color={PRIMARY}
             />
           </TouchableOpacity>
-          <Text style={styles.checkboxLabel}>
-            Acepto términos y condiciones
-          </Text>
+          <Text style={styles.checkboxLabel}>Acepto términos y condiciones</Text>
         </View>
 
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (!(privacyChecked && termsChecked && firmaDeslinde) || loading) && { opacity: 0.5 }
+            (!(privacyChecked && termsChecked && firmaDeslinde) || loading) && { opacity: 0.5 },
           ]}
           disabled={!(privacyChecked && termsChecked && firmaDeslinde) || loading}
           onPress={handleRegister}
@@ -338,31 +337,26 @@ export default function Cuenta({ navigation }) {
             <Text style={styles.continueButtonText}>Continuar</Text>
           )}
         </TouchableOpacity>
-
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
-  const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
+  const topSafe = Math.round(Math.max(
+    insets?.top ?? 0,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)
+  ));
   const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 28));
+
   return StyleSheet.create({
-    safe: {
-      flex: 1,
-      backgroundColor: '#fff',
-      paddingTop: topSafe,
-    },
+    safe: { flex: 1, backgroundColor: '#fff', paddingTop: topSafe },
     container: {
       paddingHorizontal: sidePad,
       paddingTop: Math.round(hp(2)),
       paddingBottom: Math.round(hp(4) + (insets?.bottom ?? 0)),
     },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: Math.round(hp(1.2)),
-    },
+    header: { flexDirection: 'row', alignItems: 'center', marginBottom: Math.round(hp(1.2)) },
     backImage: {
       width: Math.round(clamp(wp(12), 36, 56)),
       height: Math.round(clamp(rf(4.4), 28, 56)),
@@ -385,14 +379,12 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
     },
     stepTitle: {
       fontSize: Math.round(clamp(rf(4.2), 14, 20)),
-      marginLeft: 0,
       marginBottom: Math.round(hp(1.6)),
       color: '#333',
       textAlign: 'center',
     },
     sectionTitle: {
       fontSize: Math.round(clamp(rf(4.2), 14, 18)),
-      marginLeft: 0,
       marginBottom: Math.round(hp(1)),
       color: '#555',
       textAlign: 'left',
@@ -413,14 +405,7 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
       fontSize: Math.round(clamp(rf(3.4), 12, 16)),
       color: '#333',
     },
-    inputPlaceholder: {
-      fontSize: Math.round(clamp(rf(2.8), 10, 14)),
-    },
-    checkboxRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginVertical: Math.round(hp(1)),
-    },
+    checkboxRow: { flexDirection: 'row', alignItems: 'center', marginVertical: Math.round(hp(1)) },
     checkboxLabel: {
       flex: 1,
       fontSize: Math.round(clamp(rf(3.4), 12, 16)),
@@ -439,18 +424,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, Platform, insets }) {
     termsButtonText: {
       color: '#fff',
       fontSize: Math.round(clamp(rf(3.6), 12, 16)),
-    },
-    termsTextContainer: {
-      borderWidth: 1,
-      borderColor: '#DDD',
-      borderRadius: Math.round(wp(2)),
-      padding: Math.round(wp(3)),
-      marginBottom: Math.round(hp(1.6)),
-    },
-    termsText: {
-      fontSize: Math.round(clamp(rf(3.2), 12, 14)),
-      color: '#666',
-      lineHeight: Math.round(clamp(rf(4.8), 16, 22)),
     },
     continueButton: {
       borderWidth: 1,

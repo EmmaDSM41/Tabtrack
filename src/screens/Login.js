@@ -69,21 +69,12 @@ export default function Login() {
   const toastBottomBase = Platform.OS === 'ios' ? scaled.toastBottomIOS : scaled.toastBottomAndroid;
   const toastBottom = toastBottomBase + (insets.bottom ?? 0);
   const successToastBottom = toastBottom + 20;
-
   const titleCaritaSpacing = clamp(Math.round(scaled.titleFont * 0.5), 8, 48);
 
   const dynamic = StyleSheet.create({
-    containerOverride: {
-      paddingVertical: scaled.paddingVertical + topInset,
-    },
-    logoOverride: {
-      width: scaled.logoWidth,
-      height: scaled.logoHeight,
-    },
-    titleOverride: {
-      fontSize: scaled.titleFont,
-      marginTop: scaled.titleMarginTop,
-    },
+    containerOverride: { paddingVertical: scaled.paddingVertical + topInset },
+    logoOverride: { width: scaled.logoWidth, height: scaled.logoHeight },
+    titleOverride: { fontSize: scaled.titleFont, marginTop: scaled.titleMarginTop },
     caritaOverride: {
       fontSize: scaled.caritaFont,
       marginTop: Math.round(Math.max(4, scaled.titleFont * 0.05)),
@@ -99,22 +90,14 @@ export default function Login() {
       height: scaled.inicioHeight,
       borderRadius: scaled.inicioRadius,
     },
-    buttonTextOverride: {
-      fontSize: scaled.buttonTextSize,
-    },
-    forgotOverride: {
-      fontSize: scaled.forgotSize,
-    },
+    buttonTextOverride: { fontSize: scaled.buttonTextSize },
+    forgotOverride: { fontSize: scaled.forgotSize },
     buttonContainerOverride: {
       width: scaled.buttonContainerWidthPct,
       marginTop: scaled.buttonContainerMarginTop,
     },
-    toastOverride: {
-      bottom: toastBottom,
-    },
-    successToastOverride: {
-      bottom: successToastBottom,
-    },
+    toastOverride: { bottom: toastBottom },
+    successToastOverride: { bottom: successToastBottom },
     titleCaritaContainer: {
       alignItems: 'center',
       justifyContent: 'center',
@@ -157,6 +140,45 @@ export default function Login() {
     });
   };
 
+  // ─── REFUERZO: verificar doble_verificacion en la API antes de dejar entrar ───
+const checkDobleVerificacion = async (userMail) => {
+    try {
+      await ensureToken();
+      const token = (typeof TOKEN === 'string' && TOKEN.trim()) ? TOKEN.trim() : null;
+
+      const res = await fetch(
+        `${API_BASE}/usuarios?mail=${encodeURIComponent(userMail.trim())}&presign_ttl=30`,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      if (!res.ok) {
+        // Si la API falla, dejamos pasar (no bloqueamos por un error de red)
+        console.warn('checkDobleVerificacion: API error', res.status);
+        return true;
+      }
+
+      const json = await res.json();
+      const usuario = json?.usuarios?.[0] ?? null;
+
+      if (!usuario) {
+        // No encontró usuario, dejar pasar
+        return true;
+      }
+
+      return usuario.doble_verificacion === true;
+    } catch (err) {
+      // Si falla la consulta, no bloqueamos (mejor UX que quedar atrapado)
+      console.warn('checkDobleVerificacion: fetch error', err);
+      return true;
+    }
+  };
+
   const handleLogin = async () => {
     if (!mail.trim() || !password) {
       return showToast('Falta correo o contraseña');
@@ -187,6 +209,32 @@ export default function Login() {
       if (res.status === 200) {
         const usuario = data.usuario || {};
 
+        // ─── REFUERZO: antes de guardar sesión, verificar doble verificación ───
+        const tieneDobleVerif = await checkDobleVerificacion(mail.trim());
+
+        if (!tieneDobleVerif) {
+          // Guardar el email para que la pantalla de verificación lo tenga
+          await AsyncStorage.setItem('user_email', String(usuario.mail || mail.trim()));
+          await AsyncStorage.setItem('email', String(usuario.mail || mail.trim()));
+
+          // Registrar que hay verificación pendiente
+          await AsyncStorage.setItem(
+            'pendingVerification',
+            JSON.stringify({ email: usuario.mail || mail.trim(), createdAt: Date.now() })
+          );
+
+          // Toast de aviso y redirección a verificación
+          showToast(
+            'Debes completar la verificación de tu cuenta',
+            false,
+            2000,
+            () => navigation.navigate('Verificacion', { email: usuario.mail || mail.trim() })
+          );
+          return;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Login normal: guardar todos los datos de sesión
         for (const [key, value] of Object.entries(usuario)) {
           if (value !== null && value !== undefined) {
             await AsyncStorage.setItem(`user_${key}`, String(value));
@@ -244,7 +292,6 @@ export default function Login() {
           if (deptId !== null && deptId !== undefined) {
             await AsyncStorage.setItem('user_residence_departamento_id_actual', String(deptId));
           }
-
           if (roleVal !== null && roleVal !== undefined) {
             await AsyncStorage.setItem('user_residence_rol_actual', String(roleVal));
           }
@@ -252,7 +299,6 @@ export default function Login() {
           console.warn('Error guardando residence meta en AsyncStorage', e);
         }
 
-        // NUEVO: guardar admin_id_actual, edificio_id_actual y environment
         try {
           let adminIdActual = null;
           let edificioIdActual = null;
@@ -279,11 +325,9 @@ export default function Login() {
           if (adminIdActual !== null && adminIdActual !== undefined) {
             await AsyncStorage.setItem('user_admin_id_actual', String(adminIdActual));
           }
-
           if (edificioIdActual !== null && edificioIdActual !== undefined) {
             await AsyncStorage.setItem('user_edificio_id_actual', String(edificioIdActual));
           }
-
           if (environmentVal !== null && environmentVal !== undefined) {
             await AsyncStorage.setItem('user_environment', String(environmentVal));
           }
@@ -291,11 +335,13 @@ export default function Login() {
           console.warn('Error guardando admin_id_actual / edificio_id_actual / environment en AsyncStorage', e);
         }
 
+        // Limpiar cualquier flag de verificación pendiente ya que la pasó
+        try {
+          await AsyncStorage.removeItem('pendingVerification');
+        } catch (_) {}
+
         const defaultHome = await AsyncStorage.getItem(DEFAULT_HOME_KEY);
-        const targetRoute =
-          defaultHome === 'residence'
-            ? 'HomeResidence'
-            : 'Home';
+        const targetRoute = defaultHome === 'residence' ? 'HomeResidence' : 'Home';
 
         showToast(
           fullname ? `¡Bienvenido, ${fullname}!` : '¡Bienvenido!',
@@ -394,11 +440,12 @@ export default function Login() {
             style={styles.forgotPasswordContainer}
             onPress={() => navigation.navigate('SendEmail')}
           >
-            <Text style={[styles.forgotPasswordText, dynamic.forgotOverride]}>¿Se te olvidó tu contraseña?</Text>
+            <Text style={[styles.forgotPasswordText, dynamic.forgotOverride]}>
+              ¿Se te olvidó tu contraseña?
+            </Text>
           </TouchableOpacity>
 
-          <View style={[styles.buttonContainer, dynamic.buttonContainerOverride]}>
-          </View>
+          <View style={[styles.buttonContainer, dynamic.buttonContainerOverride]} />
         </KeyboardAvoidingView>
 
         <TouchableOpacity
@@ -418,7 +465,7 @@ export default function Login() {
           {
             opacity: toastAnim,
             transform: [{
-              translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] })
+              translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }),
             }],
           },
         ]}
@@ -449,7 +496,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
   },
-
   inputInner: {
     width: '100%',
     height: 40,
@@ -458,20 +504,56 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     color: '#000',
   },
-
-  inicio: { width: '50%', height: 40, borderRadius: 25, backgroundColor: '#0046ff', marginTop: 18, justifyContent: 'center', alignItems: 'center' },
+  inicio: {
+    width: '50%',
+    height: 40,
+    borderRadius: 25,
+    backgroundColor: '#0046ff',
+    marginTop: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   buttonText: { color: '#fff', fontSize: 16, fontFamily: 'Montserrat-Regular' },
   buttonText1: { color: '#000', fontSize: 16, fontFamily: 'Montserrat-Regular' },
   forgotPasswordContainer: { marginTop: 6, alignItems: 'center' },
   forgotPasswordText: { color: '#000', fontFamily: 'Montserrat-Regular', fontSize: 14, opacity: 0.9 },
   buttonContainer: { width: '80%', marginTop: 18 },
-  button: { backgroundColor: '#ffffff', padding: 7, borderRadius: 10, marginVertical: 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#000', borderRadius: 8 },
-  icon: { width: 20, height: 20, marginRight: 10, color: "#000" },
-  toast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, maxWidth: '85%' },
+  button: {
+    backgroundColor: '#ffffff',
+    padding: 7,
+    borderRadius: 10,
+    marginVertical: 3,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  icon: { width: 20, height: 20, marginRight: 10, color: '#000' },
+  toast: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    maxWidth: '85%',
+  },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' },
-  successToast: { position: 'absolute', left: 12, right: 12, alignSelf: 'center', backgroundColor: 'rgb(0, 50, 186)', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, maxWidth: '90%' },
+  successToast: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    alignSelf: 'center',
+    backgroundColor: 'rgb(0, 50, 186)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    maxWidth: '90%',
+  },
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
-
   termsFloatingContainer: {
     position: 'absolute',
     left: 0,
