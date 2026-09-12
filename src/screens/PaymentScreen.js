@@ -150,6 +150,10 @@ export default function PaymentMarketplace() {
   const mesa_id = params.mesa_id ?? params.mesaId ?? params.mesa ?? null;
   const moneda = params.moneda ?? params.currency ?? 'MXN';
   const restaurantImage = params.restaurantImage ?? params.restaurantImageUri ?? null;
+  const fechaApertura = params.fecha_apertura ?? params.fechaApertura ?? null;
+  const todayText = fechaApertura
+    ? new Date(fechaApertura).toLocaleString('es-MX')
+    : new Date().toLocaleString('es-MX');
 
   let rawItems = [];
   if (Array.isArray(params.items)) rawItems = params.items;
@@ -222,7 +226,7 @@ export default function PaymentMarketplace() {
   const comingFromEqualSplit = params.groupPeople !== undefined && params.groupPeople !== null;
   const groupPeopleCount = Math.max(1, Number(params.groupPeople ?? params.people ?? 1) || 1);
   const splitBaseForCharge = comingFromEqualSplit
-    ? Number(totalFromItems || params.groupTotal || params.group_total || totalSinPropina || 0)
+    ? Number(params.groupTotal ?? params.group_total ?? totalFromItems ?? totalSinPropina ?? 0)
     : subtotalAmount;
 
   const [screen, setScreen] = useState('checkout');
@@ -496,16 +500,22 @@ export default function PaymentMarketplace() {
 
     setLoadingMethods(true);
     try {
-      const restaurantGateways = await loadRestaurantPayments();
+      // ✅ ANTES: loadRestaurantPayments() terminaba, LUEGO fetch métodos
+      // ✅ AHORA: ambas llamadas corren en paralelo
       await ensureToken();
-      const res = await fetch(buildPaymentMethodsUrl(userId, restaurante_id), {
-        method: 'GET',
-        headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
-      });
-      const json = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        console.warn('loadMarketplaceMethods error', res.status, json);
+      const [restaurantGateways, methodsResponse] = await Promise.all([
+        loadRestaurantPayments(),
+        fetch(buildPaymentMethodsUrl(userId, restaurante_id), {
+          method: 'GET',
+          headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
+        }),
+      ]);
+
+      const json = await methodsResponse.json().catch(() => null);
+
+      if (!methodsResponse.ok) {
+        console.warn('loadMarketplaceMethods error', methodsResponse.status, json);
         showToast('No se pudieron cargar los métodos de pago', false);
         setMethods([]);
         setAvailableGateways(restaurantGateways);
@@ -569,30 +579,50 @@ export default function PaymentMarketplace() {
     await initStripe({ publishableKey: FIXED_STRIPE_PUBLISHABLE_KEY, stripeAccountId: accountId || undefined });
   };
 
-  const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120000, intervalMs = 3000) => {
+  const pollSplitsUntilPaid = async (transactionId, timeoutMs = 120000, intervalMs = null, aggressive = false) => {
     if (!transactionId) return { ok: false, reason: 'no_tx' };
     await ensureToken();
     const start = Date.now();
     pollingRef.current.stopRequested = false;
     pollingRef.current.lastResult = null;
 
+    const aggressiveIntervals = [200, 400, 600, 1000, 1500, 2000, 3000];
+    const normalIntervals = [500, 800, 1000, 1200, 1500, 1500, 2000, 2000, 3000];
+    const intervals = aggressive ? aggressiveIntervals : normalIntervals;
+    let attemptIndex = 0;
+
     while (!pollingRef.current.stopRequested && Date.now() - start < timeoutMs) {
+      const attemptStart = Date.now();
+      console.log(`[Polling] ⏱ intento ${attemptIndex + 1} — ms desde inicio: ${attemptStart - start}`);
       try {
         const res = await fetch(buildSplitsUrl(transactionId), { method: 'GET', headers: getAuthHeaders() });
         const json = await res.json().catch(() => null);
+        console.log(`[Polling] intento ${attemptIndex + 1} — status: ${res.status} — ms de red: ${Date.now() - attemptStart}`);
+        console.log(`[Polling] intento ${attemptIndex + 1} — body:`, JSON.stringify(json));
+
         if (res.ok) {
-          const splitsArr = Array.isArray(json?.splits) ? json.splits : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
+          const splitsArr = Array.isArray(json?.splits)
+            ? json.splits
+            : (Array.isArray(json?.data?.splits) ? json.data.splits : []);
           const paidSplits = splitsArr.filter((s) => String(s.estado ?? '').toLowerCase() === 'paid');
           if (paidSplits.length > 0) {
-            const paidCodes = paidSplits.map((s) => String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()).filter(Boolean);
+            const paidCodes = paidSplits.map((s) =>
+              String(s.codigo_item ?? s.codigo ?? s.code ?? '').trim()
+            ).filter(Boolean);
             return { ok: true, paidCodes, raw: json };
           }
           pollingRef.current.lastResult = { json };
         } else {
           pollingRef.current.lastResult = { status: res.status, body: json };
         }
-      } catch (err) { pollingRef.current.lastResult = { exception: String(err) }; }
-      await new Promise((r) => setTimeout(r, intervalMs));
+      } catch (err) {
+        pollingRef.current.lastResult = { exception: String(err) };
+      }
+
+      const waitMs = intervals[Math.min(attemptIndex, intervals.length - 1)];
+      console.log(`[Polling] esperando ${waitMs}ms antes del siguiente intento`);
+      attemptIndex++;
+      await new Promise((r) => setTimeout(r, waitMs));
     }
     return { ok: false, reason: 'timeout', last: pollingRef.current.lastResult };
   };
@@ -847,41 +877,43 @@ export default function PaymentMarketplace() {
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con Apple Pay.');
     } finally { setProcessing(false); }
   };
-  
+
   const payWithPaypal = async (savedMethod = null) => {
-    console.log('[PayPal] clientMetadataId:', paypalClientMetadataId);
+    console.log('[PayPal] ⏱ INICIO:', Date.now());
     setProcessing(true);
     try {
       validateBeforePayment();
 
-      // STC: se ejecuta antes de crear la transacción, solo para PayPal.
-      // Independientemente del resultado, el pago continúa normal.
-      try {
-        const userId = await resolveUsuarioAppId();
-        console.log('[PayPal STC] Enviando contexto de riesgo...', {
+      const userId = await resolveUsuarioAppId();
+
+      // STC fire and forget
+      fetch(`${hostBase()}/api/mobileapp/paypal/risk/transaction-context`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
           usuario_app_id: userId,
           restaurante_id: restaurante_id,
           paypal_client_metadata_id: paypalClientMetadataId,
-        });
-        const stcRes = await fetch(`${hostBase()}/api/mobileapp/paypal/risk/transaction-context`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            usuario_app_id: userId,
-            restaurante_id: restaurante_id,
-            paypal_client_metadata_id: paypalClientMetadataId,
-          }),
-        });
-        const stcJson = await stcRes.json().catch(() => null);
-        console.log('[PayPal STC] Status:', stcRes.status);
-        console.log('[PayPal STC] Respuesta:', JSON.stringify(stcJson));
-      } catch (stcErr) {
-        console.warn('[PayPal STC] Error al enviar contexto de riesgo (no bloquea el pago):', stcErr);
+        }),
+      })
+        .then(r => r.json().catch(() => null))
+        .then(j => console.log('[PayPal STC] respuesta:', JSON.stringify(j)))
+        .catch(e => console.warn('[PayPal STC] Error:', e));
+
+      console.log('[PayPal] ⏱ antes de createTransaction:', Date.now());
+      const tx = await createTransaction({ gateway: 'paypal', savedMethod });
+      console.log('[PayPal] ⏱ createTransaction terminó:', Date.now());
+      console.log('[PayPal] tx completo:', JSON.stringify(tx.raw));
+
+      if (tx.checkoutUrl) {
+        Linking.openURL(tx.checkoutUrl);
       }
 
-      const tx = await createTransaction({ gateway: 'paypal', savedMethod });
-      if (tx.checkoutUrl) await Linking.openURL(tx.checkoutUrl);
-      const poll = await pollSplitsUntilPaid(tx.transactionId, 120000, 1500);
+      console.log('[PayPal] ⏱ antes de polling:', Date.now());
+      const poll = await pollSplitsUntilPaid(tx.transactionId, 120000, null, true);
+      console.log('[PayPal] ⏱ polling terminó:', Date.now());
+      console.log('[PayPal] poll result:', JSON.stringify(poll));
+
       if (poll.ok) {
         navigateSuccess(tx.chargeInfo?.totalAmount);
       } else {
@@ -890,7 +922,9 @@ export default function PaymentMarketplace() {
     } catch (err) {
       console.warn('payWithPaypal error', err);
       showPaymentError('Pago no procesado', err?.message || 'No se pudo procesar el pago con PayPal.');
-    } finally { setProcessing(false); }
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const openManualGateway = (gateway) => {
@@ -946,15 +980,15 @@ export default function PaymentMarketplace() {
 
   const renderGatewayLogo = (gateway) => {
     const g = normalizeGateway(gateway);
-if (g === 'paypal') {
-  return (
-    <Image
-      source={require('../../assets/images/PaypalN.png')}
-      style={{ width: 90, height: 34 }}
-      resizeMode="contain"
-    />
-  );
-}
+    if (g === 'paypal') {
+      return (
+        <Image
+          source={require('../../assets/images/PaypalN.png')}
+          style={{ width: 90, height: 34 }}
+          resizeMode="contain"
+        />
+      );
+    }
     if (isApplePayGatewayName(g)) {
       return (
         <View style={styles.applePayLogo}>
@@ -1025,13 +1059,13 @@ if (g === 'paypal') {
           activeOpacity={0.88}
           onPress={() => setSelectedMethod(method)}
         >
-<View style={styles.paypalLogoFull}>
-  <Image
-    source={require('../../assets/images/PaypalN.png')}
-    style={{ width: 90, height: 34 }}
-    resizeMode="contain"
-  />
-</View>
+          <View style={styles.paypalLogoFull}>
+            <Image
+              source={require('../../assets/images/PaypalN.png')}
+              style={{ width: 90, height: 34 }}
+              resizeMode="contain"
+            />
+          </View>
           {preferred ? (
             <View style={styles.preferredChip}>
               <Ionicons name="star" size={11} color={COLORS.accent} style={{ marginRight: 3 }} />
@@ -1127,10 +1161,12 @@ if (g === 'paypal') {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
       <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconButton}>
-          <Ionicons name="chevron-back" size={26} color={COLORS.accent} />
+          <Ionicons name="chevron-back" size={19} color="#222" />
         </TouchableOpacity>
+
         <Text style={styles.headerTitle}>Pagar</Text>
-        <View style={styles.headerIconButton} />
+
+        <Text style={styles.headerDate}>{todayText}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 130 }}>
@@ -1256,9 +1292,11 @@ if (g === 'paypal') {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
       <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
         <TouchableOpacity onPress={() => setScreen('checkout')} style={styles.headerIconButton}>
-          <Ionicons name="chevron-back" size={26} color={COLORS.accent} />
+          <Ionicons name="chevron-back" size={19} color="#222" />
         </TouchableOpacity>
+
         <Text style={styles.headerTitle}>Nueva tarjeta</Text>
+
         <View style={styles.headerIconButton} />
       </View>
 
@@ -1389,7 +1427,7 @@ function PaypalNotConfiguredModal({ visible, onCancel, onGoToPayments }) {
               <Text style={styles.paypalAlertCancelText}>Cancelar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.paypalAlertConfirmButton} onPress={onGoToPayments} activeOpacity={0.85}>
-              <Text style={styles.paypalAlertConfirmText}>Ir a métodos de pago</Text>
+              <Text style={styles.paypalAlertConfirmText}>Ir</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1401,9 +1439,9 @@ function PaypalNotConfiguredModal({ visible, onCancel, onGoToPayments }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   header: { height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.bg },
-  headerIconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { flex: 1, textAlign: 'center', color: COLORS.text, fontSize: 17, fontWeight: '900' },
-  headerGradient: { width: '100%', overflow: 'hidden' },
+  headerIconButton: { width: 44, height: 42, alignItems: 'flex-start', justifyContent: 'center' },  
+  headerTitle: { flex: 1, textAlign: 'left', color: '#111', fontSize: 17, fontWeight: '800' },
+  headerDate: { color: '#666', fontSize: 12, textAlign: 'right' }, headerGradient: { width: '100%', overflow: 'hidden' },
   gradientRow: { flexDirection: 'row', justifyContent: 'space-between' },
   leftCol: { flexDirection: 'column', alignItems: 'center' },
   tabtrackLogo: {},
@@ -1511,4 +1549,4 @@ const toastStyles = StyleSheet.create({
   toast: { minWidth: 160, maxWidth: '86%', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOpacity: 0.08, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 8, alignItems: 'center' },
   toastText: { fontSize: 13, color: COLORS.text, textAlign: 'center', fontWeight: '700' },
 });
- 
+

@@ -111,11 +111,11 @@ export default function OneExhibicion() {
       const unit =
         Number(
           it.unitPrice ??
-            it.precio_item ??
-            it.precio ??
-            it.price ??
-            it.unit_price ??
-            0
+          it.precio_item ??
+          it.precio ??
+          it.price ??
+          it.unit_price ??
+          0
         ) || 0;
       const line =
         Number(it.lineTotal ?? it.line_total ?? it.total ?? +(unit * qty).toFixed(2)) ||
@@ -253,7 +253,7 @@ export default function OneExhibicion() {
   };
 
   const handlePay = () => {
- 
+
     const itemsToPay = (items || []).map((it) => {
       const line = Number(it.lineTotal || 0);
       if (it.canceled) return null;
@@ -367,6 +367,7 @@ export default function OneExhibicion() {
         </TouchableOpacity>
 
         <Text style={styles.title}>Tu Cuenta</Text>
+
         <Text style={styles.topSmall}>{todayText}</Text>
       </View>
 
@@ -449,7 +450,7 @@ export default function OneExhibicion() {
             <Text style={styles.primaryButtonText}>Continuar</Text>
           </TouchableOpacity>
 
-{/*           <TouchableOpacity style={styles.ghostButton} onPress={handlePay} activeOpacity={0.9}>
+          {/*           <TouchableOpacity style={styles.ghostButton} onPress={handlePay} activeOpacity={0.9}>
             <Text style={styles.ghostButtonText}>Pagar</Text>
           </TouchableOpacity> */}
         </View>
@@ -462,10 +463,10 @@ function makeStyles({ width, height, wp, hp, rf, clamp, insets }) {
   const safeTop = Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 8) : (insets?.top ?? 8));
   const topBarHeight = Math.round(clamp(hp(10) + (safeTop / 100), 64, 110));
   const headerPaddingV = Math.round(hp(2.2));
-  const logoW = Math.round(Math.min(140, width * 0.28));
-  const restaurantImageSize = Math.round(clamp(rf(6.5), 48, Math.max(64, Math.min(96, width * 0.18))));
+  const logoW = Math.round(clamp(width * 0.28, 80, 140));
+  const restaurantImageSize = Math.round(clamp(rf(16), 48, 96));
   const contentMaxWidth = Math.min(width - 32, 720);
-  const totalNumberSize = Math.round(clamp(rf(8.5), 20, Math.max(28, Math.min(42, width * 0.09))));
+  const totalNumberSize = Math.round(clamp(rf(7.5), 20, 36));
   const sectionTitleSize = Math.round(clamp(rf(5.6), 18, 26));
 
   return StyleSheet.create({
@@ -483,13 +484,13 @@ function makeStyles({ width, height, wp, hp, rf, clamp, insets }) {
       paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 8) : 8,
     },
     backBtn: { width: 56, alignItems: 'flex-start', justifyContent: 'center' },
-    backArrow: { fontSize: Math.round(clamp(rf(8), 24, 38)), color: '#0b58ff', marginLeft: 2 },
-    title: { fontSize: Math.round(clamp(rf(4.5), 14, 18)), fontWeight: '800', color: '#0b58ff' },
-    topSmall: { fontSize: Math.round(clamp(rf(3), 10, 12)), color: '#6b7280' },
+    backArrow: { fontSize: Math.round(clamp(rf(4.2), 22, 36)), color: '#222', marginLeft: 2 },
+    title: { flex: 1, fontSize: Math.round(clamp(rf(3.6), 14, 18)), fontWeight: '800', color: '#111' },
+    topSmall: { fontSize: Math.round(clamp(rf(1.6), 10, 12)), color: '#666', textAlign: 'right' },
 
     container: { alignItems: 'center', paddingBottom: Math.round(hp(3)) },
 
-    headerGradient: { width: '100%', paddingHorizontal: Math.round(wp(4)), paddingTop: headerPaddingV, paddingBottom: Math.round(hp(3.2)), borderBottomRightRadius: Math.round(Math.min(56, width * 0.12)), overflow: 'hidden' },
+    headerGradient: { width: '100%', paddingHorizontal: Math.max(14, Math.round(wp(5))), paddingTop: Math.max(12, Math.round(hp(2))), paddingBottom: Math.max(20, Math.round(hp(3))), borderBottomRightRadius: Math.max(28, Math.round(wp(8))), overflow: 'hidden' },
     gradientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
 
     leftCol: { flexDirection: 'column', alignItems: 'center' },

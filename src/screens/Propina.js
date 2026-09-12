@@ -7,7 +7,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const formatMoney = (n) => Number.isFinite(n) ? n.toLocaleString('es-MX',{ minimumFractionDigits:2, maximumFractionDigits:2 }) : '0.00';
+const formatMoney = (n) => Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 const round2 = (v) => { const n = Number(v || 0); return Number.isFinite(n) ? Number(n.toFixed(2)) : 0; };
 
 export default function Propina() {
@@ -46,20 +46,20 @@ export default function Propina() {
 
   const incomingTipApplied = params.tipApplied ?? params.tip_applied ?? null;
   const initialPercent = incomingTipApplied ? Number(incomingTipApplied.percent || 0) : null;
-  const initialOther = incomingTipApplied && ![10,15,20,25].includes(initialPercent) ? String(initialPercent) : '';
+  const initialOther = incomingTipApplied && ![10, 15, 20, 25].includes(initialPercent) ? String(initialPercent) : '';
 
- 
+
   const [selectedPercent, setSelectedPercent] = useState(initialPercent ?? 15);
   const [otherPercent, setOtherPercent] = useState(initialOther);
   const [customActive, setCustomActive] = useState(Boolean(initialOther));
   const [hasAppliedBefore, setHasAppliedBefore] = useState(Boolean(incomingTipApplied));
- 
+
   useEffect(() => {
     const tip = route?.params?.tipApplied ?? route?.params?.tip_applied ?? null;
     if (tip) {
       setHasAppliedBefore(true);
       const p = Number(tip.percent || 0);
-      if ([10,15,20,25].includes(p)) {
+      if ([10, 15, 20, 25].includes(p)) {
         setSelectedPercent(p); setOtherPercent(''); setCustomActive(false);
       } else {
         setSelectedPercent(null); setOtherPercent(String(p || '')); setCustomActive(true);
@@ -219,10 +219,11 @@ export default function Propina() {
         subtotal: perPersonSubtotal,
         iva: perPersonIva,
         tipAmount: perPersonTipAmount,
-        total: perPersonTotal, 
+        total: perPersonTotal,
         totalWithTip: perPersonTotalWithTip,
         people: 1,
         groupPeople: peopleCount,
+        groupTotal: groupTotal,       // 👈 agregar esto (ya con descuento, 80)
         tipPercent: percentRounded,
         restaurantImage,
       });
@@ -233,7 +234,7 @@ export default function Propina() {
 
     if (isFromOneExhibicion) {
       const itemsPayload = (normalizedItems || []).map(it => ({
-        id: it.id ?? `item-${Math.random().toString(36).slice(2,9)}`,
+        id: it.id ?? `item-${Math.random().toString(36).slice(2, 9)}`,
         name: it.name ?? 'Item',
         qty: 1,
         unitPrice: Number(it.unitPrice ?? it.price ?? 0),
@@ -280,7 +281,7 @@ export default function Propina() {
     }
 
     const defaultItemsPayload = (normalizedItems || []).map(it => ({
-      id: it.id ?? `item-${Math.random().toString(36).slice(2,9)}`,
+      id: it.id ?? `item-${Math.random().toString(36).slice(2, 9)}`,
       name: it.name ?? 'Item',
       qty: Number(it.qty ?? 1),
       unitPrice: Number(it.unitPrice ?? it.price ?? 0),
@@ -311,17 +312,19 @@ export default function Propina() {
 
   const buttonLabel = (hasAppliedBefore || percent > 0) ? 'Añadir/editar propina' : 'Añadir propina';
 
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); 
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375));
+  const wp = (p) => (Number(p) / 100) * width;
+  const hp = (p) => (Number(p) / 100) * height;
   const clampLocal = (v, a, b) => Math.max(a, Math.min(b, v));
 
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
   const headerHeight = clampLocal(rf(48), 60, 120);
-  const logoWidth = clampLocal(Math.round(width * 0.32), 88, 180);
-  const restImageSize = clampLocal(Math.round(width * 0.15), 50, 120);
+  const logoWidth = Math.round(clampLocal(wp(28), 80, 140));
+  const restImageSize = Math.round(clampLocal(wp(16), 48, 96));
   const contentMaxWidth = Math.min(Math.round(width - 32), Math.max(420, Math.round(width * 0.9)));
-  const totalFontSize = clampLocal(rf(30), 28, 44);
+  const totalFontSize = Math.round(clampLocal(wp(7.5), 20, 36));
   const smallFont = clampLocal(rf(12), 11, 18);
   const sectionTitleFont = clampLocal(rf(16), 14, 22);
   const optionFont = clampLocal(rf(14), 13, 20);
@@ -358,10 +361,12 @@ export default function Propina() {
 
       <View style={[styles.topBar, { height: headerHeight, paddingHorizontal: basePadding }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
-          <Text style={[styles.backArrow, { fontSize: clampLocal(rf(32), 20, 36) }]}>{'‹'}</Text>
+          <Text style={[styles.backArrow, { fontSize: clampLocal(rf(30), 20, 28) }]}>{'‹'}</Text>
         </TouchableOpacity>
-        <Text style={[styles.title, { fontSize: clampLocal(rf(15), 14, 20) }]}>Tu cuenta</Text>
-        <Text style={[styles.topSmall, { fontSize: clampLocal(rf(10), 10, 14) }]}>{todayString}</Text>
+
+        <Text style={[styles.title, { fontSize: clampLocal(rf(15), 14, 18) }]}>Tu cuenta</Text>
+
+        <Text style={[styles.topSmall, { fontSize: clampLocal(rf(10), 10, 12) }]}>{todayString}</Text>
       </View>
 
       <ScrollView
@@ -372,7 +377,7 @@ export default function Propina() {
           colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.headerGradient, { paddingHorizontal: Math.max(12, basePadding), paddingTop: Math.max(12, rf(14)), paddingBottom: Math.max(12, rf(14)) }]}
+          style={[styles.headerGradient, { paddingHorizontal: Math.max(14, basePadding), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(20, hp(3)), borderBottomRightRadius: Math.max(28, Math.round(wp(8))) }]}
         >
           <View style={[styles.headerInner, { paddingHorizontal: 0 }]}>
             <View style={[styles.leftCol, { flex: 0 }]}>
@@ -381,17 +386,17 @@ export default function Propina() {
                 style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32) }]}
                 resizeMode="contain"
               />
-              <View style={[styles.logoWrap, { marginTop: rf(6), padding: Math.round(rf(6)) }]}>
+              <View style={[styles.logoWrap, { marginTop: Math.round(hp(0.6)), padding: Math.round(wp(2)) }]}>
                 <Image
                   source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
-                  style={[styles.restaurantImage, { width: restImageSize, height: restImageSize, borderRadius: Math.round(restImageSize * 0.14) }]}
+                  style={[styles.restaurantImage, { width: restImageSize, height: restImageSize, borderRadius: Math.round(restImageSize * 0.16) }]}
                   resizeMode="cover"
                 />
               </View>
             </View>
 
             <View style={[styles.rightCol, { alignItems: 'flex-end', maxWidth: Math.round(width * 0.46) }]}>
-{/*               <Text style={[styles.totalLabel, { fontSize: clampLocal(rf(13), 12, 18) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>*/}
+              {/*               <Text style={[styles.totalLabel, { fontSize: clampLocal(rf(13), 12, 18) }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total (por persona)' : 'Total'}</Text>*/}
               <View style={styles.totalRow}>
                 <Text style={[styles.totalNumber, { fontSize: totalFontSize }]} numberOfLines={1}>{formatMoney(effectiveTotalWithTip)}</Text>
                 <Text style={[styles.totalCurrency, { fontSize: clampLocal(rf(12), 11, 14) }]}>{moneda ?? 'MXN'}</Text>
@@ -404,7 +409,7 @@ export default function Propina() {
           </View>
         </LinearGradient>
 
-        <View style={[styles.content, { width: contentMaxWidth, padding: clampLocal( Math.round(width * 0.035), 10, 22 ) }]}>
+        <View style={[styles.content, { width: contentMaxWidth, padding: clampLocal(Math.round(width * 0.035), 10, 22) }]}>
           <View style={styles.sectionRow}>
             <Text style={[styles.sectionTitle, { fontSize: sectionTitleFont }]}>Selecciona el porcentaje que deseas añadir a tu cuenta.</Text>
           </View>
@@ -458,7 +463,7 @@ export default function Propina() {
           <View style={styles.divider} />
           <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>{comingFromEqualSplit && peopleCount > 1 ? 'Total' : 'Total'}</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTotal)} MXN</Text></View>
           <View style={styles.totalsRow}><Text style={[styles.totLabel, { fontSize: smallFont }]}>Propina</Text><Text style={[styles.totValue, { fontSize: smallFont }]}>{formatMoney(effectiveTipAmount)} MXN</Text></View>
-          <View style={[styles.totalsRow, { marginTop: 8 }]}><Text style={[styles.totLabel, { fontWeight:'800', fontSize: clampLocal(rf(14), 13, 20) }]}>Total con propina</Text><Text style={[styles.totValue, { fontWeight:'900', fontSize: clampLocal(rf(20), 16, 28) }]}>{formatMoney(effectiveTotalWithTip)} MXN</Text></View>
+          <View style={[styles.totalsRow, { marginTop: 8 }]}><Text style={[styles.totLabel, { fontWeight: '800', fontSize: clampLocal(rf(14), 13, 20) }]}>Total con propina</Text><Text style={[styles.totValue, { fontWeight: '900', fontSize: clampLocal(rf(20), 16, 28) }]}>{formatMoney(effectiveTotalWithTip)} MXN</Text></View>
 
           <View style={styles.buttonsWrap}>
             {/* Si quieres activar el botón "Añadir/editar propina" reemplaza el comentario */}
@@ -487,9 +492,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   topBar: { width: '100%', alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   backBtn: { width: 56, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: '#0b58ff', marginLeft: 2, fontWeight: '700' },
-  title: { fontWeight: '800', color: '#0b58ff' },
-  topSmall: { color: '#6b7280' },
+  backArrow: { color: '#222', marginLeft: 2, fontWeight: '500' },
+  title: { flex: 1, fontWeight: '800', color: '#111' },
+  topSmall: { color: '#666', textAlign: 'right' },
   container: { alignItems: 'center' },
   headerGradient: { width: '100%', borderBottomRightRadius: 28, overflow: 'hidden' },
   headerInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -516,7 +521,7 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, color: '#374151' },
   optionRight: { color: '#374151' },
   otherInputWrap: { position: 'relative', justifyContent: 'center' },
-  otherInput: { width: '100%', borderWidth: 1, borderColor: '#e6eefc', borderRadius: 8, paddingHorizontal: 8, textAlign: 'center', color:'#000' },
+  otherInput: { width: '100%', borderWidth: 1, borderColor: '#e6eefc', borderRadius: 8, paddingHorizontal: 8, textAlign: 'center', color: '#000' },
   percentSuffix: { position: 'absolute', right: 8, top: '50%', transform: [{ translateY: -8 }], color: '#6b7280' },
   divider: { height: 1, backgroundColor: '#e9e9e9', marginVertical: 12 },
   totalsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },

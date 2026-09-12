@@ -153,6 +153,16 @@ function looksClosedOrPaidFlag(v) {
            s.includes('PAG') || s.includes('PAID') || s.includes('COMPLET') || s.includes('FINAL');
   } catch (e) { return false; }
 }
+// Los QR de "consumo" (los que procesa esta pantalla) siempre devuelven
+// un token tipo Fernet que empieza con "gAAAAA" y es largo. Los QR del
+// otro apartado (Residence) devuelven solo un id corto, sin ese prefijo.
+// Con esto detectamos si escanearon el código equivocado ANTES de pegarle
+// a la API.
+function isConsumoQrToken(t) {
+  if (!t || typeof t !== 'string') return false;
+  const trimmed = t.trim();
+  return /^gAAAAA[A-Za-z0-9_\-]+=*$/.test(trimmed) && trimmed.length > 40;
+}
 
 function groupConsumptionItems(flatItems = []) {
   const grouped = [];
@@ -199,13 +209,7 @@ function groupConsumptionItems(flatItems = []) {
 
   return grouped;
 }
-
-// --- NUEVO: identifica si dos "líneas" (item + sus subitems) son EXACTAMENTE
-// iguales (mismo nombre, mismo precio, mismo estado cancelado y mismos
-// subitems con mismo nombre/precio). Solo líneas con firma idéntica se
-// agrupan en una sola fila con "xN". Un café con leche y un café solo
-// tienen firmas distintas (porque sus subitems difieren) y por lo tanto
-// nunca se mezclan.
+ 
 function getLineSignature(line) {
   const subs = Array.isArray(line.subitems) ? line.subitems : [];
   const subsSig = subs
@@ -214,11 +218,7 @@ function getLineSignature(line) {
     .join('|');
   return `${(line.name || '').trim().toLowerCase()}::${safeNum(line.lineTotal).toFixed(2)}::${line.canceled ? 1 : 0}::[${subsSig}]`;
 }
-
-// --- NUEVO: determina si una línea está totalmente pagada, totalmente sin
-// pagar, o en un estado mixto (por ejemplo el item principal pagado pero
-// alguno de sus subitems no). Las líneas "mixtas" nunca se agrupan, para
-// evitar que se pierda información de conciliación de pagos.
+ 
 function getLinePaidBucket(line) {
   const subs = Array.isArray(line.subitems) ? line.subitems : [];
   const allPaid = !!line.paid && subs.every((s) => !!s.paid);
@@ -269,6 +269,10 @@ export default function Escanear() {
   const [conflictAlertMessage, setConflictAlertMessage] = useState('');
 
   const [noOpenAccountVisible, setNoOpenAccountVisible] = useState(false);
+  const [wrongQrAlertVisible, setWrongQrAlertVisible] = useState(false);
+  const [discountBlockAlertVisible, setDiscountBlockAlertVisible] = useState(false);
+  const [equalSplitBlockAlertVisible, setEqualSplitBlockAlertVisible] = useState(false);
+  const [consumoPaidBlockAlertVisible, setConsumoPaidBlockAlertVisible] = useState(false);
 
   const showStyledAlert = (t, m) => { setStyledAlertTitle(t || 'Aviso'); setStyledAlertMessage(m || ''); setStyledAlertVisible(true); };
   const hideStyledAlert = () => setStyledAlertVisible(false);
@@ -413,7 +417,15 @@ export default function Escanear() {
   const fetchConsumo = useCallback(async (opts = { showLoading: true }) => {
     if (!token) { openErrorModal('Token no encontrado. Vuelve a escanear.'); if (isMountedRef.current) setLoading(false); return; }
     if (opts.showLoading && isMountedRef.current) setLoading(true);
-
+if (!token) { openErrorModal('Token no encontrado. Vuelve a escanear.'); if (isMountedRef.current) setLoading(false); return; }
+if (!isConsumoQrToken(token)) {
+  console.warn('fetchConsumo: formato de token inválido, posible QR de Residence ->', token);
+  if (isMountedRef.current) {
+    setLoading(false);
+    setWrongQrAlertVisible(true);
+  }
+  return;
+}
     try {
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mesas/r/${encodeURIComponent(token)}`;
       await ensureToken();
@@ -426,8 +438,12 @@ export default function Escanear() {
         },
       });
       if (!isMountedRef.current) return;
-      if (!res.ok) { openErrorModal(`No se pudo obtener el consumo (HTTP ${res.status}).`); if (isMountedRef.current) setLoading(false); return; }
-
+if (!res.ok) {
+  console.warn('fetchConsumo: HTTP error', res.status);
+  openErrorModal('Problema al escanear consumo, revise que el código sea válido o revise su conexión a internet.');
+  if (isMountedRef.current) setLoading(false);
+  return;
+}
       const json = await res.json();
 
       const nextRestauranteId = json.restaurante_id ?? json.restaurante ?? null;
@@ -482,13 +498,6 @@ export default function Escanear() {
         return s + safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
       }, 0);
 
-      // Si la venta trae descuento, "total_consumo" ya viene neto (con el
-      // descuento aplicado), pero la suma de "precio_item" de los items
-      // sigue siendo la del precio ORIGINAL (sin descuento). Sin este ajuste,
-      // esa diferencia hace que el detector de abajo crea erróneamente que
-      // "precio_item" es un precio unitario (cuando en realidad ya es el
-      // total de la línea) y termine multiplicando de más los items con
-      // cantidad > 1 (ej. el agua x7 saliendo con un total inflado).
       const discountAmountForHeuristic = safeNum(
         json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0
       );
@@ -511,8 +520,8 @@ export default function Escanear() {
 
         const originalId = it.codigo_item ?? it.codigo ?? it.id ?? it.item_id ?? `item-${idx}`;
         for (let k = 0; k < rawQty; k++) {
-          const unitId = `${String(originalId)}#${idx}#${k + 1}`;
-          expandedItems.push({
+const unitId = `${String(originalId)}#${k + 1}`;
+            expandedItems.push({
             id: String(unitId),
             name: it.nombre_item ?? it.nombre ?? it.name ?? `Item ${idx + 1}`,
             qty: 1,
@@ -828,10 +837,10 @@ export default function Escanear() {
         console.warn('Error reading last_transaction for sale', e);
       }
 
-    } catch (err) {
-      console.warn('fetchConsumo error', err);
-      openErrorModal('No se pudo consultar el consumo. Revisa tu conexión.');
-    } finally {
+} catch (err) {
+  console.warn('fetchConsumo error', err);
+  openErrorModal('Problema al escanear consumo, revise que el código sea válido o revise su conexión a internet.');
+} finally {
       if (isMountedRef.current) setLoading(false);
     }
   }, [token, fetchSucursalLogo]);
@@ -965,7 +974,7 @@ export default function Escanear() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.container, { flexGrow: 1, paddingBottom: Math.max(20, hp(3)) + bottomSafe }]} showsVerticalScrollIndicator={false}>
-          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(24, hp(4)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
+          <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), paddingTop: Math.max(12, hp(2)), paddingBottom: Math.max(20, hp(3)), borderBottomRightRadius: Math.max(28, wp(8)) }]}>
             <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
               <View style={[styles.leftCol]}>
                 <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoWidth, height: Math.round(logoWidth * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
@@ -1198,14 +1207,14 @@ export default function Escanear() {
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-              if (consumoPaid) {
-                showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con este método ahora.');
-                return;
-              }
-              if (equalsSplitPaid) {
-                showConflictAlert('Pago por partes iguales', 'Se está procesando un pago por partes iguales — no puedes proceder con este método.');
-                return;
-              }
+if (consumoPaid) {
+  setConsumoPaidBlockAlertVisible(true);
+  return;
+}
+if (equalsSplitPaid) {
+  setEqualSplitBlockAlertVisible(true);
+  return;
+}
 
               const paramsToSend = {
                 token,
@@ -1262,23 +1271,27 @@ navigation.navigate('Propina', {
   returnScreen: 'OneExhibicion',
 });            }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            disabled={primaryDisabled}
+/*             disabled={primaryDisabled}*/
           >
             <Text style={[styles.primaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago en una sola exhibición</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.secondaryButton,
-              { width: layoutWidth, paddingVertical: primaryBtnPadding },
-              pagarConsumoDisabled ? { opacity: 0.6 } : null
-            ]}
-            activeOpacity={0.85}
-            onPress={async () => {
-              if (equalsSplitPaid) {
-                showConflictAlert('Pago por partes iguales en curso', 'Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.');
-                return;
-              }
+<TouchableOpacity
+  style={[
+    styles.secondaryButton,
+    { width: layoutWidth, paddingVertical: primaryBtnPadding },
+    pagarConsumoDisabled ? { opacity: 0.6 } : null
+  ]}
+  activeOpacity={0.85}
+  onPress={async () => {
+    if (Number(discountAmount || 0) > 0) {
+      setDiscountBlockAlertVisible(true);
+      return;
+    }
+if (equalsSplitPaid) {
+  setEqualSplitBlockAlertVisible(true);
+  return;
+}
 const itemsForDividir = (items || []).map((it) => ({
   ...it,
   is_subitem: Boolean(it.raw?.is_subitem ?? it.is_subitem),
@@ -1311,7 +1324,7 @@ const itemsForDividir = (items || []).map((it) => ({
               navigation.navigate('Dividir', paramsDividir);
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            disabled={pagarConsumoDisabled}
+/*             disabled={pagarConsumoDisabled}*/
           >
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pagar por consumo</Text>
           </TouchableOpacity>
@@ -1324,10 +1337,10 @@ const itemsForDividir = (items || []).map((it) => ({
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-              if (consumoPaid) {
-                showConflictAlert('Pago por consumo en curso', 'Se está procesando un pago por consumo — no puedes proceder con el pago por partes iguales.');
-                return;
-              }
+if (consumoPaid) {
+  setConsumoPaidBlockAlertVisible(true);
+  return;
+}
 
               const normalizedItemsForEqual = (items || []).map(it => {
                 const computedPrice = Number(it.unitPrice ?? it.lineTotal ?? it.price ?? 0) || 0;
@@ -1364,7 +1377,7 @@ const itemsForDividir = (items || []).map((it) => ({
               navigation.navigate('EqualSplit', paramsEqual);
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            disabled={equalSplitDisabled}
+/*             disabled={equalSplitDisabled} */
           >
             <Text style={[styles.secondaryButtonText, { fontSize: clamp(rf(3.4), 14, 18) }]}>Pago por partes iguales</Text>
           </TouchableOpacity>
@@ -1431,6 +1444,98 @@ const itemsForDividir = (items || []).map((it) => ({
           </View>
         </View>
       )}
+      {wrongQrAlertVisible && (
+  <View style={styles.conflictBackdrop}>
+    <View style={[styles.noAccountBox, { width: Math.min(layoutWidth - 32, Math.max(wp(78), 320)) }]}>
+      <View style={styles.noAccountIconWrap}>
+        <Ionicons name="qr-code-outline" size={30} color="#0046ff" />
+      </View>
+
+      <Text style={styles.noAccountTitle}>Código QR incorrecto</Text>
+      <Text style={styles.noAccountMessage}>Se escaneó un código QR de Residence. Por favor escanea el código correcto.</Text>
+
+      <TouchableOpacity
+        onPress={() => { setWrongQrAlertVisible(false); navigation.navigate('QRMain'); }}
+        style={styles.noAccountBtn}
+        activeOpacity={0.9}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={styles.noAccountBtnText}>Volver</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+
+)}
+{discountBlockAlertVisible && (
+  <View style={styles.conflictBackdrop}>
+    <View style={[styles.noAccountBox, { width: Math.min(layoutWidth - 32, Math.max(wp(78), 320)) }]}>
+      <View style={styles.noAccountIconWrap}>
+        <Ionicons name="pricetag-outline" size={30} color="#0046ff" />
+      </View>
+
+      <Text style={styles.noAccountTitle}>Pago por consumo no disponible</Text>
+      <Text style={styles.noAccountMessage}>
+        Se detectó un descuento aplicado a esta cuenta. El pago por consumo no está disponible cuando existe un descuento activo.
+      </Text>
+
+      <TouchableOpacity
+        onPress={() => setDiscountBlockAlertVisible(false)}
+        style={styles.noAccountBtn}
+        activeOpacity={0.9}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={styles.noAccountBtnText}>Entendido</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
+
+{equalSplitBlockAlertVisible && (
+  <View style={styles.conflictBackdrop}>
+    <View style={[styles.noAccountBox, { width: Math.min(layoutWidth - 32, Math.max(wp(78), 320)) }]}>
+      <View style={styles.noAccountIconWrap}>
+        <Ionicons name="people-outline" size={30} color="#0046ff" />
+      </View>
+
+      <Text style={styles.noAccountTitle}>Pago por partes iguales en curso</Text>
+      <Text style={styles.noAccountMessage}>
+        Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.
+      </Text>
+
+      <TouchableOpacity
+        onPress={() => setEqualSplitBlockAlertVisible(false)}
+        style={styles.noAccountBtn}
+        activeOpacity={0.9}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={styles.noAccountBtnText}>Entendido</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
+{consumoPaidBlockAlertVisible && (
+  <View style={styles.conflictBackdrop}>
+    <View style={[styles.noAccountBox, { width: Math.min(layoutWidth - 32, Math.max(wp(78), 320)) }]}>
+      <View style={styles.noAccountIconWrap}>
+        <Ionicons name="time-outline" size={30} color="#0046ff" />
+      </View>
+
+      <Text style={styles.noAccountTitle}>Pago por consumo en curso</Text>
+      <Text style={styles.noAccountMessage}>
+        Se está procesando un pago por consumo — no puedes proceder con este método ahora.
+      </Text>
+
+      <TouchableOpacity
+        onPress={() => setConsumoPaidBlockAlertVisible(false)}
+        style={styles.noAccountBtn}
+        activeOpacity={0.9}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={styles.noAccountBtnText}>Entendido</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
     </SafeAreaView>
   );
 }

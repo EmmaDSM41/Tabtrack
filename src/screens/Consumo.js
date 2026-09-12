@@ -51,6 +51,7 @@ export default function Consumo() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const todayText = new Date().toLocaleString('es-MX');
 
   const token = route?.params?.fromToken ?? route?.params?.token ?? null;
   const passedSelected = route?.params?.selectedItems ?? route?.params?.items ?? null;
@@ -147,9 +148,7 @@ export default function Consumo() {
   }, [incomingSubtotal, incomingIva, incomingTotal, itemsSum]);
 
   const totalStr = formatMoney(total);
-  const baseTotalFont = totalFontSizeFor(totalStr);
-  const scaleFactor = Math.max(0.9, Math.min(1.4, width / 360));
-  const totalFont = Math.round(baseTotalFont * scaleFactor);
+  const totalFont = Math.round(clamp(rf(7.5), 20, 36));
 
   if (loading || !items) {
     return (<View style={[stylesBase.loaderWrap, { backgroundColor: '#f5f7fb' }]}><ActivityIndicator size="large" color="#0046ff" /></View>);
@@ -203,9 +202,13 @@ export default function Consumo() {
     <SafeAreaView style={[styles.safe, { paddingTop: 0 }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}><Text style={styles.backArrow}>{'‹'}</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Text style={styles.backArrow}>{'‹'}</Text>
+        </TouchableOpacity>
+
         <Text style={styles.title}>Por consumo</Text>
-        <View style={{ width: Math.round(Math.max(44, wp(12))) }} />
+
+        <Text style={styles.topDate}>{todayText}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.container}>
@@ -302,39 +305,39 @@ function makeStyles({ wp, hp, rf, clamp, width, height, totalFont, insets }) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f5f7fb', paddingTop: topSafe },
     loaderWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f7fb' },
-
-    topBar: {
-      width: '100%',
-      height: Math.round(hp(9.6)),
-      paddingHorizontal: Math.round(wp(3.5)),
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      backgroundColor: '#fff',
-      borderBottomWidth: 1,
-      borderBottomColor: '#eee',
-      paddingTop: Math.round(Math.max(6, insets?.top ?? 6)),
-    },
+topBar: {
+  width: '100%',
+  height: Math.max(84, Math.round(hp(11.9))),
+  paddingHorizontal: Math.max(14, Math.round(wp(4))),
+  alignItems: 'center',
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  backgroundColor: '#fff',
+  borderBottomWidth: 1,
+  borderBottomColor: '#eee',
+  paddingTop: Math.round(Math.max(6, insets?.top ?? 6)),
+},
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
-    backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
-    title: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
+    backArrow: { fontSize: Math.round(clamp(rf(4.2), 22, 36)), color: '#222', marginLeft: 2 },
+    title: { flex: 1, fontSize: Math.round(clamp(rf(3.6), 14, 18)), fontWeight: '800', color: '#111' },
+    topDate: { fontSize: Math.round(clamp(rf(1.6), 10, 12)), color: '#666', textAlign: 'right' },
 
     container: { alignItems: 'center', paddingBottom: Math.round(hp(3) + (insets?.bottom ?? 0)), paddingTop: Math.round(hp(1)) },
 
     headerGradient: {
       width: '100%',
-      paddingHorizontal: Math.round(wp(4)),
-      paddingTop: Math.round(hp(2.2)),
-      paddingBottom: Math.round(hp(3.2)),
-      borderBottomRightRadius: Math.round(wp(10)),
+      paddingHorizontal: Math.max(14, Math.round(wp(5))),
+      paddingTop: Math.max(12, Math.round(hp(2))),
+      paddingBottom: Math.max(20, Math.round(hp(3))),
+      borderBottomRightRadius: Math.max(28, Math.round(wp(8))),
       overflow: 'hidden',
     },
     gradientRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
     leftCol: { flexDirection: 'column', alignItems: 'center' },
 
-    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 160)), height: Math.round(clamp(rf(5.5), 37, 48)), marginBottom: Math.round(hp(0.6)) },
+    tabtrackLogo: { width: Math.round(clamp(wp(28), 80, 140)), height: Math.round(clamp(wp(28), 80, 140) * 0.32), marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.6)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
-    restaurantImage: { width: Math.round(clamp(wp(15), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
+    restaurantImage: { width: Math.round(clamp(wp(16), 48, 96)), height: Math.round(clamp(wp(16), 48, 96)), borderRadius: Math.round(clamp(wp(16), 48, 96) * 0.16), backgroundColor: '#fff' },
 
     rightCol: {
       alignItems: 'flex-end',

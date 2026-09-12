@@ -151,6 +151,7 @@ export default function Dividir() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const todayText = new Date().toLocaleString('es-MX');
 
   const topSafe = Math.round(
     Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0))
@@ -970,7 +971,8 @@ export default function Dividir() {
         </TouchableOpacity>
 
         <Text style={styles.topTitle}>Tu cuenta</Text>
-        <Text style={styles.topDate} />
+
+        <Text style={styles.topDate}>{todayText}</Text>
       </View>
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
@@ -984,7 +986,7 @@ export default function Dividir() {
         >
           <View style={[styles.gradientRow, { alignItems: 'flex-start' }]}>
             <View style={[styles.leftCol]}>
-              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: Math.round(Math.min(120, wp(28))), height: Math.round(Math.min(48, wp(28) * 0.32)), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
+              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: Math.round(clamp(wp(28), 80, 140)), height: Math.round(clamp(wp(28), 80, 140) * 0.32), marginBottom: Math.max(8, hp(1)) }]} resizeMode="contain" />
               <View style={[styles.logoWrap, { marginTop: Math.max(6, hp(0.6)), padding: Math.max(6, wp(1.5)), borderRadius: Math.max(8, wp(2)) }]}>
                 <Image
                   source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
@@ -1270,9 +1272,9 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
       paddingTop: 0,
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
-    backArrow: { fontSize: Math.round(clamp(rf(7.5), 24, 40)), color: '#0b58ff', marginLeft: 2 },
-    topTitle: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
-    topDate: { fontSize: Math.round(clamp(rf(2.8), 10, 12)), color: '#6b7280' },
+    backArrow: { fontSize: Math.round(clamp(rf(4.2), 22, 36)), color: '#222', marginLeft: 2 },
+    topTitle: { flex: 1, fontSize: Math.round(clamp(rf(3.6), 14, 18)), fontWeight: '800', color: '#111' },
+    topDate: { fontSize: Math.round(clamp(rf(1.6), 10, 12)), color: '#666', textAlign: 'right' },
 
     container: { alignItems: 'center', paddingTop: Math.round(hp(1)), paddingBottom: Math.round(hp(3) + bottomSafe) },
 

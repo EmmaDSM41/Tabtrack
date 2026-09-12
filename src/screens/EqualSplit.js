@@ -32,15 +32,6 @@ const formatMoney = (n) => {
 
   return `${formattedInteger}.${decimalPart}`;
 };
-const totalFontSizeFor = (str) => {
-  const len = String(str).length;
-  if (len > 18) return 10;
-  if (len > 14) return 12;
-  if (len > 11) return 14;
-  if (len > 8) return 18;
-  if (len > 6) return 22;
-  return 28;
-};
 
 const parseNumberSafe = (v) => {
   if (v === null || v === undefined) return null;
@@ -108,6 +99,7 @@ export default function EqualSplit() {
     return Math.round(PixelRatio.roundToNearestPixel(size));
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const todayText = new Date().toLocaleString('es-MX');
 
   const topSafe = Math.round(Math.max(insets?.top ?? 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets?.top ?? 0)));
   const bottomSafe = Math.round(insets?.bottom ?? 0);
@@ -162,6 +154,7 @@ export default function EqualSplit() {
   const [paidSplitCount, setPaidSplitCount] = useState(0);
 
   const [showPaidEditAlert, setShowPaidEditAlert] = useState(false);
+  const [comensalesReady, setComensalesReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -219,6 +212,7 @@ export default function EqualSplit() {
           if (mounted) {
             setTotalComensales(savedN);
             setPeopleInput(String(savedN));
+            setComensalesReady(true);
           }
         }
       }
@@ -262,11 +256,15 @@ export default function EqualSplit() {
         } catch (err) {
           console.warn('EqualSplit fetch error:', err);
         } finally {
-          if (mounted) setLoading(false);
+          if (mounted) {
+            setLoading(false);
+            setComensalesReady(true);
+          }
         }
       }
 
       if (savedN == null && mounted) {
+        setComensalesReady(true);
         setShowPeopleModal(true);
       }
     };
@@ -362,11 +360,10 @@ export default function EqualSplit() {
 
   const perPersonStr = formatMoney(perPersonTotalWithTip);
   const totalStr = formatMoney(total);
-  const totalFont = totalFontSizeFor(totalStr);
-
+  const totalFont = Math.round(clamp(rf(7.5), 20, 36));
   if (loading || !items) {
     return (
-      <View style={{ flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#f5f7fb' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f7fb' }}>
         <ActivityIndicator size="large" color="#0046ff" />
       </View>
     );
@@ -576,8 +573,7 @@ export default function EqualSplit() {
   const headerGradientPaddingH = Math.round(sidePad);
   const contentWidth = Math.round(Math.min(width - Math.round(wp(8)), 720));
   const modalWidth = Math.round(Math.min(width - 48, 360));
-  const logoSize = Math.round(clamp(rf(12), 80, 140));
-
+  const logoSize = Math.round(clamp(rf(28), 80, 140));
   // Entre más largo sea el total (más dígitos), menos margen izquierdo le
   // damos a la columna derecha, para que le quede más ancho disponible al
   // número y no se recorte, manteniendo el mismo tamaño de letra.
@@ -600,14 +596,15 @@ export default function EqualSplit() {
         </TouchableOpacity>
 
         <Text style={styles.title}>Partes iguales</Text>
-        <View style={{ width: Math.round(wp(12)) }} />
+
+        <Text style={styles.topDate}>{todayText}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(3) + bottomSafe), flexGrow: 1 }]}>
-        <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{x:0,y:1}} end={{x:1,y:0}} locations={[0,0.45,1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: Math.round(hp(6) + bottomSafe), flexGrow: 1 }]}>
+        <LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
           <View style={[styles.gradientRow, { flexDirection: 'row' }]}>
             <View style={[styles.leftCol, { flex: 0, maxWidth: Math.round(Math.min(logoSize + wp(6), wp(40))) }]}>
-              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.4) }]} resizeMode="contain" />
+              <Image source={require('../../assets/images/logo2.png')} style={[styles.tabtrackLogo, { width: logoSize, height: Math.round(logoSize * 0.32) }]} resizeMode="contain" />
               <View style={styles.logoWrap}>
                 <Image
                   source={restaurantImage ? { uri: restaurantImage } : require('../../assets/images/restaurante.jpeg')}
@@ -616,19 +613,18 @@ export default function EqualSplit() {
               </View>
             </View>
 
-            <View style={[styles.rightCol, isNarrow ? { alignItems: 'flex-start', marginLeft: rightColMarginLeft, marginRight: Math.round(wp(0.5)) } : { marginLeft: rightColMarginLeft, marginRight: Math.round(wp(0.5)) }]}>
-              <Text style={styles.totalLabel}>Total</Text>
+<View style={styles.rightCol}>
+                <Text style={styles.totalLabel}>Total</Text>
 
-              <View style={styles.totalRow}>
-                <Text
-                  style={[styles.totalNumber, { fontSize: totalFont }]}
-                  numberOfLines={1}
-                  ellipsizeMode="clip"
-                >
-                  {totalStr}
-                </Text>
-                <Text style={styles.totalCurrency}> MXN</Text>
-              </View>
+<View style={styles.totalRow}>
+  <Text
+    style={[styles.totalNumber, { fontSize: totalFont }]}
+    numberOfLines={1}
+  >
+    {totalStr}
+  </Text>
+  <Text style={styles.totalCurrency} numberOfLines={1}> MXN</Text>
+</View>
 
               <View style={styles.rightThanks}>
                 <Text style={styles.thanksText}>Se divide entre</Text>
@@ -659,11 +655,11 @@ export default function EqualSplit() {
         </LinearGradient>
 
         <View style={[styles.content, { width: contentWidth }]}>
-          <Text style={{ fontSize: Math.round(clamp(rf(7.2), 20, 28)), fontWeight:'700', marginBottom: Math.round(hp(1)), color: '#000' }}>Resumen</Text>
+          <Text style={{ fontSize: Math.round(clamp(rf(7.2), 20, 28)), fontWeight: '700', marginBottom: Math.round(hp(1)), color: '#000' }}>Resumen</Text>
 
           {items.length === 0 ? (
-            <View style={{ padding:18, alignItems:'center' }}>
-              <Text style={{ color:'#666' }}>No hay productos en la cuenta.</Text>
+            <View style={{ padding: 18, alignItems: 'center' }}>
+              <Text style={{ color: '#666' }}>No hay productos en la cuenta.</Text>
             </View>
           ) : (
             items.map((it, idx) => (
@@ -697,12 +693,16 @@ export default function EqualSplit() {
           </View>
 
           <TouchableOpacity
-            style={styles.primaryButton}
+            style={[styles.primaryButton, !comensalesReady && { opacity: 0.5 }]}
             onPress={goToPropina}
             activeOpacity={0.9}
+            disabled={!comensalesReady}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.primaryButtonText}>{hasTipApplied ? 'Continuar' : 'Continuar'}</Text>
+            {!comensalesReady
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.primaryButtonText}>Continuar</Text>
+            }
           </TouchableOpacity>
 
           <View style={styles.buttonsWrap}>
@@ -714,23 +714,23 @@ export default function EqualSplit() {
       </ScrollView>
 
       <Modal visible={showPeopleModal} transparent animationType="fade">
-        <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', alignItems:'center' }}>
-          <View style={{ width: modalWidth, backgroundColor:'#fff', borderRadius:12, padding: Math.round(sidePad) }}>
-            <Text style={{ fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight:'800', color:'#000', marginBottom: Math.round(hp(0.6)) }}>¿Entre cuántas personas?</Text>
-            <Text style={{ color:'#444', marginBottom: Math.round(hp(1)) }}>Ingresa el número de personas para dividir la cuenta. Esto se guardará para esta cuenta y no se volverá a preguntar.</Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: modalWidth, backgroundColor: '#fff', borderRadius: 12, padding: Math.round(sidePad) }}>
+            <Text style={{ fontSize: Math.round(clamp(rf(4.6), 16, 20)), fontWeight: '800', color: '#000', marginBottom: Math.round(hp(0.6)) }}>¿Entre cuántas personas?</Text>
+            <Text style={{ color: '#444', marginBottom: Math.round(hp(1)) }}>Ingresa el número de personas para dividir la cuenta. Esto se guardará para esta cuenta y no se volverá a preguntar.</Text>
 
             <TextInput
               keyboardType="number-pad"
               value={peopleInput}
-              onChangeText={t => setPeopleInput(t.replace(/[^0-9]/g,''))}
+              onChangeText={t => setPeopleInput(t.replace(/[^0-9]/g, ''))}
               placeholder="Ej. 3"
-              style={{ borderWidth:1, borderColor:'#e5e7eb', borderRadius:8, padding: Math.round(wp(3)), color:'#000', marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
+              style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: Math.round(wp(3)), color: '#000', marginBottom: Math.round(hp(1)), fontSize: Math.round(clamp(rf(4), 14, 18)) }}
               editable={!modalConfirmLoading}
             />
 
-            <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-              <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex:1, marginLeft:8, paddingVertical: Math.round(hp(1.4)), borderRadius:8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems:'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                {modalConfirmLoading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'800' }}>Confirmar</Text>}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={handleConfirmPeople} disabled={modalConfirmLoading} style={{ flex: 1, marginLeft: 8, paddingVertical: Math.round(hp(1.4)), borderRadius: 8, backgroundColor: modalConfirmLoading ? '#9bb3ff' : '#0046ff', alignItems: 'center' }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                {modalConfirmLoading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '800' }}>Confirmar</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -773,16 +773,17 @@ function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth
       paddingTop: 0,
     },
     backBtn: { width: Math.round(Math.max(44, wp(12))), alignItems: 'flex-start', justifyContent: 'center' },
-    backArrow: { fontSize: Math.round(clamp(rf(6.6), 22, 36)), color: '#0b58ff', marginLeft: 2 },
-    title: { fontSize: Math.round(clamp(rf(4.2), 14, 18)), fontWeight: '800', color: '#0b58ff' },
+    backArrow: { fontSize: Math.round(clamp(rf(4.2), 22, 36)), color: '#222', marginLeft: 2 },
+    title: { flex: 1, fontSize: Math.round(clamp(rf(3.6), 14, 18)), fontWeight: '800', color: '#111' },
+    topDate: { fontSize: Math.round(clamp(rf(1.6), 10, 12)), color: '#666', textAlign: 'right' },
 
     container: { alignItems: 'center', paddingBottom: Math.round(hp(3)) },
 
     headerGradient: {
       width: '100%',
-      paddingTop: Math.round(hp(2)),
-      paddingBottom: Math.round(hp(3.2)),
-      borderBottomRightRadius: Math.round(wp(10)),
+      paddingTop: Math.max(12, Math.round(hp(2))),
+      paddingBottom: Math.max(20, Math.round(hp(3))),
+      borderBottomRightRadius: Math.max(28, Math.round(wp(8))),
       overflow: 'hidden',
     },
 
@@ -791,20 +792,22 @@ function makeStyles({ wp, hp, rf, clamp, width, height, contentWidth, modalWidth
     leftCol: { flexDirection: 'column', alignItems: 'center' },
     tabtrackLogo: { marginBottom: Math.round(hp(0.6)) },
     logoWrap: { marginTop: Math.round(hp(0.8)), backgroundColor: 'rgba(255,255,255,0.12)', padding: Math.round(wp(2)), borderRadius: Math.round(wp(2)) },
-    restaurantImage: { width: Math.round(clamp(wp(14), 48, 96)), height: Math.round(clamp(wp(14), 48, 96)), borderRadius: Math.round(clamp(wp(14), 48, 96) / 8), backgroundColor: '#fff' },
+    restaurantImage: { width: Math.round(clamp(wp(16), 48, 96)), height: Math.round(clamp(wp(16), 48, 96)), borderRadius: Math.round(clamp(wp(16), 48, 96) * 0.16), backgroundColor: '#fff' },
 
-    rightCol: {
-      flex: 1,
-      alignItems: 'flex-end',
-      justifyContent: 'flex-start',
-      paddingTop: Math.round(hp(0.6)),
-      marginRight: Math.round(wp(2)),
-      minWidth: Math.round(wp(24)),
-    },
+rightCol: {
+  position: 'absolute',
+  right: Math.round(wp(2)),
+  top: 0,
+  bottom: 0,
+  alignItems: 'flex-end',
+  justifyContent: 'flex-start',
+  paddingTop: Math.round(hp(0.6)),
+  maxWidth: '70%',
+},
     totalLabel: { color: 'rgba(255,255,255,0.95)', fontSize: Math.round(clamp(rf(3.6), 12, 16)), marginBottom: Math.round(hp(0.4)) },
-    totalRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-end' },
-    totalNumber: { color: '#fff', fontWeight: '900', letterSpacing: 0.6, lineHeight: Math.round(clamp(rf(7), 24, 36)), minWidth: 0, flexShrink: 1, textAlign: 'right' },
-    totalCurrency: { color: '#fff', fontSize: Math.round(clamp(rf(3.6), 12, 16)), marginLeft: Math.round(wp(2)), marginBottom: 0, opacity: 0.95 },
+ totalRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-end' },
+totalNumber: { color: '#fff', fontWeight: '900', letterSpacing: 0.6, lineHeight: Math.round(clamp(rf(7), 24, 36)), flexShrink: 1, flexGrow: 0, textAlign: 'right' },
+totalCurrency: { color: '#fff', fontSize: Math.round(clamp(rf(3.6), 12, 16)), marginLeft: Math.round(wp(2)), marginBottom: 0, opacity: 0.95, flexShrink: 0 },
 
     rightThanks: { marginTop: Math.round(hp(1)), alignItems: 'flex-end' },
     thanksText: { color: '#fff', fontWeight: '700', fontSize: Math.round(clamp(rf(3.8), 12, 16)) },

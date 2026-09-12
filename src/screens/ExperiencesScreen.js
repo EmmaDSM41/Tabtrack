@@ -24,6 +24,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { useBackHandler } from '../hooks/useBackHandler';
+
 
 function useResponsive() {
   const { width, height } = useWindowDimensions();
@@ -50,6 +52,9 @@ const CARD_SLIDE_HEIGHT = 100;
 const BLUE = '#0046ff';
 
 const API_BASE_URL = 'https://api.tab-track.com';
+
+// Cuántas visitas se muestran por "página" (default inicial y por cada "Ver más")
+const VISITS_PAGE_SIZE = 10;
 
 function safeJsonParse(raw, fallback = null) {
   if (!raw) return fallback;
@@ -126,6 +131,7 @@ function parseToLocalDate(value) {
 }
 
 export default function VisitsScreen(props) {
+  useBackHandler();
   const navigation = useNavigation();
   const { width, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
@@ -133,7 +139,13 @@ export default function VisitsScreen(props) {
   const bottomSafe = Math.round(insets?.bottom ?? 0);
   const sidePad = Math.round(Math.min(Math.max(wp(4), 12), 36));
 
-  const [visits, setVisits] = useState([]);
+  const [allVisits, setAllVisits] = useState([]);       
+  const [displayCount, setDisplayCount] = useState(VISITS_PAGE_SIZE); 
+  const [manualFilterActive, setManualFilterActive] = useState(false); 
+  const [hasMore, setHasMore] = useState(true);         
+  const [loadingMore, setLoadingMore] = useState(false);
+  const oldestFetchedDateRef = useRef(null);           
+
   const [loading, setLoading] = useState(true);
   const [fetchingSales, setFetchingSales] = useState(false);
 
@@ -418,7 +430,7 @@ export default function VisitsScreen(props) {
         try { await markNotificationAsRead(notifId); } catch (e) { /* ignore */ }
       }
 
-      let visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
+      let visit = findVisitBySaleBranchLocal(allVisits, saleId, branchId);
       if (visit) {
         setShowNotifications(false);
         navigation.navigate('ExperiencesDetails', { visit });
@@ -426,13 +438,17 @@ export default function VisitsScreen(props) {
       }
 
       try {
-        await fetchVisitsForDesde(desdeDate);
+        if (manualFilterActive) {
+          await applyDateFilter(desdeDate);
+        } else {
+          await fetchVisitsForDesde(desdeDate);
+        }
       } catch (e) {
         console.warn('fetchVisitsForDesde error en handleIncomingNotification', e);
       }
 
       await new Promise(res => setTimeout(res, 250));
-      visit = findVisitBySaleBranchLocal(visits, saleId, branchId);
+      visit = findVisitBySaleBranchLocal(allVisits, saleId, branchId);
       if (visit) {
         setShowNotifications(false);
         navigation.navigate('ExperiencesDetails', { visit });
@@ -503,42 +519,47 @@ export default function VisitsScreen(props) {
     }
   }, []);
 
-  async function ensureBranchesForRestaurant(restId, forceNetwork = false, logFn = () => {}) {
+  const BRANCHES_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min, igual que las encuestas
+
+  async function ensureBranchesForRestaurant(restId, forceNetwork = false) {
     if (!restId) return [];
     const key = String(restId);
-    if (!forceNetwork && branchesMemRef.current[key]) return branchesMemRef.current[key];
 
-    try {
-      const rawCache = await AsyncStorage.getItem(`branches_cache_${key}`);
-      if (rawCache && !forceNetwork) {
-        const parsed = safeJsonParse(rawCache, null);
-        const arr = parsed && Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed) ? parsed : []);
-        branchesMemRef.current[key] = arr;
-        return arr;
-      }
-    } catch (e) { /* ignore */ }
+    const memCached = branchesMemRef.current[key];
+    if (!forceNetwork && memCached && (Date.now() - memCached.ts) < BRANCHES_CACHE_TTL_MS) {
+      return memCached.data;
+    }
+
+    if (!forceNetwork) {
+      try {
+        const rawCache = await AsyncStorage.getItem(`branches_cache_${key}`);
+        if (rawCache) {
+          const parsed = safeJsonParse(rawCache, null);
+          if (parsed && Array.isArray(parsed.data) && (Date.now() - (parsed.ts || 0)) < BRANCHES_CACHE_TTL_MS) {
+            branchesMemRef.current[key] = { data: parsed.data, ts: parsed.ts };
+            return parsed.data;
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
 
     try {
       await ensureToken();
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/restaurantes/${encodeURIComponent(restId)}/sucursales`;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
       if (!res.ok) {
         Toast.show(`No pude obtener sucursales (${res.status}) para rest ${restId}`, { duration: Toast.durations.LONG });
         return [];
       }
       const json = await res.json();
-
       let arr = [];
       if (Array.isArray(json)) arr = json;
       else if (Array.isArray(json.sucursales)) arr = json.sucursales;
       else if (Array.isArray(json.data)) arr = json.data;
-      else arr = [];
 
-      branchesMemRef.current[key] = arr;
-      try { await AsyncStorage.setItem(`branches_cache_${key}`, JSON.stringify({ data: arr, ts: Date.now() })); } catch (e) { /* ignore */ }
+      const ts = Date.now();
+      branchesMemRef.current[key] = { data: arr, ts };
+      try { await AsyncStorage.setItem(`branches_cache_${key}`, JSON.stringify({ data: arr, ts })); } catch (e) { /* ignore */ }
       return arr;
     } catch (err) {
       Toast.show('Error al obtener sucursales (ver consola)', { duration: Toast.durations.LONG });
@@ -602,19 +623,194 @@ export default function VisitsScreen(props) {
     return 0;
   }
 
-  // FIX: fetchVisitsForDesde reescrito — fuente de verdad es el primer fetch,
-  // sin fallback silencioso, sin duplicados, sin fecha inventada.
-  const fetchVisitsForDesde = useCallback(async (desdeDateParam) => {
-    setFetchingSales(true);
-    setVisits([]);
+  async function fetchVisitsRange(desdeDateArg, hastaDateArg) {
+    const email = await AsyncStorage.getItem('user_email');
+    if (!email) {
+      Toast.show('No se encontró email del usuario', { duration: Toast.durations.SHORT });
+      return null;
+    }
+
+    const desdeStr = formatDateYMD(desdeDateArg);
+    const hastaStr = formatDateYMD(hastaDateArg);
+    const base = API_BASE_URL.replace(/\/$/, '');
+    const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
+
+    let resVentas;
     try {
-      const email = await AsyncStorage.getItem('user_email');
-      if (!email) {
-        Toast.show('No se encontró email del usuario', { duration: Toast.durations.SHORT });
-        setFetchingSales(false);
-        return;
+      await ensureToken();
+      resVentas = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
+    } catch (err) {
+      console.warn('fetch ventas network err', err);
+      Toast.show('Error de red al obtener ventas', { duration: Toast.durations.LONG });
+      return null;
+    }
+
+    if (!resVentas.ok) {
+      const txt = await resVentas.text().catch(() => '');
+      console.warn('ventas http error', resVentas.status, txt);
+      Toast.show(`Error al consultar ventas (${resVentas.status})`, { duration: Toast.durations.LONG });
+      return null;
+    }
+
+    const jsonVentas = await resVentas.json().catch(() => ({}));
+    const ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
+
+    if (!ventaArray || ventaArray.length === 0) {
+      return [];
+    }
+
+    const rawCandidates = [];
+    for (const v of ventaArray) {
+      const ventaId = v?.venta_id ?? v?.sale_id ?? null;
+      const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
+      if (!ventaId || !sucursalId) continue;
+
+      const key = `${ventaId}_${sucursalId}`;
+      if (rawCandidates.some(c => c.id === key)) continue;
+
+      const fechaCierreRaw =
+        v?.fecha_cierre_venta ??
+        v?.fecha_cierre ??
+        v?.fecha_pago ??
+        v?.created_at ??
+        v?.fecha ??
+        null;
+
+      const computedTotal = computeSaleTotal(v);
+      // dentro del for (const v of ventaArray) { ... } en fetchVisitsRange, antes del push:
+if (!fechaCierreRaw) {
+  console.log('Venta sin fecha —', JSON.stringify(v));
+}
+
+      rawCandidates.push({
+        id: key,
+        sale_id: ventaId,
+        restaurante_id: v?.restaurante_id ?? v?.restaurante ?? null,
+        sucursal_id: sucursalId,
+        restaurantName: v?.nombre_restaurante ?? null,
+        branchName: v?.nombre_sucursal ?? null,
+        restaurantImage: null,
+        bannerImage: null,
+        fecha: fechaCierreRaw,
+        total: computedTotal,
+        moneda: v?.moneda ?? 'MXN',
+        items: Array.isArray(v?.items_consumidos) ? v.items_consumidos : (Array.isArray(v?.items) ? v.items : []),
+        pagos: Array.isArray(v?.pagos) ? v.pagos : [],
+      });
+    }
+
+    // Descarta visitas basura: sin fecha Y sin monto (ventas mal cerradas del backend)
+    // Descarta visitas basura: sin fecha Y sin monto (ventas mal cerradas del backend)
+    let validCandidates = rawCandidates.filter(c => !(c.total === 0 && !c.fecha));
+
+    // Si hay visitas sin fecha, reintenta hasta 3 veces con delay para darle tiempo al backend
+    const sinFechaCount = validCandidates.filter(c => !c.fecha).length;
+    if (sinFechaCount > 0) {
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY_MS = 1200;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const aunSinFecha = validCandidates.filter(c => !c.fecha);
+        if (aunSinFecha.length === 0) break;
+
+        await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+
+        try {
+          await ensureToken();
+          const retryRes = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
+          if (!retryRes.ok) break;
+          const retryJson = await retryRes.json().catch(() => ({}));
+          const retryArray = Array.isArray(retryJson?.venta_id) ? retryJson.venta_id : [];
+
+          const retryMap = new Map();
+          for (const v of retryArray) {
+            const ventaId = v?.venta_id ?? v?.sale_id ?? null;
+            const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
+            if (!ventaId || !sucursalId) continue;
+            const key = `${ventaId}_${sucursalId}`;
+            const fechaCierreRaw =
+              v?.fecha_cierre_venta ??
+              v?.fecha_cierre ??
+              v?.fecha_pago ??
+              v?.created_at ??
+              v?.fecha ??
+              null;
+            if (fechaCierreRaw) retryMap.set(key, fechaCierreRaw);
+          }
+
+          validCandidates = validCandidates.map(c => {
+            if (c.fecha) return c;
+            const fechaRetry = retryMap.get(c.id);
+            return fechaRetry ? { ...c, fecha: fechaRetry } : c;
+          });
+
+          console.log(`fetchVisitsRange retry ${attempt + 1}: ${retryMap.size} fechas recuperadas, quedan ${validCandidates.filter(c => !c.fecha).length} sin fecha`);
+        } catch (retryErr) {
+          console.warn(`fetchVisitsRange retry ${attempt + 1} error`, retryErr);
+          break;
+        }
+      }
+    }
+    const uniqueRestIds = Array.from(new Set(validCandidates.map(c => c.restaurante_id).filter(Boolean)));
+    const restDataById = new Map();
+    await Promise.all(uniqueRestIds.map(async (restId) => {
+      const [restInfo, branches] = await Promise.all([
+        ensureRestaurantInfo(restId, false),
+        ensureBranchesForRestaurant(restId, false),
+      ]);
+      restDataById.set(String(restId), { restInfo, branches });
+    }));
+
+    const detailedVisits = validCandidates.map(candidate => {
+      const restData = candidate.restaurante_id ? restDataById.get(String(candidate.restaurante_id)) : null;
+      if (!restData) return candidate;
+
+      const { restInfo, branches } = restData;
+      let matchedBranch = null;
+      if (Array.isArray(branches) && branches.length > 0) {
+        for (const b of branches) {
+          const candidateIds = [b.id, b.sucursal_id, b.codigo];
+          if (candidateIds.some(cId => cId !== undefined && cId !== null && String(cId) === String(candidate.sucursal_id))) {
+            matchedBranch = b;
+            break;
+          }
+        }
+        if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
       }
 
+      let restaurantImage = null;
+      let bannerImage = null;
+      let branchName = candidate.branchName;
+
+      if (matchedBranch) {
+        const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
+        const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
+        if (logoUrl) restaurantImage = getCacheBustedUrl(logoUrl);
+        if (bannerUrl) bannerImage = getCacheBustedUrl(bannerUrl);
+        if (!branchName) branchName = branchGetName(matchedBranch);
+      }
+
+      if (!restaurantImage && restInfo) {
+        const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
+        if (candLogo) restaurantImage = getCacheBustedUrl(candLogo);
+      }
+
+      return { ...candidate, restaurantImage, bannerImage, branchName };
+    });
+
+    detailedVisits.sort((a, b) => {
+      const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
+      const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
+      return tb - ta;
+    });
+
+    return detailedVisits;
+  }
+
+
+  const fetchVisitsForDesde = useCallback(async (desdeDateParam) => {
+    setFetchingSales(true);
+    try {
       const desdeCandidate = (desdeDateParam instanceof Date) ? desdeDateParam : new Date(desdeDateParam);
       const hoy = new Date();
       const startOfHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -624,7 +820,6 @@ export default function VisitsScreen(props) {
       if (diffDays > MAX_RANGE_DAYS) {
         const cappedDate = new Date(startOfHoy.getTime() - (MAX_RANGE_DAYS * 24 * 60 * 60 * 1000));
         setDesdeDate(cappedDate);
-        // FIX: Mensaje claro sobre el límite del API
         Toast.show(
           `El rango máximo es ${MAX_RANGE_DAYS} días. Mostrando desde ${formatDateYMD(cappedDate)}.`,
           { duration: Toast.durations.LONG }
@@ -632,157 +827,22 @@ export default function VisitsScreen(props) {
         desdeCandidate.setTime(cappedDate.getTime());
       }
 
-      const desdeStr = formatDateYMD(desdeCandidate);
-      const hastaStr = formatDateYMD(new Date());
+      const result = await fetchVisitsRange(desdeCandidate, new Date());
+      if (result === null) return; // error ya mostrado dentro de fetchVisitsRange
 
-      const base = API_BASE_URL.replace(/\/$/, '');
+      setAllVisits(result);
+      setDisplayCount(VISITS_PAGE_SIZE);
+      setManualFilterActive(false);
+      oldestFetchedDateRef.current = desdeCandidate;
+      setHasMore(true); // puede haber más historial más atrás del rango default
 
-      // FIX: Sin &light=1 — el primer fetch ya trae toda la info necesaria
-      // (fecha_cierre_venta, items_consumidos, pagos, nombres, totales)
-      const urlVentas = `${base}/api/mobileapp/usuarios/consumos?email=${encodeURIComponent(email)}&desde=${encodeURIComponent(desdeStr)}&hasta=${encodeURIComponent(hastaStr)}`;
-
-      let resVentas;
-      try {
-        await ensureToken();
-        resVentas = await fetch(urlVentas, { method: 'GET', headers: getAuthHeaders() });
-      } catch (err) {
-        console.warn('fetch ventas network err', err);
-        Toast.show('Error de red al obtener ventas', { duration: Toast.durations.LONG });
-        setFetchingSales(false);
-        return;
-      }
-
-      if (!resVentas.ok) {
-        const txt = await resVentas.text().catch(() => '');
-        console.warn('ventas http error', resVentas.status, txt);
-        Toast.show(`Error al consultar ventas (${resVentas.status})`, { duration: Toast.durations.LONG });
-        setFetchingSales(false);
-        return;
-      }
-
-      const jsonVentas = await resVentas.json().catch(() => ({}));
-      const ventaArray = Array.isArray(jsonVentas?.venta_id) ? jsonVentas.venta_id : [];
-
-      // FIX: Sin fallback silencioso — si no hay resultados, avisamos claramente
-      if (!ventaArray || ventaArray.length === 0) {
-        Toast.show(
-          `No hay visitas entre ${desdeStr} y ${hastaStr}. Intenta con otro rango de fechas.`,
-          { duration: Toast.durations.LONG }
-        );
-        setVisits([]);
-        setFetchingSales(false);
-        setLoading(false);
-        return;
-      }
-
-      // FIX: Map keyed por venta_id+sucursal_id para evitar duplicados desde el inicio
-      const visitsMap = new Map();
-
-      for (const v of ventaArray) {
-        try {
-          const ventaId = v?.venta_id ?? v?.sale_id ?? null;
-          const sucursalId = v?.sucursal_id ?? v?.sucursal ?? null;
-          if (!ventaId || !sucursalId) continue;
-
-          const key = `${ventaId}_${sucursalId}`;
-
-          // FIX: Si ya procesamos esta combinación, la saltamos (anti-duplicado)
-          if (visitsMap.has(key)) continue;
-
-          // FIX: Fecha tomada del objeto del API, sin fallback a new Date()
-          // Si viene null, la tarjeta mostrará '—' en lugar de hora inventada
-          const fechaCierreRaw =
-            v?.fecha_cierre_venta ??
-            v?.fecha_cierre ??
-            v?.fecha_pago ??
-            v?.created_at ??
-            v?.fecha ??
-            null;
-
-          const computedTotal = computeSaleTotal(v);
-
-          const candidate = {
-            id: key,
-            sale_id: ventaId,
-            restaurante_id: v?.restaurante_id ?? v?.restaurante ?? null,
-            sucursal_id: sucursalId,
-            restaurantName: v?.nombre_restaurante ?? null,
-            branchName: v?.nombre_sucursal ?? null,
-            restaurantImage: null,
-            bannerImage: null,
-            fecha: fechaCierreRaw, // null si el API no la manda
-            total: computedTotal,
-            moneda: v?.moneda ?? 'MXN',
-            items: Array.isArray(v?.items_consumidos) ? v.items_consumidos : (Array.isArray(v?.items) ? v.items : []),
-            pagos: Array.isArray(v?.pagos) ? v.pagos : [],
-          };
-
-          // Enriquecer solo con logo/banner (no toca fecha ni total)
-          try {
-            if (candidate.restaurante_id) {
-              const restInfo = await ensureRestaurantInfo(candidate.restaurante_id, false);
-              const branches = await ensureBranchesForRestaurant(candidate.restaurante_id, true);
-
-              let matchedBranch = null;
-              if (Array.isArray(branches) && branches.length > 0) {
-                for (const b of branches) {
-                  const candidateIds = [b.id, b.sucursal_id, b.codigo];
-                  for (const cId of candidateIds) {
-                    if (cId !== undefined && cId !== null && String(cId) === String(candidate.sucursal_id)) {
-                      matchedBranch = b;
-                      break;
-                    }
-                  }
-                  if (matchedBranch) break;
-                }
-                if (!matchedBranch && branches.length === 1) matchedBranch = branches[0];
-              }
-
-              if (matchedBranch) {
-                const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
-                const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
-                if (logoUrl) candidate.restaurantImage = getCacheBustedUrl(logoUrl);
-                if (bannerUrl) candidate.bannerImage = getCacheBustedUrl(bannerUrl);
-                if (!candidate.branchName) candidate.branchName = branchGetName(matchedBranch);
-              }
-
-              if (!candidate.restaurantImage && restInfo) {
-                const candLogo = restInfo?.imagen_logo_url ?? restInfo?.logo ?? restInfo?.imagen_logo;
-                if (candLogo) candidate.restaurantImage = getCacheBustedUrl(candLogo);
-              }
-            }
-          } catch (e) {
-            console.warn('error enriqueciendo imágenes para', key, e);
-          }
-
-          // FIX: Solo insertamos una vez, nunca sobreescribimos
-          visitsMap.set(key, candidate);
-
-        } catch (err) {
-          console.warn('error processing venta entry', err);
-          continue;
-        }
-      }
-
-      const detailedVisits = Array.from(visitsMap.values());
-
-      // FIX: Visitas sin fecha van al final al ordenar
-      detailedVisits.sort((a, b) => {
-        const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
-        const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
-        return tb - ta;
-      });
-
-      setVisits(detailedVisits);
-
-      fetchRatingsForVisits(detailedVisits).catch(e =>
-        console.warn('fetchRatingsForVisits after fetchVisits err', e)
+      fetchRatingsForVisits(result.slice(0, VISITS_PAGE_SIZE)).catch(e =>
+        console.warn('fetchRatingsForVisits err', e)
       );
 
-      if (!detailedVisits.length) {
+      if (result.length === 0) {
         Toast.show('No se encontraron visitas para las fechas seleccionadas.', { duration: Toast.durations.SHORT });
       }
-
     } catch (err) {
       console.warn('fetchVisitsForDesde error', err);
       Toast.show('Error al obtener visitas (ver consola)', { duration: Toast.durations.LONG });
@@ -791,6 +851,189 @@ export default function VisitsScreen(props) {
       setLoading(false);
     }
   }, []);
+
+  // ============================================================
+  // Carga por FILTRO MANUAL (el usuario usó el date picker):
+  // aquí SÍ se muestran TODAS las visitas del rango, sin cap.
+  // ============================================================
+  const applyDateFilter = useCallback(async (desdeDateParam) => {
+    setFetchingSales(true);
+    try {
+      const desdeCandidate = (desdeDateParam instanceof Date) ? desdeDateParam : new Date(desdeDateParam);
+      const hoy = new Date();
+      const startOfHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+      const diffMs = startOfHoy.getTime() - new Date(desdeCandidate.getFullYear(), desdeCandidate.getMonth(), desdeCandidate.getDate()).getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays > MAX_RANGE_DAYS) {
+        const cappedDate = new Date(startOfHoy.getTime() - (MAX_RANGE_DAYS * 24 * 60 * 60 * 1000));
+        setDesdeDate(cappedDate);
+        Toast.show(
+          `El rango máximo es ${MAX_RANGE_DAYS} días. Mostrando desde ${formatDateYMD(cappedDate)}.`,
+          { duration: Toast.durations.LONG }
+        );
+        desdeCandidate.setTime(cappedDate.getTime());
+      }
+
+      const result = await fetchVisitsRange(desdeCandidate, new Date());
+      if (result === null) return;
+
+      setAllVisits(result);
+      setDisplayCount(result.length || VISITS_PAGE_SIZE); // sin cap: se muestra todo lo del rango filtrado
+      setManualFilterActive(true);
+      oldestFetchedDateRef.current = desdeCandidate;
+      setHasMore(false); // en modo filtro no se pagina hacia atrás del rango elegido
+
+      fetchRatingsForVisits(result).catch(e =>
+        console.warn('fetchRatingsForVisits err', e)
+      );
+
+      if (result.length === 0) {
+        Toast.show(
+          `No hay visitas entre ${formatDateYMD(desdeCandidate)} y ${formatDateYMD(new Date())}. Intenta con otro rango de fechas.`,
+          { duration: Toast.durations.LONG }
+        );
+      }
+    } catch (err) {
+      console.warn('applyDateFilter error', err);
+      Toast.show('Error al obtener visitas (ver consola)', { duration: Toast.durations.LONG });
+    } finally {
+      setFetchingSales(false);
+      setLoading(false);
+    }
+  }, []);
+
+ 
+const loadMore = useCallback(async () => {
+    if (loadingMore || manualFilterActive) return;
+
+    if (displayCount < allVisits.length) {
+      setDisplayCount(prev => Math.min(prev + VISITS_PAGE_SIZE, allVisits.length));
+
+      const sinFecha = allVisits.filter(v => !v.fecha);
+      if (sinFecha.length > 0) {
+        fetchVisitsRange(desdeDate, new Date())
+          .then(refreshed => {
+            if (!refreshed || refreshed.length === 0) return;
+            setAllVisits(prev => {
+              const map = new Map(prev.map(v => [v.id, v]));
+              refreshed.forEach(v => {
+                if (v.fecha && map.has(v.id)) {
+                  map.set(v.id, { ...map.get(v.id), fecha: v.fecha });
+                }
+              });
+              return Array.from(map.values()).sort((a, b) => {
+                const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
+                const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
+                return tb - ta;
+              });
+            });
+          })
+          .catch(e => console.warn('refresh fechas nulas err', e));
+      }
+      return;
+    }
+
+    if (!hasMore) return;
+
+    setLoadingMore(true);
+    try {
+      const currentOldest = oldestFetchedDateRef.current ?? desdeDate;
+      const newHasta = new Date(currentOldest);
+      newHasta.setDate(newHasta.getDate() - 1);
+      const newDesde = new Date(newHasta);
+      newDesde.setDate(newDesde.getDate() - (MAX_RANGE_DAYS - 1));
+
+      const more = await fetchVisitsRange(newDesde, newHasta);
+
+      if (!more || more.length === 0) {
+        setHasMore(false);
+      } else {
+        setAllVisits(prev => {
+          const map = new Map(prev.map(v => [v.id, v]));
+          more.forEach(v => { if (!map.has(v.id)) map.set(v.id, v); });
+          const merged = Array.from(map.values()).sort((a, b) => {
+            const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
+            const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
+            return tb - ta;
+          });
+          return merged;
+        });
+        setDisplayCount(prev => prev + VISITS_PAGE_SIZE);
+        oldestFetchedDateRef.current = newDesde;
+
+        fetchRatingsForVisits(more).catch(e => console.warn('fetchRatingsForVisits loadMore err', e));
+
+        // Reintenta hasta resolver todas las fechas nulas de TODO allVisits
+        const resolverFechasNulas = async (intentosRestantes = 4) => {
+          if (intentosRestantes <= 0) return;
+          
+          // Necesitamos leer el estado actual, usamos una ref temporal
+          setAllVisits(prev => {
+            const sinFecha = prev.filter(v => !v.fecha);
+            if (sinFecha.length === 0) return prev; // nada que hacer
+
+            // Lanza el reintento en paralelo sin bloquear el render
+            (async () => {
+              try {
+                await new Promise(res => setTimeout(res, 800));
+                
+                // Identifica los rangos de fechas que cubren las visitas sin fecha
+                // Para simplificar, reconsulta el rango completo desde desdeDate hasta hoy
+                const refreshed = await fetchVisitsRange(desdeDate, new Date());
+                if (!refreshed || refreshed.length === 0) return;
+
+                setAllVisits(current => {
+                  const map = new Map(current.map(v => [v.id, v]));
+                  let parcheadas = 0;
+                  refreshed.forEach(v => {
+                    if (v.fecha && map.has(v.id) && !map.get(v.id).fecha) {
+                      map.set(v.id, { ...map.get(v.id), fecha: v.fecha });
+                      parcheadas++;
+                    }
+                  });
+                  if (parcheadas === 0) return current; // nada cambió, no re-render
+
+                  const resultado = Array.from(map.values()).sort((a, b) => {
+                    const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
+                    const tb = b.fecha ? (new Date(b.fecha).getTime() || 0) : 0;
+                    return tb - ta;
+                  });
+
+                  // Si aún quedan sin fecha, programa otro intento
+                  const aunSinFecha = resultado.filter(v => !v.fecha).length;
+                  if (aunSinFecha > 0) {
+                    resolverFechasNulas(intentosRestantes - 1);
+                  }
+
+                  return resultado;
+                });
+              } catch (e) {
+                console.warn('resolverFechasNulas err', e);
+              }
+            })();
+
+            return prev; // devuelve sin cambios, el async de arriba actualiza después
+          });
+        };
+
+        resolverFechasNulas();
+      }
+    } catch (err) {
+      console.warn('loadMore error', err);
+      Toast.show('Error al cargar más visitas', { duration: Toast.durations.SHORT });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, manualFilterActive, displayCount, allVisits, hasMore, desdeDate]);
+
+  // Quita el filtro manual y regresa al modo default (últimas 10 + ver más)
+  const resetToDefault = useCallback(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    setDesdeDate(d);
+    fetchVisitsForDesde(d);
+  }, [fetchVisitsForDesde]);
 
   useEffect(() => {
     (async () => {
@@ -825,14 +1068,16 @@ export default function VisitsScreen(props) {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    fetchVisitsForDesde(desdeDate);
+    if (manualFilterActive) {
+      applyDateFilter(desdeDate);
+    } else {
+      fetchVisitsForDesde(desdeDate);
+    }
     (async () => {
       if (!emailRef.current) emailRef.current = await AsyncStorage.getItem('user_email');
       await fetchTodayNotificationsOnce();
-      if (visits && visits.length > 0) {
-        fetchRatingsForVisits(visits).catch(e => console.warn('useFocus fetchRatingsForVisits err', e));
-      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desdeDate]));
 
   const onPressDesde = () => setShowDatePicker(true);
@@ -843,7 +1088,7 @@ export default function VisitsScreen(props) {
     }
     const d = selectedDate || desdeDate;
     setDesdeDate(d);
-    fetchVisitsForDesde(d);
+    applyDateFilter(d); // usar el filtro SIEMPRE muestra todo el rango, sin cap de 10
   };
 
   function formatMoney(n) {
@@ -958,16 +1203,20 @@ export default function VisitsScreen(props) {
         map.set(String(uniqueBranchIds[i]), results[i]);
       }
 
-      const updated = (visitsArr || []).map(v => {
+      if (!isMountedRef.current) return;
+      setAllVisits(prev => prev.map(v => {
         const bid = String(v.sucursal_id ?? v.sucursal ?? v.branchId ?? v.branch_id ?? '');
-        const rating = (map.has(bid) ? map.get(bid) : null);
+        if (!map.has(bid)) return v;
+        const rating = map.get(bid);
         return { ...v, rating: (rating === null || rating === undefined) ? null : Number(rating) };
-      });
-      if (isMountedRef.current) setVisits(updated);
+      }));
     } catch (err) {
       console.warn('fetchRatingsForVisits err', err);
     }
   }
+
+  const visibleVisits = allVisits.slice(0, displayCount);
+  const canLoadMore = !manualFilterActive && (displayCount < allVisits.length || hasMore);
 
   if (loading) {
     return (
@@ -1054,12 +1303,17 @@ export default function VisitsScreen(props) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: contentPaddingHorizontal, marginTop: 12 }}>
         <Text style={[styles.sectionTitle, { fontSize: clamp(rf(3.2), 14, 18) }]}>Visitas recientes</Text>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+{/*         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {manualFilterActive && (
+            <TouchableOpacity onPress={resetToDefault} style={{ marginRight: 8 }}>
+              <Text style={{ color: '#0066FF', fontSize: 12, fontWeight: '600' }}>Quitar filtro</Text>
+            </TouchableOpacity>
+          )}
           <Text style={{ marginRight: 8, color: '#666' }}>Desde:</Text>
           <TouchableOpacity onPress={onPressDesde} style={{ backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#eee' }}>
             <Text style={{ color: "#000" }}>{formatDateYMD(desdeDate)}</Text>
           </TouchableOpacity>
-        </View>
+        </View> */}
       </View>
 
       {showDatePicker && (
@@ -1073,19 +1327,30 @@ export default function VisitsScreen(props) {
       )}
 
       <View style={[styles.content, { paddingHorizontal: contentPaddingHorizontal, marginTop: Math.max(12, hp(2)) }]}>
-        {visits.length === 0 ? (
+        {allVisits.length === 0 ? (
           <View style={{ padding: 20 }}>
             <Text style={{ color: '#666' }}>{fetchingSales ? 'Buscando visitas...' : 'No hay visitas para las fechas seleccionadas.'}</Text>
           </View>
         ) : (
           <FlatList
-            data={visits}
+            data={visibleVisits}
             keyExtractor={item => String(item.id ?? `${item.sale_id ?? ''}_${item.sucursal_id ?? ''}`)}
             renderItem={({ item }) => <VisitCard item={item} navigation={navigation} slideWidth={slideWidth} cardLeftWidth={cardLeftWidth} logoSize={logoSize} cardRadius={cardRadius} />}
             contentContainerStyle={{ paddingBottom: 24 + bottomSafe }}
             initialNumToRender={6}
             maxToRenderPerBatch={12}
             windowSize={11}
+            ListFooterComponent={
+              canLoadMore ? (
+                <TouchableOpacity onPress={loadMore} disabled={loadingMore} style={styles.loadMoreBtn}>
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color={BLUE} />
+                  ) : (
+                    <Text style={styles.loadMoreText}>Ver más</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null
+            }
           />
         )}
       </View>
@@ -1116,7 +1381,6 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const [logoError, setLogoError] = useState(false);
   const [bannerError, setBannerError] = useState(false);
 
-  // FIX: Solo parseToLocalDate, sin fallback a new Date() que podría mostrar hora incorrecta
   let lastVisitText = '—';
   try {
     if (item.fecha) {
@@ -1124,7 +1388,6 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
       if (parsed && !Number.isNaN(parsed.getTime())) {
         lastVisitText = parsed.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
       }
-      // Si parseToLocalDate falla, se queda '—' — nunca mostramos hora inventada
     }
   } catch (e) { lastVisitText = '—'; }
 
@@ -1253,8 +1516,8 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
           <View style={styles.divider} />
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Monto pagado</Text>
-            <Text style={styles.infoValue}>{(Number(item.total || 0)).toFixed(2)} {item.moneda ?? 'MXN'}</Text>
-          </View>
+            <Text style={styles.infoValue}>{Number(item.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {item.moneda ?? 'MXN'}</Text>          
+            </View>
           <View style={styles.divider} />
         </View>
 
@@ -1348,4 +1611,6 @@ const styles = StyleSheet.create({
   buttonRow: { flexDirection: 'row', marginTop: 8, marginHorizontal: 8, marginBottom: 12 },
   btn: { flex: 1, backgroundColor: '#0046ff', paddingVertical: 10, borderRadius: 4, marginHorizontal: 4 },
   btnText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  loadMoreBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: 14, marginTop: 4 },
+  loadMoreText: { color: '#0046ff', fontWeight: '700', fontSize: 14 },
 });
