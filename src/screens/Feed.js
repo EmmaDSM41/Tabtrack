@@ -26,6 +26,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Geolocation from 'react-native-geolocation-service';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { useBackHandler } from '../hooks/useBackHandler';
+
 
 const logo = require('../../assets/images/logo.png');
 const defaultImage = require('../../assets/images/restaurante.jpeg');
@@ -40,14 +42,10 @@ const USER_ENVIRONMENT_KEY = 'user_environment';
 const STAR_COLOR = '#ffbf00';
 const BLUE = '#0046ff';
 
-// NUEVO: valores por defecto de los filtros de precio. Representan el
-// estado "sin filtro" (todo el rango posible), para que al entrar a la
-// pantalla se muestren todos los restaurantes sin que el filtro de precio
-// excluya nada.
+
 const DEFAULT_MIN_PRICE = 0;
 const DEFAULT_MAX_PRICE = 2000;
-// NUEVO: radio de búsqueda por defecto en 0 (filtro inactivo). Solo tiene
-// efecto una vez que la ubicación está activada (useLocation === true).
+
 const DEFAULT_SEARCH_RADIUS_KM = 0;
 
 const normalizeEnvironment = (value) => {
@@ -55,11 +53,7 @@ const normalizeEnvironment = (value) => {
   return String(value).trim().toLowerCase();
 };
 
-// NUEVO: determina si un restaurante viene marcado como activo en el
-// listado de la API (campo 'activo'). Si el restaurante trae
-// explícitamente activo === false (o "false" como string), se descarta
-// junto con todas sus sucursales. Si el campo no viene en la respuesta,
-// se asume activo para no ocultar restaurantes por falta de dato.
+
 const isRestaurantActive = (rest) => {
   if (!rest) return false;
   const raw = rest.activo ?? rest.active ?? rest?.raw?.activo ?? rest?.raw?.active;
@@ -91,7 +85,6 @@ const getUserIdentifier = async () => {
 
 const userFavoritesObjsKey = async () => `favorites_objs_${await getUserIdentifier()}`;
 
-/* ------------------ Responsive helper (no deps) ------------------ */
 function useResponsive() {
   const { width, height } = useWindowDimensions();
   const wp = (p) => Math.round((Number(p) / 100) * width);
@@ -100,9 +93,7 @@ function useResponsive() {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   return { width, height, wp, hp, rf, clamp };
 }
-/* ---------------------------------------------------------------- */
 
-/* ------------------ parsePriceRange (sin tocar) ------------------ */
 const parsePriceRange = (raw) => {
   if (raw === null || raw === undefined) return null;
   try {
@@ -132,7 +123,6 @@ const parsePriceRange = (raw) => {
   }
 };
 
-/* ------------------ Permisos / Geolocalización ------------------ */
 async function hasLocationPermission() {
   try {
     if (Platform.OS === 'android') {
@@ -149,7 +139,6 @@ async function hasLocationPermission() {
   }
 }
 
-/* Haversine — distancia en km entre dos coordenadas */
 function haversineKm(lat1, lon1, lat2, lon2) {
   const toRad = (v) => (v * Math.PI) / 180;
   const R = 6371;
@@ -163,11 +152,6 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-/* ------------------ NUEVO: utilidades de red robustas ------------------ */
-
-// Ejecuta 'asyncFn' sobre 'items' con un límite de tareas concurrentes,
-// en vez de disparar todas las peticiones al mismo tiempo (esto evita
-// saturar el servidor local y que algunas peticiones fallen "al azar").
 async function mapWithConcurrencyLimit(items, limit, asyncFn) {
   const results = new Array(items.length);
   let index = 0;
@@ -191,8 +175,7 @@ async function mapWithConcurrencyLimit(items, limit, asyncFn) {
   return results;
 }
 
-// fetch con un reintento simple para peticiones que fallan por red/timeout
-// intermitente (común al pegarle muy seguido a un servidor local).
+
 async function fetchWithRetry(url, options = {}, retries = 1) {
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -209,7 +192,6 @@ async function fetchWithRetry(url, options = {}, retries = 1) {
   throw lastErr;
 }
 
-/* ------------------ fetchSurveyAvgForSucursal ------------------ */
 const fetchSurveyAvgForSucursal = async (sucursalId) => {
   if (!sucursalId) return 0.0;
   try {
@@ -239,7 +221,6 @@ const fetchSurveyAvgForSucursal = async (sucursalId) => {
   }
 };
 
-/* ------------------ fetchAllRestaurants ------------------ */
 const fetchAllRestaurants = async () => {
   try {
     await ensureToken();
@@ -300,12 +281,7 @@ const fetchAllRestaurants = async () => {
       const totalPages = json.total_pages || (json.meta && json.meta.total_pages) || null;
       const nextPageUrl = json.next_page_url || json.next || null;
 
-      // CORREGIDO: antes se hacía `if (nextPageUrl) break;`, lo cual detenía
-      // la paginación justo cuando la API indicaba que SÍ había más páginas
-      // (truncando el listado a la primera página, ej. 100 restaurantes).
-      // La lógica correcta es: seguir pidiendo páginas mientras haya
-      // 'total_pages' pendientes o un 'next_page_url', y parar solo cuando
-      // ya no queden más páginas o la página vino incompleta.
+
       if (totalPages) {
         if (page >= Number(totalPages)) break;
       } else if (!nextPageUrl) {
@@ -328,8 +304,9 @@ const fetchAllRestaurants = async () => {
   }
 };
 
-/* ------------------ Componente principal ------------------ */
 export default function RestaurantsScreen() {
+  useBackHandler();
+
   const navigation = useNavigation();
   const { width, wp, hp, rf, clamp } = useResponsive();
   const insets = useSafeAreaInsets();
@@ -368,9 +345,7 @@ export default function RestaurantsScreen() {
   ];
   const [cuisine, setCuisine] = useState('todos');
 
-  // CAMBIADO: rango de precios por defecto ahora cubre todo el rango
-  // posible (0 - 2000) para que, sin tocar el filtro, no se excluya a
-  // ningún restaurante.
+
   const [minPrice, setMinPrice] = useState(DEFAULT_MIN_PRICE);
   const [maxPrice, setMaxPrice] = useState(DEFAULT_MAX_PRICE);
 
@@ -383,11 +358,9 @@ export default function RestaurantsScreen() {
 
   const [useLocation, setUseLocation] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  // CAMBIADO: radio de búsqueda inicia en 0 (filtro inactivo por defecto).
   const [searchRadiusKm, setSearchRadiusKm] = useState(DEFAULT_SEARCH_RADIUS_KM);
 
-  // NUEVO: estado para el aviso de confirmación al mover el radio de
-  // búsqueda sin tener la ubicación activada todavía.
+
   const [showRadiusConfirm, setShowRadiusConfirm] = useState(false);
   const [pendingRadius, setPendingRadius] = useState(null);
 
@@ -421,11 +394,7 @@ export default function RestaurantsScreen() {
     }
   };
 
-  // CAMBIADO: ahora devuelve un booleano (true = ubicación obtenida con
-  // éxito, false = no se pudo activar), para poder encadenar acciones
-  // (como aplicar el radio de búsqueda pendiente) solo si tuvo éxito.
-  // También se quitó el toast de "Ubicación obtenida" que ya no se
-  // necesita mostrar.
+
   const requestLocationAndActivate = async () => {
     try {
       const ok = await hasLocationPermission();
@@ -475,18 +444,13 @@ export default function RestaurantsScreen() {
     }
   };
 
-  // NUEVO: se dispara cuando el usuario suelta el slider de radio de
-  // búsqueda sin tener la ubicación activada. Guarda el valor que quería
-  // poner y muestra el aviso de confirmación.
   const handleRadiusSlidingComplete = (val) => {
     if (useLocation) return;
     setPendingRadius(val);
     setShowRadiusConfirm(true);
   };
 
-  // NUEVO: el usuario aceptó activar la ubicación desde el aviso del radio
-  // de búsqueda. Si se obtiene la ubicación con éxito, se aplica el radio
-  // que había intentado poner.
+
   const handleAcceptRadiusConfirm = async () => {
     setShowRadiusConfirm(false);
     const ok = await requestLocationAndActivate();
@@ -496,9 +460,7 @@ export default function RestaurantsScreen() {
     setPendingRadius(null);
   };
 
-  // NUEVO: el usuario canceló el aviso; el radio de búsqueda se mantiene
-  // desactivado (vuelve a su valor anterior porque nunca se actualizó el
-  // estado real del filtro).
+
   const handleCancelRadiusConfirm = () => {
     setShowRadiusConfirm(false);
     setPendingRadius(null);
@@ -531,11 +493,7 @@ export default function RestaurantsScreen() {
 
         const allRestaurantsRaw = Array.isArray(list) ? list : [];
 
-        // NUEVO: solo se procesan (y por lo tanto solo se listan sus
-        // sucursales) los restaurantes que vienen marcados como activos.
-        // Los que traen activo === false quedan fuera desde aquí, así no
-        // se gastan peticiones de detalle/sucursales en restaurantes que
-        // no deben mostrarse.
+
         const allRestaurants = allRestaurantsRaw.filter(isRestaurantActive);
 
         console.warn('[RestaurantsScreen] restaurantes activos vs total recibido:', {
@@ -546,9 +504,6 @@ export default function RestaurantsScreen() {
         const restNameMap = {};
         const restEnvironmentMap = {};
 
-        // NUEVO: concurrencia limitada (antes se disparaban TODAS las
-        // peticiones de detalle al mismo tiempo, lo que podía saturar el
-        // servidor local y hacer fallar peticiones al azar).
         await mapWithConcurrencyLimit(allRestaurants, 6, async (rest) => {
           try {
             if (!rest || rest.id === undefined || rest.id === null) return;
@@ -619,9 +574,6 @@ export default function RestaurantsScreen() {
               return [];
             }
 
-            // Un objeto "parece una sucursal" si trae al menos un identificador
-            // o nombre/dirección reconocible (heurística para el caso de que
-            // el backend devuelva un objeto suelto en vez de un arreglo).
             const looksLikeSucursal = (obj) =>
               obj && typeof obj === 'object' && !Array.isArray(obj) &&
               (obj.id !== undefined || obj.nombre !== undefined || obj.name !== undefined || obj.direccion !== undefined || obj.address !== undefined);
@@ -633,19 +585,12 @@ export default function RestaurantsScreen() {
             else if (Array.isArray(j.results)) branches = j.results;
             else if (Array.isArray(j.items)) branches = j.items;
             else if (Array.isArray(j)) branches = j;
-            // NUEVO: casos donde el backend devuelve UNA sola sucursal sin
-            // envolverla en arreglo (frecuente cuando el restaurante solo
-            // tiene una sucursal). Antes esto se interpretaba como "0
-            // sucursales" y la sucursal desaparecía del listado.
             else if (looksLikeSucursal(j.sucursal)) branches = [j.sucursal];
             else if (looksLikeSucursal(j.data)) branches = [j.data];
             else if (looksLikeSucursal(j)) branches = [j];
             else branches = [];
 
             if (!branches || branches.length === 0) {
-              // Log detallado: si esto se repite para el mismo restaurante,
-              // copia esta salida para ver la forma exacta que regresa la API
-              // y así ajustar el parseo si sigue sin coincidir con nada.
               let rawPreview = '';
               try {
                 rawPreview = JSON.stringify(j).slice(0, 500);
@@ -702,6 +647,7 @@ export default function RestaurantsScreen() {
 
               const mapped = {
                 id: b.id ?? `${rest.id}-${Math.random().toString(36).slice(2, 8)}`,
+                restaurante_id: rest.id,
                 name: combinedName,
                 city: b.city ?? b.ciudad ?? null,
                 avg_rating: (b.avg_rating ?? b.rating ?? null) !== null ? Number(b.avg_rating ?? b.rating) : null,
@@ -924,15 +870,14 @@ export default function RestaurantsScreen() {
         if (parsed) { pMin = parsed.min; pMax = parsed.max; }
       }
 
+      const isMaxPriceUnbounded = maxPrice >= DEFAULT_MAX_PRICE;
+
       if (pMin != null && pMax != null && Number.isFinite(pMin) && Number.isFinite(pMax)) {
-        if (pMax < minPrice || pMin > maxPrice) matchPrice = false;
+        if (pMax < minPrice) matchPrice = false;
+        else if (!isMaxPriceUnbounded && pMin > maxPrice) matchPrice = false;
         else matchPrice = true;
       } else {
-        // CAMBIADO: el estado "sin filtro de precio" ahora es
-        // minPrice === DEFAULT_MIN_PRICE && maxPrice === DEFAULT_MAX_PRICE
-        // (antes era 0-500), para que coincida con los nuevos valores por
-        // defecto del filtro y no oculte restaurantes sin datos de precio
-        // cuando el usuario no ha tocado el filtro.
+   
         if (minPrice === DEFAULT_MIN_PRICE && maxPrice === DEFAULT_MAX_PRICE) matchPrice = true;
         else matchPrice = false;
       }
@@ -951,7 +896,8 @@ export default function RestaurantsScreen() {
             matchLocation = false;
           } else {
             const distKm = haversineKm(latA, lonA, latB, lonB);
-            matchLocation = distKm <= Number(searchRadiusKm);
+            const isRadiusUnbounded = Number(searchRadiusKm) >= 50;
+            matchLocation = isRadiusUnbounded ? true : (distKm <= Number(searchRadiusKm));
           }
         }
       }
@@ -1076,13 +1022,18 @@ export default function RestaurantsScreen() {
           <RestaurantCard
             restaurant={item}
             imageSource={item.image ? { uri: item.image } : defaultImage}
-            onPress={() =>
-              navigation.navigate('Restaurant', {
-                restaurant: item,
-                id: item.id,
-                isFavorite: visibleFavorites.some(f => String(f.id) === String(item.id)),
-              })
-            }
+onPress={() => {
+  const nameParts = item.name.split(/\s*-\s*/);
+  const restaurantName = nameParts[0] || '';
+  const branchName = nameParts.length > 1 ? nameParts.slice(1).join(' - ') : '';
+  navigation.navigate('Restaurant', {
+    restaurant: item,
+    id: item.id,
+    restaurantName,
+    branchName,
+    isFavorite: visibleFavorites.some(f => String(f.id) === String(item.id)),
+  });
+}}
             isFavorite={visibleFavorites.some(f => String(f.id) === String(item.id))}
             onToggleFavorite={() => toggleFavorite(item)}
             cardImageH={cardImageH}
@@ -1135,10 +1086,7 @@ export default function RestaurantsScreen() {
                     step={1}
                     value={searchRadiusKm}
                     onValueChange={(val) => {
-                      // CAMBIADO: si la ubicación no está activada todavía,
-                      // el filtro de radio no se aplica en vivo; se espera a
-                      // que el usuario suelte el slider para pedir
-                      // confirmación (ver onSlidingComplete).
+
                       if (useLocation) {
                         setSearchRadiusKm(val);
                       }
@@ -1252,8 +1200,7 @@ export default function RestaurantsScreen() {
         </Modal>
       )}
 
-      {/* NUEVO: aviso de confirmación al mover el radio de búsqueda sin
-          tener la ubicación activada. Chico, centrado, no invasivo. */}
+
       {showRadiusConfirm && (
         <Modal visible={showRadiusConfirm} transparent animationType="fade" onRequestClose={handleCancelRadiusConfirm}>
           <View style={styles.confirmOverlay}>
@@ -1516,7 +1463,6 @@ const styles = StyleSheet.create({
   toastText: { color: '#fff', flex: 1, marginRight: 12 },
   toastLink: { color: '#4EA1FF', fontWeight: '700', marginLeft: 8 },
 
-  // NUEVO: estilos para el aviso de confirmación del radio de búsqueda.
   confirmOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',

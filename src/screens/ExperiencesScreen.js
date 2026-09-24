@@ -53,7 +53,6 @@ const BLUE = '#0046ff';
 
 const API_BASE_URL = 'https://api.tab-track.com';
 
-// Cuántas visitas se muestran por "página" (default inicial y por cada "Ver más")
 const VISITS_PAGE_SIZE = 10;
 
 function safeJsonParse(raw, fallback = null) {
@@ -677,7 +676,6 @@ export default function VisitsScreen(props) {
         null;
 
       const computedTotal = computeSaleTotal(v);
-      // dentro del for (const v of ventaArray) { ... } en fetchVisitsRange, antes del push:
 if (!fechaCierreRaw) {
   console.log('Venta sin fecha —', JSON.stringify(v));
 }
@@ -699,11 +697,9 @@ if (!fechaCierreRaw) {
       });
     }
 
-    // Descarta visitas basura: sin fecha Y sin monto (ventas mal cerradas del backend)
-    // Descarta visitas basura: sin fecha Y sin monto (ventas mal cerradas del backend)
+
     let validCandidates = rawCandidates.filter(c => !(c.total === 0 && !c.fecha));
 
-    // Si hay visitas sin fecha, reintenta hasta 3 veces con delay para darle tiempo al backend
     const sinFechaCount = validCandidates.filter(c => !c.fecha).length;
     if (sinFechaCount > 0) {
       const MAX_RETRIES = 3;
@@ -782,12 +778,15 @@ if (!fechaCierreRaw) {
       let bannerImage = null;
       let branchName = candidate.branchName;
 
+      let mostrarRating = null;
+
       if (matchedBranch) {
         const logoUrl = matchedBranch?.imagen_logo_url ?? matchedBranch?.logo_url ?? matchedBranch?.imagen_logo ?? null;
         const bannerUrl = matchedBranch?.imagen_banner_url ?? matchedBranch?.banner_url ?? matchedBranch?.imagen_banner ?? null;
         if (logoUrl) restaurantImage = getCacheBustedUrl(logoUrl);
         if (bannerUrl) bannerImage = getCacheBustedUrl(bannerUrl);
         if (!branchName) branchName = branchGetName(matchedBranch);
+        mostrarRating = matchedBranch?.mostrar_rating ?? null;
       }
 
       if (!restaurantImage && restInfo) {
@@ -795,7 +794,7 @@ if (!fechaCierreRaw) {
         if (candLogo) restaurantImage = getCacheBustedUrl(candLogo);
       }
 
-      return { ...candidate, restaurantImage, bannerImage, branchName };
+      return { ...candidate, restaurantImage, bannerImage, branchName, mostrar_rating: mostrarRating };
     });
 
     detailedVisits.sort((a, b) => {
@@ -828,13 +827,13 @@ if (!fechaCierreRaw) {
       }
 
       const result = await fetchVisitsRange(desdeCandidate, new Date());
-      if (result === null) return; // error ya mostrado dentro de fetchVisitsRange
+      if (result === null) return; 
 
       setAllVisits(result);
       setDisplayCount(VISITS_PAGE_SIZE);
       setManualFilterActive(false);
       oldestFetchedDateRef.current = desdeCandidate;
-      setHasMore(true); // puede haber más historial más atrás del rango default
+      setHasMore(true); 
 
       fetchRatingsForVisits(result.slice(0, VISITS_PAGE_SIZE)).catch(e =>
         console.warn('fetchRatingsForVisits err', e)
@@ -852,10 +851,7 @@ if (!fechaCierreRaw) {
     }
   }, []);
 
-  // ============================================================
-  // Carga por FILTRO MANUAL (el usuario usó el date picker):
-  // aquí SÍ se muestran TODAS las visitas del rango, sin cap.
-  // ============================================================
+
   const applyDateFilter = useCallback(async (desdeDateParam) => {
     setFetchingSales(true);
     try {
@@ -879,10 +875,10 @@ if (!fechaCierreRaw) {
       if (result === null) return;
 
       setAllVisits(result);
-      setDisplayCount(result.length || VISITS_PAGE_SIZE); // sin cap: se muestra todo lo del rango filtrado
+      setDisplayCount(result.length || VISITS_PAGE_SIZE); 
       setManualFilterActive(true);
       oldestFetchedDateRef.current = desdeCandidate;
-      setHasMore(false); // en modo filtro no se pagina hacia atrás del rango elegido
+      setHasMore(false); 
 
       fetchRatingsForVisits(result).catch(e =>
         console.warn('fetchRatingsForVisits err', e)
@@ -964,22 +960,16 @@ const loadMore = useCallback(async () => {
 
         fetchRatingsForVisits(more).catch(e => console.warn('fetchRatingsForVisits loadMore err', e));
 
-        // Reintenta hasta resolver todas las fechas nulas de TODO allVisits
         const resolverFechasNulas = async (intentosRestantes = 4) => {
           if (intentosRestantes <= 0) return;
           
-          // Necesitamos leer el estado actual, usamos una ref temporal
           setAllVisits(prev => {
             const sinFecha = prev.filter(v => !v.fecha);
-            if (sinFecha.length === 0) return prev; // nada que hacer
+            if (sinFecha.length === 0) return prev; 
 
-            // Lanza el reintento en paralelo sin bloquear el render
             (async () => {
               try {
                 await new Promise(res => setTimeout(res, 800));
-                
-                // Identifica los rangos de fechas que cubren las visitas sin fecha
-                // Para simplificar, reconsulta el rango completo desde desdeDate hasta hoy
                 const refreshed = await fetchVisitsRange(desdeDate, new Date());
                 if (!refreshed || refreshed.length === 0) return;
 
@@ -992,7 +982,7 @@ const loadMore = useCallback(async () => {
                       parcheadas++;
                     }
                   });
-                  if (parcheadas === 0) return current; // nada cambió, no re-render
+                  if (parcheadas === 0) return current; 
 
                   const resultado = Array.from(map.values()).sort((a, b) => {
                     const ta = a.fecha ? (new Date(a.fecha).getTime() || 0) : 0;
@@ -1000,7 +990,7 @@ const loadMore = useCallback(async () => {
                     return tb - ta;
                   });
 
-                  // Si aún quedan sin fecha, programa otro intento
+                  
                   const aunSinFecha = resultado.filter(v => !v.fecha).length;
                   if (aunSinFecha > 0) {
                     resolverFechasNulas(intentosRestantes - 1);
@@ -1013,7 +1003,7 @@ const loadMore = useCallback(async () => {
               }
             })();
 
-            return prev; // devuelve sin cambios, el async de arriba actualiza después
+            return prev; 
           });
         };
 
@@ -1027,7 +1017,6 @@ const loadMore = useCallback(async () => {
     }
   }, [loadingMore, manualFilterActive, displayCount, allVisits, hasMore, desdeDate]);
 
-  // Quita el filtro manual y regresa al modo default (últimas 10 + ver más)
   const resetToDefault = useCallback(() => {
     const d = new Date();
     d.setDate(d.getDate() - 29);
@@ -1077,7 +1066,6 @@ const loadMore = useCallback(async () => {
       if (!emailRef.current) emailRef.current = await AsyncStorage.getItem('user_email');
       await fetchTodayNotificationsOnce();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desdeDate]));
 
   const onPressDesde = () => setShowDatePicker(true);
@@ -1088,7 +1076,7 @@ const loadMore = useCallback(async () => {
     }
     const d = selectedDate || desdeDate;
     setDesdeDate(d);
-    applyDateFilter(d); // usar el filtro SIEMPRE muestra todo el rango, sin cap de 10
+    applyDateFilter(d); 
   };
 
   function formatMoney(n) {
@@ -1246,7 +1234,7 @@ const loadMore = useCallback(async () => {
             style={[styles.headerButton, { marginLeft: 12 }]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="notifications-outline" size={clamp(rf(3.2), 19, 26)} color="#0051c9" />
+            <Ionicons name="notifications-outline" size={18} color="#0051c9" />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount}</Text>
@@ -1399,6 +1387,12 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const rating = (item.rating === undefined || item.rating === null) ? null : Number(item.rating);
   const safeRating = (rating === null || Number.isNaN(rating)) ? null : Math.max(0, Math.min(5, rating));
 
+
+  const shouldShowRating = !!(
+    item?.mostrar_rating === true ||
+    (item?.mostrar_rating && String(item.mostrar_rating).toLowerCase() === 'true')
+  );
+
   const starSize = 16;
   const containerWidth = Math.round(starSize * 1.25);
 
@@ -1483,7 +1477,7 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
           )}
         </View>
         <View style={styles.ratingRow}>
-          {stars}
+          {shouldShowRating && stars}
         </View>
       </View>
 
@@ -1538,7 +1532,7 @@ const styles = StyleSheet.create({
   iconsRight: { flexDirection: 'row', alignItems: 'center' },
   tabLogo: { resizeMode: 'contain' },
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
-  badgeText: { color: '#fff', fontSize: 8 },
+  badgeText: { color: '#fff', fontSize: 7 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   View,
@@ -15,6 +15,7 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const BLUE = '#0046ff';
 const logo = require('../../assets/images/logo.png');
@@ -22,7 +23,10 @@ const logo = require('../../assets/images/logo.png');
 const GLOBAL_FAVORITES_KEY = 'favorites';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
 
-const API_BASE_URL = 'https://127.0.0.1';
+const API_BASE_URL = 'https://api.tab-track.com';
+const RESTAURANTS_API_URL = 'https://api.tab-track.com/api/restaurantes';
+const SURVEY_API_URL = 'https://api.tab-track.com/api/encuestas';
+const SURVEY_ID = '8916180a-95fd-46af-bde4-60635cc7e1ab';
 
 const getUserIdentifier = async () => {
   try {
@@ -72,7 +76,132 @@ function normalizeUrl(raw) {
     return null;
   }
 }
+ 
+function shouldShowSurveyRating(item) {
+  return !!(
+    (item?.raw && (
+      item.raw.mostrar_rating === true ||
+      (item.raw.mostrar_rating && String(item.raw.mostrar_rating).toLowerCase() === 'true')
+    )) ||
+    item?.mostrar_rating === true ||
+    (item?.mostrar_rating && String(item.mostrar_rating).toLowerCase() === 'true')
+  );
+}
+ 
 
+function getAuthHeaders(extra = {}) {
+  const base = { Accept: 'application/json', 'Content-Type': 'application/json', ...extra };
+  if (TOKEN && TOKEN.trim()) base.Authorization = `Bearer ${TOKEN}`;
+  return base;
+}
+
+async function fetchSucursalesForRestaurant(restId) {
+  if (!restId) return [];
+  try {
+    await ensureToken();
+    const url = `${RESTAURANTS_API_URL.replace(/\/$/, '')}/${encodeURIComponent(restId)}/sucursales`;
+    const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    if (!json) return [];
+
+    if (Array.isArray(json.sucursales)) return json.sucursales;
+    if (Array.isArray(json.data)) return json.data;
+    if (Array.isArray(json.results)) return json.results;
+    if (Array.isArray(json.items)) return json.items;
+    if (Array.isArray(json)) return json;
+    if (json.sucursal && typeof json.sucursal === 'object') return [json.sucursal];
+    if (json.data && typeof json.data === 'object' && !Array.isArray(json.data)) return [json.data];
+    return [];
+  } catch (e) {
+    console.warn('fetchSucursalesForRestaurant error', e);
+    return [];
+  }
+}
+
+async function fetchSurveyAvgForSucursal(sucursalId) {
+  if (!sucursalId) return 0.0;
+  try {
+    await ensureToken();
+    const url = `${SURVEY_API_URL.replace(/\/$/, '')}/${encodeURIComponent(SURVEY_ID)}/reportes?sucursal_id=${encodeURIComponent(sucursalId)}`;
+    const res = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
+    if (!res.ok) return 0.0;
+    const json = await res.json().catch(() => null);
+    if (!json) return 0.0;
+    const resumen = Array.isArray(json.resumen_por_sucursal) ? json.resumen_por_sucursal : [];
+    const block = resumen.find(r => String(r.sucursal_id) === String(sucursalId)) || resumen[0] || null;
+    if (!block || !Array.isArray(block.preguntas)) return 0.0;
+    const starQuestions = block.preguntas.filter(p => (p.tipo || '').toString().toUpperCase() === 'ESTRELLAS' && p.promedio != null);
+    if (!starQuestions.length) return 0.0;
+    const sum = starQuestions.reduce((acc, p) => acc + (Number(p.promedio) || 0), 0);
+    const avg = sum / starQuestions.length;
+    return Number(avg.toFixed(1));
+  } catch (e) {
+    console.warn('fetchSurveyAvgForSucursal error', e);
+    return 0.0;
+  }
+}
+
+ 
+function extractRestauranteId(fav) {
+  return (
+    fav?.restaurante_id ??
+    fav?.raw?.restaurante_id ??
+    fav?.raw?.restaurant_id ??
+    fav?.raw?.id_restaurante ??
+    fav?.restaurant_id ??
+    null
+  );
+}
+
+async function refreshFavoritesLiveData(favsArray) {
+  if (!Array.isArray(favsArray) || favsArray.length === 0) return favsArray;
+
+  const restIds = Array.from(
+    new Set(favsArray.map(f => extractRestauranteId(f)).filter(Boolean))
+  );
+
+  if (restIds.length === 0) return favsArray;  
+
+  const branchesByRest = {};
+  await Promise.all(restIds.map(async (rid) => {
+    branchesByRest[String(rid)] = await fetchSucursalesForRestaurant(rid);
+  }));
+
+  const updated = await Promise.all(favsArray.map(async (fav) => {
+    try {
+      const restId = extractRestauranteId(fav);
+      if (!restId) return fav;  
+
+      const branches = branchesByRest[String(restId)] || [];
+      const matched = branches.find(b => String(b.id) === String(fav.id)) || null;
+      if (!matched) return fav;
+
+      const mostrarFlag = !!(
+        matched.mostrar_rating === true ||
+        (matched.mostrar_rating && String(matched.mostrar_rating).toLowerCase() === 'true')
+      );
+
+      let liveRating = fav.avg_rating ?? null;
+      if (mostrarFlag) {
+        liveRating = await fetchSurveyAvgForSucursal(fav.id);
+      }
+
+      return {
+        ...fav,
+        mostrar_rating: mostrarFlag,
+        avg_rating: mostrarFlag ? liveRating : fav.avg_rating,
+        raw: { ...(fav.raw || {}), mostrar_rating: mostrarFlag },
+      };
+    } catch (e) {
+      console.warn('refreshFavoritesLiveData item error', e);
+      return fav;
+    }
+  }));
+
+  return updated;
+}
+ 
 function buildVisitFromFav(item) {
   try {
     if (!item || typeof item !== 'object') {
@@ -234,37 +363,52 @@ function buildVisitFromFav(item) {
 }
 
 export default function FavoritesScreen({ route, navigation }) {
-  const { width, wp, hp, rf, clamp } = useResponsive(); /* RESPONSIVE */
+  const { width, wp, hp, rf, clamp } = useResponsive();  
   const insets = useSafeAreaInsets();
 
   const { favorites: initialFavorites } = route.params ?? {};
   const [favorites, setFavorites] = useState(initialFavorites ?? []);
   const [search, setSearch] = useState('');
   const [displayed, setDisplayed] = useState(initialFavorites ?? []);
+  const favoritesRef = useRef(initialFavorites ?? []);
+  useEffect(() => {
+    favoritesRef.current = favorites;
+  }, [favorites]);
 
-  // responsive computed values
-  const horizPadding = Math.max(12, wp(4)); // padding horizontal de la pantalla
+  const horizPadding = Math.max(12, wp(4));  
   const headerPaddingV = clamp(hp(3.5), 10, 28);
   const logoSize = clamp(wp(10), 28, 48);
   const headerTitleSize = clamp(rf(4), 16, 22);
   const searchIconSize = clamp(rf(3), 14, 20);
   const searchHeight = clamp(hp(5), 42, 56);
   const cardRadius = Math.round(Math.max(10, wp(2.2)));
-  const cardImageHeight = clamp(Math.round(width * 0.45), 140, 260); // proporcional al ancho
+  const cardImageHeight = clamp(Math.round(width * 0.45), 140, 260);  
   const cardNameSize = clamp(rf(3.6), 14, 20);
   const metaFontSize = clamp(rf(3), 12, 16);
   const emptyIconSize = clamp(rf(7.2), 40, 68);
   const listPaddingBottom = Math.max(16, hp(4));
 
-  // top safe area: usa inset top (notch) o statusbar height en Android si es mayor
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
   const flatlistPaddingBottom = Math.round((insets.bottom || 0) + listPaddingBottom);
+
+ 
+  const refreshLiveRatings = async () => {
+    try {
+      const current = favoritesRef.current;
+      if (!current || current.length === 0) return;
+      const updated = await refreshFavoritesLiveData(current);
+      if (updated) setFavorites(updated);
+    } catch (e) {
+      console.warn('refreshLiveRatings error', e);
+    }
+  };
 
   useEffect(() => {
     (async () => {
       if (initialFavorites && Array.isArray(initialFavorites)) {
         setFavorites(initialFavorites);
         setDisplayed(initialFavorites);
+        refreshLiveRatings();
         return;
       }
       try {
@@ -282,13 +426,21 @@ export default function FavoritesScreen({ route, navigation }) {
 
         setFavorites(objs);
         setDisplayed(objs);
+        refreshLiveRatings();
       } catch (e) {
         setFavorites([]);
         setDisplayed([]);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      refreshLiveRatings();
+    });
+    return unsub;
+  }, [navigation]);
 
   useEffect(() => {
     const q = search.toLowerCase();
@@ -299,7 +451,6 @@ export default function FavoritesScreen({ route, navigation }) {
     );
   }, [search, favorites]);
 
-  // remover favorito: lógica intacta
   const removeFavorite = async id => {
     try {
       const favKey = await userFavoritesKey();
@@ -330,16 +481,45 @@ export default function FavoritesScreen({ route, navigation }) {
     }
   };
 
-  // Navegar a pant. Restaurant / Detail con objeto normalizado 'visit'
-  const onPressNavigateToRestaurant = (item) => {
-    try {
-      const visit = buildVisitFromFav(item);
-      navigation.navigate('Restaurant', { visit, id: visit.id, restaurant: visit });
-    } catch (e) {
-      console.warn('onPressNavigateToRestaurant error', e);
-      navigation.navigate('Restaurant', { visit: { restaurantName: item?.name ?? 'Restaurante' }, id: item?.id ?? null });
-    }
-  };
+
+const onPressNavigateToRestaurant = (item) => {
+  try {
+    const nameParts = String(
+      item?.name ??
+      item?.restaurantName ??
+      item?.nombre ??
+      ''
+    ).split(/\s*-\s*/);
+
+    const restaurantName = nameParts[0] || '';
+    const branchName =
+      nameParts.length > 1
+        ? nameParts.slice(1).join(' - ')
+        : '';
+
+    navigation.navigate('Restaurant', {
+      restaurant: item,
+      id: item?.id ?? null,
+      restaurantName,
+      branchName,
+      isFavorite: true,
+    });
+  } catch (e) {
+    console.warn('onPressNavigateToRestaurant error', e);
+
+    navigation.navigate('Restaurant', {
+      restaurant: item,
+      id: item?.id ?? null,
+      restaurantName:
+        item?.restaurantName ??
+        item?.name ??
+        item?.nombre ??
+        'Restaurante',
+      branchName: '',
+      isFavorite: true,
+    });
+  }
+};
 
   const renderCard = ({ item }) => {
     const bannerRaw = item.bannerImage ?? item.imagen_banner_url ?? item.image_url ?? item.image ?? item.banner ?? null;
@@ -367,11 +547,15 @@ export default function FavoritesScreen({ route, navigation }) {
           </Text>
 
           <View style={styles.cardMeta}>
-            <View style={styles.ratingRow}>
-              <Text style={[styles.ratingText, { fontSize: metaFontSize }]}>
-                { ((Number(item.avg_rating ?? item.rating ?? 0)) || 0).toFixed(1) }
-              </Text>
-              <Text style={[styles.ratingStar, { fontSize: metaFontSize }]}>★</Text>
+            <View style={{ flex: 1 }}>
+              {shouldShowSurveyRating(item) && (
+                <View style={styles.ratingRow}>
+                  <Text style={[styles.ratingText, { fontSize: metaFontSize }]}>
+                    { ((Number(item.avg_rating ?? item.rating ?? 0)) || 0).toFixed(1) }
+                  </Text>
+                  <Text style={[styles.ratingStar, { fontSize: metaFontSize }]}>★</Text>
+                </View>
+              )}
             </View>
 
             <TouchableOpacity onPress={() => removeFavorite(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
