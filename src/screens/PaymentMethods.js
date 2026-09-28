@@ -33,9 +33,9 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
 
-const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
+const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_live_51RJbpJHY4nBZ3Z66AgxDQFMOal1S61ONJQiBSvGhusEoILNxOCtfxteyClWuT3mkvmnx0RQZPdNmUPc6UuhveWzI002sVsd4if';
 
-const PAYMENT_ENVIRONMENT = 'sandbox';
+const PAYMENT_ENVIRONMENT = 'live';
 
 const APPLE_PAY_MIN_IOS_VERSION = 10;
 
@@ -134,12 +134,12 @@ export default function PaymentMethods({ navigation, route }) {
 
   const [applePaySupported, setApplePaySupported] = useState(false);
 
-  // Estados del WebView modal de PayPal
   const [paypalConnecting, setPaypalConnecting] = useState(false);
   const [paypalModalVisible, setPaypalModalVisible] = useState(false);
   const [paypalWebViewUrl, setPaypalWebViewUrl] = useState(null);
   const [paypalWebViewLoading, setPaypalWebViewLoading] = useState(true);
   const paypalSetupTokenIdRef = useRef(null);
+  const paypalHandledRef = useRef(false);
 
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -279,7 +279,6 @@ export default function PaymentMethods({ navigation, route }) {
       const normalized = arr.map(normalizePaymentMethod);
       const savedCards = normalized.filter(pm => pm.type === 'saved_card');
       setCards(savedCards);
-// justo después de: const savedCards = normalized.filter(...)
 const paypalEntry = normalized.find(pm => pm.type === 'paypal');
 if (paypalEntry) {
   setPaypalMethodId(paypalEntry.id ?? paypalEntry.external_payment_method_id ?? null);
@@ -375,6 +374,13 @@ if (paypalEntry) {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
   }, []);
+
+
+  useEffect(() => {
+    if (!paypalModalVisible || !paypalWebViewLoading) return undefined;
+    const t = setTimeout(() => setPaypalWebViewLoading(false), 8000);
+    return () => clearTimeout(t);
+  }, [paypalModalVisible, paypalWebViewLoading]);
 
   const openAddCardScreen = () => {
     setStripeCardDetails(null);
@@ -548,7 +554,6 @@ if (paypalEntry) {
     }
   };
 
-  // Paso 2: Confirma el token con el backend una vez que PayPal aprobó.
   const confirmPaypalSetup = useCallback(async (setupTokenId) => {
     const userId = await resolveUsuarioAppId();
     if (!userId || !setupTokenId) {
@@ -587,7 +592,6 @@ if (paypalEntry) {
     }
   }, [buildPaypalConfirmUrl, getAuthHeaders, loadCards, resolveUsuarioAppId, showToast]);
 
-  // Paso 1: Pide el setup_token y abre el WebView con el approval_url de PayPal.
   const startPaypalSetup = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
@@ -625,12 +629,11 @@ if (paypalEntry) {
         return;
       }
 
-      // Guarda el token y abre el WebView modal con la URL de aprobación.
       paypalSetupTokenIdRef.current = setupTokenId;
+      paypalHandledRef.current = false; 
       setPaypalWebViewUrl(approvalUrl);
       setPaypalWebViewLoading(true);
       setPaypalModalVisible(true);
-      // paypalConnecting permanece true hasta que el flujo termina o se cancela.
     } catch (err) {
       console.warn('startPaypalSetup exception', err);
       showToast('Error al conectar con PayPal', false);
@@ -638,7 +641,6 @@ if (paypalEntry) {
     }
   }, [buildPaypalSetupTokenUrl, getAuthHeaders, resolveUsuarioAppId, showToast]);
 
-  // Cierra el WebView modal y limpia el estado de PayPal.
   const closePaypalModal = () => {
     setPaypalModalVisible(false);
     setPaypalWebViewUrl(null);
@@ -646,16 +648,22 @@ if (paypalEntry) {
     setPaypalConnecting(false);
   };
 
-  // Se dispara en cada cambio de URL dentro del WebView.
-  // Cuando detecta el return_url de PayPal, cierra el modal y confirma el token.
+
+  const handlePaypalReturn = (url) => {
+    if (!url || !url.includes('paypal/vault/approved')) return false;
+    if (paypalHandledRef.current) return true;
+    paypalHandledRef.current = true;
+    setPaypalModalVisible(false);
+    setPaypalWebViewUrl(null);
+    setPaypalWebViewLoading(false);
+    const tokenToConfirm = paypalSetupTokenIdRef.current;
+    confirmPaypalSetup(tokenToConfirm);
+    return true;
+  };
+
+
   const handlePaypalWebViewNavigation = (navState) => {
-    const { url } = navState;
-    if (url && url.includes('paypal/vault/approved')) {
-      setPaypalModalVisible(false);
-      setPaypalWebViewUrl(null);
-      const tokenToConfirm = paypalSetupTokenIdRef.current;
-      confirmPaypalSetup(tokenToConfirm);
-    }
+    handlePaypalReturn(navState?.url);
   };
 
   const deleteCard = async (card) => {
@@ -729,17 +737,19 @@ if (paypalEntry) {
     return { text: 'CARD', style: 'generic' };
   };
 
-  // Modal con WebView que carga la página de login de PayPal.
-  // Se cierra automáticamente al detectar el return_url.
+
   const renderPaypalWebViewModal = () => (
     <Modal
       visible={paypalModalVisible}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={closePaypalModal}
+
+      onDismiss={() => {
+        if (!paypalHandledRef.current) closePaypalModal();
+      }}
     >
       <SafeAreaView style={styles.paypalModal}>
-        {/* Header del modal */}
         <View style={styles.paypalModalHeader}>
           <TouchableOpacity onPress={closePaypalModal} style={styles.headerIconButton}>
             <Ionicons name="close" size={24} color={COLORS.text} />
@@ -748,25 +758,32 @@ if (paypalEntry) {
           <View style={styles.headerIconButton} />
         </View>
 
-        {/* Indicador de carga encima del WebView */}
+
         {paypalWebViewLoading ? (
-          <View style={styles.paypalWebViewLoader}>
+          <View style={styles.paypalWebViewLoader} pointerEvents="none">
             <ActivityIndicator size="large" color={COLORS.blue} />
             <Text style={styles.paypalWebViewLoaderText}>Cargando PayPal...</Text>
           </View>
         ) : null}
 
-        {/* WebView con la página de autorización de PayPal */}
         {paypalWebViewUrl ? (
           <WebView
             source={{ uri: paypalWebViewUrl }}
             style={styles.paypalWebView}
             onNavigationStateChange={handlePaypalWebViewNavigation}
-            onLoadStart={() => setPaypalWebViewLoading(true)}
+            onShouldStartLoadWithRequest={(request) => !handlePaypalReturn(request?.url)}
+            onLoad={() => setPaypalWebViewLoading(false)}
             onLoadEnd={() => setPaypalWebViewLoading(false)}
+            onError={() => setPaypalWebViewLoading(false)}
+            onHttpError={() => setPaypalWebViewLoading(false)}
+            onLoadProgress={({ nativeEvent }) => {
+              if (nativeEvent?.progress >= 0.9) setPaypalWebViewLoading(false);
+            }}
             javaScriptEnabled
             domStorageEnabled
             startInLoadingState={false}
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
           />
         ) : null}
       </SafeAreaView>
@@ -1603,7 +1620,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   paypalWebViewLoader: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 56,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.bg,
