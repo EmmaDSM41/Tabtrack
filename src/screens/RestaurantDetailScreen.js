@@ -21,10 +21,7 @@ import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/nativ
 import Ionicons from "react-native-vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-// NUEVO: se necesitan para poder recargar la sucursal por API cuando la
-// pantalla se abre "en frío" desde el deep link de compartir (sin haber
-// navegado normalmente desde la lista, así que no llega el objeto completo
-// por params, solo los ids).
+ 
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const tabtrackLogo = require("../../assets/images/logo2.png");
@@ -35,13 +32,10 @@ const tiktokIcon = require("../../assets/images/tik_tok.jpg");
 const GLOBAL_FAVORITES_KEY = 'favorites';
 const GLOBAL_FAVORITES_OBJS_KEY = 'favorites_objs';
 
-// NUEVO: mismo endpoint base que usa RestaurantsScreen para listar
-// sucursales de un restaurante. Se reutiliza aquí solo para el caso de
-// carga en frío (deep link).
+ 
 const API_URL = 'https://127.0.0.1/api/restaurantes';
 
-// NUEVO: esquema propio de la app, registrado en App.tsx (linking),
-// AndroidManifest.xml y (del lado de iOS, por tu compañero) el Info.plist.
+ 
 const APP_SCHEME = 'tabtrack://';
 
 const getAuthHeaders = (extra = {}) => {
@@ -69,14 +63,12 @@ export default function RestaurantDetailScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
 
-  // responsive helpers
   const { width, height } = useWindowDimensions();
-  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); // base 375
+  const rf = (p) => Math.round(PixelRatio.roundToNearestPixel((p * width) / 375)); 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // responsive measurements
   const topPadding = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 8);
-  const contentMaxWidth = Math.min(width - 32, 720); // allow wider cards on tablets
+  const contentMaxWidth = Math.min(width - 32, 720); 
   const AVATAR_SIZE = clamp(rf(60), 44, 140);
   const SLIDER_HEIGHT = clamp(Math.round(height * 0.32), 160, Math.round(height * 0.6));
   const HEADER_LEFT = Math.max(8, Math.round(width * 0.03));
@@ -102,10 +94,7 @@ export default function RestaurantDetailScreen() {
     null;
 const restaurantNameParam = route.params?.restaurantName ?? null;
 const branchNameParam = route.params?.branchName ?? null;
-  // CAMBIADO: cuando la pantalla se abre desde el deep link de compartir,
-  // route.params trae 'restauranteId' y 'sucursalId' (así se declaró en la
-  // config de linking de App.tsx), en vez del objeto completo. idParam
-  // ahora también contempla ese caso.
+ 
   const idParam = (() => {
     if (route.params?.id) return String(route.params.id);
     if (route.params?.sucursalId) return String(route.params.sucursalId);
@@ -114,10 +103,7 @@ const branchNameParam = route.params?.branchName ?? null;
       branchParam.id ?? branchParam.sucursal_id ?? branchParam.restaurante_id ?? branchParam._id ?? null
     );
   })();
-
-  // NUEVO: id del restaurante padre, ya sea porque vino en el objeto de la
-  // sucursal (restaurante_id, agregado en RestaurantsScreen) o porque vino
-  // directo en la URL del deep link (restauranteId).
+ 
   const restauranteIdParam = (() => {
     if (route.params?.restauranteId) return String(route.params.restauranteId);
     if (branchParam?.restaurante_id) return String(branchParam.restaurante_id);
@@ -126,24 +112,19 @@ const branchNameParam = route.params?.branchName ?? null;
   })();
 
   const [data, setData] = useState(branchParam ?? null);
-  // NUEVO: solo se usa para mostrar un loader mientras se resuelve la
-  // carga en frío desde el deep link (cuando no llegó branchParam).
+ 
   const [resolvingFromLink, setResolvingFromLink] = useState(!branchParam);
   const [slideIndex, setSlideIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const scrollRef = useRef(null);
 
-  // Toast
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [toastType, setToastType] = useState('simple'); // 'simple' | 'action'
+  const [toastType, setToastType] = useState('simple'); 
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimerRef = useRef(null);
 
-  // CAMBIADO: antes este efecto no hacía nada si no venía 'data' (dejaba un
-  // comentario "opcional"). Ahora sí resuelve la sucursal por API cuando la
-  // pantalla se abrió desde el deep link (solo tenemos restauranteId +
-  // sucursalId, sin el objeto completo).
+ 
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -172,10 +153,6 @@ const branchNameParam = route.params?.branchName ?? null;
         if (!mounted) return;
 
         if (found) {
-          // Se guarda el objeto tal cual lo entrega la API (mismos nombres
-          // de campo: nombre, descripcion, direccion, imagen_logo_url,
-          // etc.), más restaurante_id para que "compartir" y "favoritos"
-          // sigan funcionando igual que cuando se navega desde la lista.
           setData({ ...found, id: String(found.id ?? idParam), restaurante_id: restauranteIdParam });
         } else {
           console.warn('[RestaurantDetailScreen] No se encontró la sucursal del link:', { restauranteIdParam, idParam });
@@ -189,7 +166,6 @@ const branchNameParam = route.params?.branchName ?? null;
       }
     })();
     return () => { mounted = false; if (toastTimerRef.current) clearTimeout(toastTimerRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, restauranteIdParam, idParam]);
 
   useFocusEffect(useCallback(() => {
@@ -200,7 +176,6 @@ const branchNameParam = route.params?.branchName ?? null;
         const raw = await AsyncStorage.getItem(key);
         let favs = raw ? JSON.parse(raw) : [];
 
-        // fallback global
         if ((!Array.isArray(favs) || favs.length === 0)) {
           const globalRaw = await AsyncStorage.getItem(GLOBAL_FAVORITES_KEY);
           const globalFavs = globalRaw ? JSON.parse(globalRaw) : [];
@@ -220,7 +195,6 @@ const branchNameParam = route.params?.branchName ?? null;
     return () => { mounted = false; };
   }, [idParam, route.params]));
 
-  // Toast helpers
   const _showToast = (message, type = 'simple') => {
     setToastMessage(message || '');
     setToastType(type);
@@ -253,7 +227,6 @@ const branchNameParam = route.params?.branchName ?? null;
   const showToast = (message) => _showToast(message, 'simple');
   const showToastWithAction = (message) => _showToast(message, 'action');
 
-  // Toggle favorito
   const toggleFavorite = async () => {
     try {
       const sid = String(idParam ?? data?.id ?? data?.restaurante_id ?? '');
@@ -262,7 +235,6 @@ const branchNameParam = route.params?.branchName ?? null;
       const favKey = await userFavoritesKey();
       const favObjsKey = await userFavoritesObjsKey();
 
-      // lee ids por usuario (fallback global)
       const rawIds = await AsyncStorage.getItem(favKey);
       let ids = rawIds ? JSON.parse(rawIds) : null;
       if (!Array.isArray(ids)) {
@@ -270,7 +242,6 @@ const branchNameParam = route.params?.branchName ?? null;
         ids = globalRaw ? JSON.parse(globalRaw) : [];
       }
 
-      // lee objs por usuario (fallback global)
       const rawObjs = await AsyncStorage.getItem(favObjsKey);
       let objs = rawObjs ? JSON.parse(rawObjs) : null;
       if (!Array.isArray(objs)) {
@@ -282,7 +253,6 @@ const branchNameParam = route.params?.branchName ?? null;
       let newObjs = Array.isArray(objs) ? [...objs] : [];
 
       if (newIds.includes(sid)) {
-        // remover
         newIds = newIds.filter(x => String(x) !== sid);
         newObjs = newObjs.filter(o => String(o.id) !== sid);
         await AsyncStorage.setItem(favKey, JSON.stringify(newIds));
@@ -290,7 +260,6 @@ const branchNameParam = route.params?.branchName ?? null;
         setIsFavorite(false);
         showToastWithAction('Eliminado de favoritos');
       } else {
-        // agregar
         const preview = {
           id: String(sid),
           name: data?.nombre ?? data?.name ?? `Sucursal ${sid}`,
@@ -314,9 +283,6 @@ const branchNameParam = route.params?.branchName ?? null;
     }
   };
 
-  // NUEVO: arma el deep link de esta sucursal. Devuelve null si no
-  // tenemos ambos ids (restaurante + sucursal), en cuyo caso se comparte
-  // solo el texto, como antes.
   const buildShareLink = () => {
     const restId = data?.restaurante_id ?? data?.raw?.restaurante_id ?? restauranteIdParam ?? null;
     const sucId = idParam ?? data?.id ?? null;
@@ -329,12 +295,7 @@ const branchNameParam = route.params?.branchName ?? null;
     const title = data.nombre || data.name || "Sucursal";
     const address = data.direccion || data.address || "";
     const phone = data.telefono_sucursal ? `Tel: ${data.telefono_sucursal}` : "";
-    // CAMBIADO: ahora se arma y se incluye el deep link de la sucursal en
-    // el mensaje. Si quien lo recibe ya tiene la app instalada y su app de
-    // mensajería vuelve el link tocable (WhatsApp normalmente sí lo hace),
-    // al tocarlo se abre directo esta pantalla. Si no tiene la app
-    // instalada, el link no hace nada (no hay servidor detrás que lo
-    // redirija a una tienda de apps o página web).
+  
     const link = buildShareLink();
     const message = [title, address, phone, link ? `Ver en la app: ${link}` : null]
       .filter(Boolean)
@@ -343,8 +304,7 @@ const branchNameParam = route.params?.branchName ?? null;
       await Share.share({
         message,
         title,
-        // 'url' solo lo usa iOS de forma nativa; en Android se ignora, por
-        // eso el link también va incluido en 'message' arriba.
+ 
         ...(Platform.OS === 'ios' && link ? { url: link } : {}),
       });
     } catch (err) {
@@ -430,14 +390,7 @@ const branchNameParam = route.params?.branchName ?? null;
     }
   };
 
-  // NUEVO: el API no regresa un campo 'direccion'/'address' ya armado, solo
-  // las partes sueltas (calle, numero_ext, numero_int, colonia, municipio,
-  // ciudad, estado, codigo_postal). Esta función arma un texto de
-  // dirección legible a partir de esas partes, revisando tanto 'd'
-  // directamente (cuando la pantalla se cargó desde el deep link, donde
-  // 'data' es el objeto crudo del API) como 'd.raw' (cuando se navegó
-  // normal desde el listado, donde el objeto viene "mapeado" y las partes
-  // originales quedaron guardadas dentro de 'raw').
+ 
   const buildAddressFromParts = (d) => {
     if (!d) return null;
     const get = (key) => d?.[key] ?? d?.raw?.[key] ?? null;
@@ -531,11 +484,7 @@ const branchNameParam = route.params?.branchName ?? null;
       </View>
     );
   }
-
-  // NUEVO: nombre del restaurante padre a mostrar arriba del nombre de la
-// sucursal. Prioridad: lo que llegó explícito por params (desde el mapa) >
-// lo que trae 'data' ya mapeado (restaurantName, agregado en GPSScreen) >
-// lo que pueda venir en el objeto crudo del API (raw).
+ 
 const displayRestaurantName =
   restaurantNameParam ||
   data?.restaurantName ||
@@ -544,8 +493,7 @@ const displayRestaurantName =
   data?.raw?.restaurante?.nombre ||
   null;
 
-// El nombre de la sucursal ya se muestra como título principal (data.nombre),
-// pero por si acaso se necesita en otro lado, se deja resuelto aquí también.
+
 const displayBranchName = branchNameParam || data?.nombre || data?.name || null;
 
   const avatarUri = (() => {
@@ -732,18 +680,23 @@ const displayBranchName = branchNameParam || data?.nombre || data?.name || null;
       <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: Math.max(32, insets.bottom + 8) }}>
         <View style={[styles.card, { width: CARD_WIDTH, paddingTop: CARD_PADDING_TOP, paddingHorizontal: CARD_PADDING_H }]}>
 <View style={styles.titleRow}>
-  <View style={{ flexShrink: 1 }}>
+  <View style={{flexShrink: 1}}>
     {displayRestaurantName ? (
       <Text
-        style={[styles.restaurantNameLabel, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.5)) }]}
-        numberOfLines={1}
-      >
+        style={[styles.title, { fontSize: TITLE_FONT }]}
+        numberOfLines={1}>
         {displayRestaurantName}
       </Text>
     ) : null}
-    <Text style={[styles.title, { fontSize: TITLE_FONT }]} numberOfLines={2}>{data.nombre || data.name || "—"}</Text>
+    {displayBranchName ? (
+      <Text
+        style={[styles.restaurantNameLabel, { fontSize: TITLE_FONT * 0.75, color: '#111', fontWeight: '500' }]}
+        numberOfLines={2}>
+        {displayBranchName}
+      </Text>
+    ) : null}
   </View>
-</View> 
+</View>
 
           <View style={styles.divider} />
           <Text style={[styles.sectionTitle, { fontSize: Math.max(12, Math.round(TITLE_FONT * 0.45)) }]}>Descripción breve</Text>
@@ -855,16 +808,14 @@ const displayBranchName = branchNameParam || data?.nombre || data?.name || null;
   );
 }
 
-/* estilos base (no cambian la lógica) */
 const BLUE = "#0046ff";
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
   container: { flex: 1, backgroundColor: "#000" },
   loading: { justifyContent: "center", alignItems: "center" },
-  restaurantNameLabel: {
-  color: '#8a8f98',
-  fontWeight: '600',
+restaurantNameLabel: {
+  fontWeight: '500',
   marginBottom: 2,
 },
 
