@@ -41,6 +41,50 @@ const normalize = (v) => {
   }
 };
 
+
+function flattenMessages(v) {
+  if (v === undefined || v === null) return [];
+  if (typeof v === 'string') return v.trim() ? [v.trim()] : [];
+  if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
+  if (Array.isArray(v)) return v.flatMap(flattenMessages);
+  if (typeof v === 'object') {
+    if (typeof v.msg === 'string' && v.msg.trim()) {
+      const loc = Array.isArray(v.loc) ? v.loc.filter(x => x !== 'body').join('.') : '';
+      return [loc ? `${loc}: ${v.msg.trim()}` : v.msg.trim()];
+    }
+    if (typeof v.message === 'string' && v.message.trim()) return [v.message.trim()];
+    return Object.values(v).flatMap(flattenMessages);
+  }
+  return [];
+}
+
+
+function extractInvoiceErrorMessage(json) {
+  try {
+    if (!json) return null;
+    if (typeof json === 'string') return json.trim() || null;
+
+    const missing = json.campos_faltantes ?? json.missing_fields ?? json.faltantes ?? json.missing ?? null;
+    if (Array.isArray(missing) && missing.length > 0) {
+      return `Faltan los siguientes datos de facturación en tu perfil: ${missing.map(String).join(', ')}.`;
+    }
+
+    const parts = [
+      ...flattenMessages(json.message),
+      ...flattenMessages(json.mensaje),
+      ...flattenMessages(json.detail),
+      ...flattenMessages(json.detalle),
+      ...flattenMessages(json.error),
+      ...flattenMessages(json.errors),
+    ];
+    const unique = Array.from(new Set(parts.filter(Boolean)));
+    if (unique.length === 0) return null;
+    return unique.join('\n');
+  } catch (e) {
+    return null;
+  }
+}
+
 function matchUserIds(a, b) {
   if (!a || !b) return false;
   const A = normalize(a).toLowerCase();
@@ -131,6 +175,10 @@ export default function DetailScreen({ navigation, route }) {
 
   const [userPropinaTotal, setUserPropinaTotal] = useState(0);
 
+  // NUEVO (facturación): estado del botón "Pedir Factura" y de su alerta.
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceAlert, setInvoiceAlert] = useState({ visible: false, type: 'info', title: '', message: '' });
+
   async function loadSeenIds(email) {
     if (!email) return new Set();
     try {
@@ -182,8 +230,10 @@ export default function DetailScreen({ navigation, route }) {
   }
 
   function formatMoney(n) {
-    return Number.isFinite(n) ? n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
-  }
+  return Number.isFinite(Number(n))
+    ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '0.00';
+}
 
   function buildNotificationText({ branch, amount, date, saleId }) {
     try {
@@ -776,6 +826,7 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
+ 
   const handleOpenWhatsApp = async () => {
     try {
       const paramUrl = route?.params?.whatsapp_url ?? route?.params?.whatsappUrl ?? null;
@@ -811,6 +862,182 @@ export default function DetailScreen({ navigation, route }) {
     } catch (err) {
       console.warn('handleOpenWhatsApp error', err);
       Alert.alert('Error', 'No se pudo abrir WhatsApp. Revisa la URL.');
+    }
+  };
+
+   const showInvoiceAlert = (type, title, message) => {
+    if (!isMountedRef.current) return;
+    setInvoiceAlert({ visible: true, type, title, message });
+  };
+  const hideInvoiceAlert = () => {
+    setInvoiceAlert(prev => ({ ...prev, visible: false }));
+  };
+
+ 
+    const handleRequestInvoice = async () => {
+    if (invoiceLoading) {
+      console.log('[FACTURA] Ignorado: ya hay una solicitud en proceso');
+      return;
+    }
+
+    console.log('[FACTURA] ========== INICIO ==========');
+
+    try {
+      const saleIdForInvoice = visit
+        ? (visit.sale_id ?? visit.venta_id ?? visit.id ?? visit.saleId ?? visit.ventaId ?? null)
+        : null;
+      const sucursalIdForInvoice = visit
+        ? (visit.sucursal_id ?? visit.sucursalId ?? visit.sucursal ?? visit.branchId ?? null)
+        : null;
+
+      console.log('[FACTURA] 1) Datos de la visita:', { saleIdForInvoice, sucursalIdForInvoice });
+
+      let usuarioAppId = null;
+      try {
+        const storedId = await AsyncStorage.getItem('user_usuario_app_id');
+        usuarioAppId = storedId && String(storedId).trim() ? String(storedId).trim() : null;
+      } catch (e) {
+        console.warn('handleRequestInvoice: error leyendo user_usuario_app_id', e);
+        console.log('[FACTURA] ERROR leyendo user_usuario_app_id:', e?.message ?? e);
+      }
+
+      console.log('[FACTURA] 2) usuario_app_id:', usuarioAppId);
+
+      if (!usuarioAppId) {
+        console.log('[FACTURA] ❌ Se detiene: no hay usuario_app_id');
+        showInvoiceAlert(
+          'error',
+          'No se pudo solicitar la factura',
+          'No pudimos identificar tu usuario. Cierra sesión, vuelve a iniciar sesión e inténtalo de nuevo.'
+        );
+        return;
+      }
+
+      if (!saleIdForInvoice || !sucursalIdForInvoice) {
+        console.log('[FACTURA] ❌ Se detiene: falta venta_id o sucursal_id', { saleIdForInvoice, sucursalIdForInvoice });
+        showInvoiceAlert(
+          'error',
+          'No se pudo solicitar la factura',
+          'No encontramos los datos de la venta o de la sucursal de esta visita, por lo que no se puede solicitar la factura.'
+        );
+        return;
+      }
+
+      setInvoiceLoading(true);
+
+      const sucursalNum = Number(sucursalIdForInvoice);
+      const body = {
+        usuario_app_id: usuarioAppId,
+        venta_id: String(saleIdForInvoice),
+        sucursal_id: Number.isFinite(sucursalNum) ? sucursalNum : sucursalIdForInvoice,
+      };
+
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/mobileapp/facturacion/solicitudes`;
+
+      console.log('[FACTURA] 3) URL:', url);
+      console.log('[FACTURA] 4) Body a enviar:', JSON.stringify(body));
+
+      await ensureToken();
+      console.log('[FACTURA] 5) Token disponible:', !!TOKEN);
+
+      let res = null;
+      try {
+        console.log('[FACTURA] 6) Enviando POST...');
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (netErr) {
+        console.warn('handleRequestInvoice network error', netErr);
+        console.log('[FACTURA] ❌ ERROR DE RED (no llegó al servidor):', netErr?.message ?? netErr);
+        showInvoiceAlert(
+          'error',
+          'Sin conexión',
+          'No pudimos comunicarnos con el servidor. Revisa tu conexión a internet e inténtalo de nuevo.'
+        );
+        return;
+      }
+
+      let json = null;
+      let rawText = null;
+      try {
+        rawText = await res.text();
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch (e) {
+        console.log('[FACTURA] La respuesta no es JSON válido:', e?.message ?? e);
+        json = rawText && rawText.trim() ? rawText : null;
+      }
+
+      console.log('[FACTURA] 7) Status HTTP:', res.status, '| ok:', res.ok);
+      console.log('[FACTURA] 8) Respuesta cruda:', rawText);
+      console.log('[FACTURA] 9) Respuesta parseada:', JSON.stringify(json));
+
+      if (res.ok) {
+        console.log('[FACTURA] ✅ ÉXITO: la solicitud se envió correctamente');
+        showInvoiceAlert(
+          'success',
+          'Solicitud enviada',
+          'Tu solicitud de factura fue registrada. El restaurante se comunicará contigo por correo electrónico para el envío de tu factura.'
+        );
+        return;
+      }
+
+      console.warn('handleRequestInvoice http', res.status, rawText);
+
+      const apiMessage = extractInvoiceErrorMessage(json);
+      console.log('[FACTURA] ❌ FALLÓ. Status:', res.status, '| Mensaje extraído del API:', apiMessage);
+
+      if (res.status === 401 || res.status === 403) {
+        console.log('[FACTURA] Motivo: sesión no válida o sin permiso (401/403)');
+        showInvoiceAlert(
+          'error',
+          'Sesión no válida',
+          apiMessage || 'Tu sesión expiró o no tienes permiso para esta acción. Vuelve a iniciar sesión e inténtalo de nuevo.'
+        );
+        return;
+      }
+
+      if (res.status >= 500) {
+        console.log('[FACTURA] Motivo: error del servidor (5xx)');
+        showInvoiceAlert(
+          'error',
+          'Servicio no disponible',
+          'Ocurrió un problema en el servidor al procesar tu solicitud. Inténtalo de nuevo en unos minutos.'
+        );
+        return;
+      }
+
+      if (apiMessage) {
+        console.log('[FACTURA] Motivo: el API rechazó la solicitud (4xx) con mensaje');
+        showInvoiceAlert(
+          'warning',
+          'No se puede facturar',
+          `${apiMessage}\n\nRevisa que tus datos de facturación estén completos en tu perfil e inténtalo de nuevo.`
+        );
+      } else {
+        console.log('[FACTURA] Motivo: el API rechazó la solicitud (4xx) sin mensaje útil');
+        showInvoiceAlert(
+          'warning',
+          'No se puede facturar',
+          'No se completaron todos los datos de facturación. Debes completarlos en tu perfil antes de solicitar la factura.'
+        );
+      }
+    } catch (err) {
+      console.warn('handleRequestInvoice error', err);
+      console.log('[FACTURA] ❌ ERROR INESPERADO:', err?.message ?? err, err?.stack);
+      showInvoiceAlert(
+        'error',
+        'No se pudo solicitar la factura',
+        'Ocurrió un error inesperado. Inténtalo de nuevo.'
+      );
+    } finally {
+      console.log('[FACTURA] ========== FIN ==========');
+      if (isMountedRef.current) setInvoiceLoading(false);
     }
   };
 
@@ -1061,6 +1288,12 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
+  // NUEVO (facturación): configuración visual de la alerta según el tipo.
+  const invoiceAlertIcon =
+    invoiceAlert.type === 'success' ? { name: 'checkmark-circle', color: '#16a34a', bg: '#e8f8ef' }
+      : invoiceAlert.type === 'warning' ? { name: 'alert-circle', color: '#d97706', bg: '#fff4e0' }
+        : { name: 'close-circle', color: '#e11d48', bg: '#fdecef' };
+
   return (
     <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
       <StatusBar barStyle="dark-content" />
@@ -1094,6 +1327,24 @@ export default function DetailScreen({ navigation, route }) {
 
             <TouchableOpacity style={[styles.markReadButton, { margin: Math.round(Math.min(Math.max(wp(4), 10), 28)) }]} onPress={markAllRead}>
               <Text style={[styles.markReadText, { fontSize: clamp(rf(3.6), 13, 16) }]}>Marcar todo como leído</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NUEVO (facturación): alerta del resultado de "Pedir Factura" */}
+      <Modal visible={invoiceAlert.visible} animationType="fade" transparent onRequestClose={hideInvoiceAlert}>
+        <View style={styles.invAlertOverlay}>
+          <View style={[styles.invAlertBox, { width: Math.min(Math.max(wp(86), 280), 420) }]}>
+            <View style={[styles.invAlertIconWrap, { backgroundColor: invoiceAlertIcon.bg }]}>
+              <Ionicons name={invoiceAlertIcon.name} size={34} color={invoiceAlertIcon.color} />
+            </View>
+
+            <Text style={styles.invAlertTitle}>{invoiceAlert.title}</Text>
+            <Text style={styles.invAlertMessage}>{invoiceAlert.message}</Text>
+
+            <TouchableOpacity style={styles.invAlertBtn} onPress={hideInvoiceAlert} activeOpacity={0.9} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.invAlertBtnText}>Entendido</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1147,7 +1398,7 @@ export default function DetailScreen({ navigation, route }) {
           </View>
           <View style={styles.totalTextWrapper}>
             <Text style={[styles.totalLabel, { fontSize: clamp(rf(3.2), 14, 18) }]}>{visit.nombre || visit.restaurantName || visit.nombre_restaurante || 'Restaurante'}</Text>
-            <Text style={[styles.totalAmount, { fontSize: totalAmountFont, lineHeight: Math.round(totalAmountFont * 1.05) }]}>${total.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+            <Text style={[styles.totalAmount, { fontSize: totalAmountFont, lineHeight: Math.round(totalAmountFont * 1.05) }]}>${formatMoney(total)} {visit.moneda ?? 'MXN'}</Text>
             <Text style={[styles.totalSubtitle, { fontSize: clamp(rf(2.4), 11, 14) }]}>
               {showFull ? 'Cuenta completa' : (shouldShowFiltered ? 'Detalle - lo que pagaste' : 'Cuenta completa')}
             </Text>
@@ -1171,7 +1422,7 @@ export default function DetailScreen({ navigation, route }) {
               <View key={it.key ?? i} style={styles.itemRow}>
                 <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
                 <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
-                  {(Number(it.lineTotal ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
+                  {formatMoney(Number(it.lineTotal ?? 0))} {visit.moneda ?? 'MXN'}
                 </Text>
               </View>
             ))}
@@ -1180,22 +1431,22 @@ export default function DetailScreen({ navigation, route }) {
 
             <View style={styles.itemRow}>
               <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal </Text>
-              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? filteredTotals.subtotal.toFixed(2) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
+              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? formatMoney(filteredTotals.subtotal) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
             </View>
 
             <View style={styles.itemRow}>
               <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA </Text>
-              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? filteredTotals.iva.toFixed(2) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
+              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? formatMoney(filteredTotals.iva) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
             </View>
 
             <View style={styles.itemRow}>
               <Text style={[styles.itemName, { fontSize: itemFont }]}>Propina</Text>
-              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? filteredTotals.propina.toFixed(2) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
+              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? formatMoney(filteredTotals.propina) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
             </View>
 
             <View style={[styles.itemRow, { marginTop: 6 }]}>
               <Text style={[styles.itemName, { fontWeight: '800', fontSize: itemFont }]}>Total tu parte</Text>
-              <Text style={[styles.itemPrice, { fontWeight: '900', fontSize: itemPriceFont }]}>${filteredTotals ? filteredTotals.total.toFixed(2) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
+              <Text style={[styles.itemPrice, { fontWeight: '900', fontSize: itemPriceFont }]}>${filteredTotals ? formatMoney(filteredTotals.total) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
             </View>
           </>
         ) : showNoPaidMessage ? (
@@ -1219,7 +1470,7 @@ export default function DetailScreen({ navigation, route }) {
                         <View key={it.key ?? `full_${idx}`} style={styles.itemRow}>
                           <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
                           <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
-                            {(Number(it.lineTotal ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
+                            {formatMoney(Number(it.lineTotal ?? 0))} {visit.moneda ?? 'MXN'}
                           </Text>
                         </View>
                       ))
@@ -1231,12 +1482,12 @@ export default function DetailScreen({ navigation, route }) {
 
                     <View style={styles.itemRow}>
                       <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal</Text>
-                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${fullTotals.subtotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${formatMoney(fullTotals.subtotal)} {visit.moneda ?? 'MXN'}</Text>
                     </View>
 
                     <View style={styles.itemRow}>
                       <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
-                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${fullTotals.iva.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${formatMoney(fullTotals.iva)} {visit.moneda ?? 'MXN'}</Text>
                     </View>
                   </>
                 )}
@@ -1247,7 +1498,7 @@ export default function DetailScreen({ navigation, route }) {
                   <View key={i} style={styles.itemRow}>
                     <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name ?? it.nombre ?? `Item ${i + 1}`}</Text>
                     <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
-                      {(Number(it.lineTotal ?? it.unitPrice ?? it.price ?? it.amount ?? 0)).toFixed(2)} {visit.moneda ?? 'MXN'}
+                      {formatMoney(Number(it.lineTotal ?? it.unitPrice ?? it.price ?? it.amount ?? 0))} {visit.moneda ?? 'MXN'}
                     </Text>
                   </View>
                 )) : (
@@ -1258,12 +1509,12 @@ export default function DetailScreen({ navigation, route }) {
 
                 <View style={styles.itemRow}>
                   <Text style={[styles.itemName, { fontSize: itemFont }]}>Subtotal</Text>
-                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${subtotalTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${formatMoney(subtotalTotal)} {visit.moneda ?? 'MXN'}</Text>
                 </View>
 
                 <View style={styles.itemRow}>
                   <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
-                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${ivaTotal.toFixed(2)} {visit.moneda ?? 'MXN'}</Text>
+                  <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${formatMoney(ivaTotal)} {visit.moneda ?? 'MXN'}</Text>
                 </View>
               </>
             )}
@@ -1280,8 +1531,13 @@ export default function DetailScreen({ navigation, route }) {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.invoiceBtn, { paddingVertical: btnPaddingVert, paddingHorizontal: Math.max(12, wp(4)) }]} onPress={handleOpenWhatsApp} activeOpacity={0.85}>
-            <Text style={[styles.invoiceBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>Pedir Factura</Text>
+          <TouchableOpacity
+            style={[styles.invoiceBtn, { paddingVertical: btnPaddingVert, paddingHorizontal: Math.max(12, wp(4)) }, invoiceLoading ? { opacity: 0.7 } : null]}
+            onPress={handleRequestInvoice}
+            activeOpacity={0.85}
+            disabled={invoiceLoading}
+          >
+            <Text style={[styles.invoiceBtnText, { fontSize: clamp(rf(2.8), 12, 16) }]}>{invoiceLoading ? 'Enviando…' : 'Pedir Factura'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1372,4 +1628,25 @@ const styles = StyleSheet.create({
   markReadButton: { padding: 12, backgroundColor: '#0046ff', alignItems: 'center', margin: 16, borderRadius: 8 },
   markReadText: { color: '#fff', fontWeight: '600' },
 
+  // NUEVO (facturación): estilos de la alerta de "Pedir Factura".
+  invAlertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+  invAlertBox: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 26,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    elevation: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18,
+  },
+  invAlertIconWrap: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  invAlertTitle: { fontWeight: '800', color: '#111', fontSize: 18, textAlign: 'center', marginBottom: 8 },
+  invAlertMessage: { color: '#5b6472', fontSize: 14, lineHeight: 21, textAlign: 'center', marginBottom: 22 },
+  invAlertBtn: { width: '100%', backgroundColor: '#0046ff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
+  invAlertBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
 });
+ 
