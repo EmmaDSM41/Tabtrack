@@ -30,6 +30,7 @@ import Share from 'react-native-share';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_BASE_FALLBACK = 'https://api.residence.tab-track.com';
+const PAGE_SIZE = 20;
 
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -64,6 +65,8 @@ export default function ExperiencesScreen() {
   const [monthsData, setMonthsData] = useState([]);
   const [loadingMonths, setLoadingMonths] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [pageInfo, setPageInfo] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
@@ -77,9 +80,10 @@ export default function ExperiencesScreen() {
 
   useEffect(() => { animY.setValue(0); }, [animY]);
 
+   const sheetHeight = Math.round(Math.min(height * 0.88, 760));
   const sheetTranslateY = animY.interpolate({
     inputRange: [0, 1],
-    outputRange: [height, Math.max(120, height * 0.12)],
+    outputRange: [sheetHeight, 0],
   });
 
   const fetchYearHistory = useCallback(async () => {
@@ -232,7 +236,7 @@ export default function ExperiencesScreen() {
     }
   }, []);
 
-  const fetchMonthDetail = useCallback(async (periodo) => {
+  const fetchMonthDetail = useCallback(async (periodo, { page = 1, all = false } = {}) => {
     if (!deptId) {
       Alert.alert('Departamento no encontrado', 'No se encontró departamento. Intenta de nuevo.');
       return null;
@@ -251,108 +255,139 @@ export default function ExperiencesScreen() {
         ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
       };
 
-      const res = await fetch(url, { method: 'GET', headers });
-      let json = null;
-      try { json = await res.json(); } catch (e) { json = null; }
-
-      if (!res.ok) {
-        console.warn('[month-detail] http', res.status, json);
-        if (res.status === 404) {
-          Alert.alert('Detalle no encontrado', 'Ruta 404: detalle no disponible para este mes.');
-        } else {
-          Alert.alert('Error', `HTTP ${res.status} al consultar detalle.`);
+      const extractConsumptions = (j) => {
+        if (!j) return [];
+        if (Array.isArray(j.consumptions)) return j.consumptions;
+        if (Array.isArray(j.periodos)) {
+          return j.periodos.flatMap(p => (Array.isArray(p.consumptions) ? p.consumptions : []));
         }
+        for (const k of Object.keys(j)) {
+          if (k.toLowerCase().includes('consum') && Array.isArray(j[k])) return j[k];
+        }
+        return [];
+      };
+
+      const fetchPage = async (p, size) => {
+        const res = await fetch(`${url}&page=${p}&page_size=${size}`, { method: 'GET', headers });
+        let json = null;
+        try { json = await res.json(); } catch (e) { json = null; }
+        return { res, json };
+      };
+
+      const failHttp = (r) => {
+        console.warn('[month-detail] http', r.res.status, r.json);
+        Alert.alert('Error', `HTTP ${r.res.status} al consultar detalle.`);
         setLoadingDetail(false);
         return null;
-      }
+      };
 
-      let rawConsumptions = null;
+      let rawConsumptions = [];
+      let pageInfoResult = { page: 1, totalPages: 1, total: 0 };
+      let idxOffset = 0;
 
-      if (json && Array.isArray(json.consumptions)) {
-        rawConsumptions = json.consumptions;
-      } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0 && Array.isArray(json.periodos[0].consumptions)) {
-        rawConsumptions = json.periodos[0].consumptions;
-      } else if (json && Array.isArray(json.periodos) && json.periodos.length > 0) {
-        const found = json.periodos.flatMap(p => Array.isArray(p.consumptions) ? p.consumptions : []);
-        if (found.length) rawConsumptions = found;
-      }
+      if (all) {
+        // Modo PDF / notificación: trae TODAS las páginas
+        const first = await fetchPage(1, 100);
+        if (!first.res.ok) return failHttp(first);
 
-      if (!rawConsumptions && json) {
-        for (const k of Object.keys(json)) {
-          if (k.toLowerCase().includes('consum') && Array.isArray(json[k])) { rawConsumptions = json[k]; break; }
+        rawConsumptions = extractConsumptions(first.json);
+        const totalPages = Number(first.json?.page_info?.total_pages) || 1;
+
+        for (let p = 2; p <= totalPages; p++) {
+          const next = await fetchPage(p, 100);
+          if (!next.res.ok) return failHttp(next);
+          rawConsumptions = rawConsumptions.concat(extractConsumptions(next.json));
         }
+
+        pageInfoResult = {
+          page: totalPages,
+          totalPages,
+          total: Number(first.json?.page_info?.total) || rawConsumptions.length,
+        };
+      } else {
+        // Modo hoja: solo la página pedida (20)
+        const r = await fetchPage(page, PAGE_SIZE);
+        if (!r.res.ok) return failHttp(r);
+
+        rawConsumptions = extractConsumptions(r.json);
+        idxOffset = (page - 1) * PAGE_SIZE;
+        pageInfoResult = {
+          page: Number(r.json?.page_info?.page) || page,
+          totalPages: Number(r.json?.page_info?.total_pages) || 1,
+          total: Number(r.json?.page_info?.total) || rawConsumptions.length,
+        };
       }
+
+      console.log('[month-detail]', periodo, all ? 'ALL' : `page ${page}`, 'recibidas:', rawConsumptions.length, 'total:', pageInfoResult.total);
 
       const consumptions = [];
 
-      if (Array.isArray(rawConsumptions)) {
-        rawConsumptions.forEach((c, idx) => {
-          const detail = c.detail_consumption ?? c.detail ?? c.detailConsumption ?? null;
-          const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
-            (Array.isArray(c.items) ? c.items : []);
+      rawConsumptions.forEach((c, idx) => {
+        const detail = c.detail_consumption ?? c.detail ?? c.detailConsumption ?? null;
+        const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
+          (Array.isArray(c.items) ? c.items : []);
 
-          const items = itemsRaw.map((it, i) => ({
-            id: `${c.sale_id ?? idx}-item-${i}`,
-            label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i + 1}`,
-            qty: Number(it.cantidad ?? it.qty ?? 1) || 1,
-            price: Number(it.precio_item ?? it.price ?? it.precio ?? 0) || 0,
-            raw: it,
-          }));
+        const items = itemsRaw.map((it, i) => ({
+          id: `${c.sale_id ?? idx}-item-${i}`,
+          label: it.nombre_item ?? it.nombre ?? it.name ?? it.label ?? `Item ${i + 1}`,
+          qty: Number(it.cantidad ?? it.qty ?? 1) || 1,
+          price: Number(it.precio_item ?? it.price ?? it.precio ?? 0) || 0,
+          raw: it,
+        }));
 
-          const aprovedBy = (c.approved_by_usuario && (c.approved_by_usuario.nombre || c.approved_by_usuario.name)) ? (c.approved_by_usuario.nombre || c.approved_by_usuario.name) : null;
-          const openedBy = (c.opened_by_usuario && (c.opened_by_usuario.nombre || c.opened_by_usuario.name)) ? (c.opened_by_usuario.nombre || c.opened_by_usuario.name) : null;
+        const aprovedBy = (c.approved_by_usuario && (c.approved_by_usuario.nombre || c.approved_by_usuario.name)) ? (c.approved_by_usuario.nombre || c.approved_by_usuario.name) : null;
+        const openedBy = (c.opened_by_usuario && (c.opened_by_usuario.nombre || c.opened_by_usuario.name)) ? (c.opened_by_usuario.nombre || c.opened_by_usuario.name) : null;
 
-          const restaurantName = (c.restaurante && (c.restaurante.nombre || c.restaurante.name)) ? (c.restaurante.nombre || c.restaurante.name) : null;
-          const fallbackName = aprovedBy || openedBy || restaurantName || `Transacción ${c.sale_id ?? (idx + 1)}`;
+        const restaurantName = (c.restaurante && (c.restaurante.nombre || c.restaurante.name)) ? (c.restaurante.nombre || c.restaurante.name) : null;
+        const fallbackName = aprovedBy || openedBy || restaurantName || `Transacción ${c.sale_id ?? (idxOffset + idx + 1)}`;
 
-          const initials = String((aprovedBy || openedBy || restaurantName || '').split(' ').map(x => x[0] || '').slice(0, 2).join('')).toUpperCase() || '—';
+        const initials = String((aprovedBy || openedBy || restaurantName || '').split(' ').map(x => x[0] || '').slice(0, 2).join('')).toUpperCase() || '—';
 
-          const fechaA = (c.fechas && (c.fechas.fecha_apertura || c.fechas.fechaApertura)) || c.fecha_apertura || c.fechaApertura || null;
-          const fechaC = (c.fechas && (c.fechas.fecha_cierre || c.fechas.fechaCierre)) || c.fecha_cierre || c.fechaCierre || null;
+        const fechaA = (c.fechas && (c.fechas.fecha_apertura || c.fechas.fechaApertura)) || c.fecha_apertura || c.fechaApertura || null;
+        const fechaC = (c.fechas && (c.fechas.fecha_cierre || c.fechas.fechaCierre)) || c.fecha_cierre || c.fechaCierre || null;
 
-          let timestamp = '';
-          if (fechaA) {
-            const d = new Date(fechaA);
-            const day = d.getDate();
-            const monthShort = MONTH_NAMES[d.getMonth()].slice(0, 3).toLowerCase();
-            const hours = String(d.getHours()).padStart(2, '0');
-            const mins = String(d.getMinutes()).padStart(2, '0');
-            timestamp = `${day} ${monthShort} · ${hours}:${mins}`;
-          }
+        let timestamp = '';
+        if (fechaA) {
+          const d = new Date(fechaA);
+          const day = d.getDate();
+          const monthShort = MONTH_NAMES[d.getMonth()].slice(0, 3).toLowerCase();
+          const hours = String(d.getHours()).padStart(2, '0');
+          const mins = String(d.getMinutes()).padStart(2, '0');
+          timestamp = `${day} ${monthShort} · ${hours}:${mins}`;
+        }
 
-          const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0);
+        const total = Number((detail && (detail.total_consumo ?? detail.total)) || c.total || c.total_consumo || 0);
 
-          const propinaRaw = (detail && (detail.monto_propina ?? detail.propina)) ?? c.monto_propina ?? c.propina;
-          const propinaParsed = Number(propinaRaw);
-          const propinaFinal = Number.isNaN(propinaParsed) ? 0 : propinaParsed;
+        const propinaRaw = (detail && (detail.monto_propina ?? detail.propina)) ?? c.monto_propina ?? c.propina;
+        const propinaParsed = Number(propinaRaw);
+        const propinaFinal = Number.isNaN(propinaParsed) ? 0 : propinaParsed;
 
-          const totalPagarRaw = (detail && (detail.total_pagar ?? detail.totalPagar)) ?? c.total_pagar ?? c.totalPagar;
-          const totalPagarParsed = Number(totalPagarRaw);
-          const totalPagarFinal = Number.isNaN(totalPagarParsed) ? (total + propinaFinal) : totalPagarParsed;
+        const totalPagarRaw = (detail && (detail.total_pagar ?? detail.totalPagar)) ?? c.total_pagar ?? c.totalPagar;
+        const totalPagarParsed = Number(totalPagarRaw);
+        const totalPagarFinal = Number.isNaN(totalPagarParsed) ? (total + propinaFinal) : totalPagarParsed;
 
-          consumptions.push({
-            id: c.sale_id ?? `c-${idx}`,
-            sale_id: c.sale_id ?? null,
-            estado: c.estado ?? c.status ?? null,
-            approved_by: aprovedBy ? { nombre: aprovedBy, raw: c.approved_by_usuario } : null,
-            opened_by: openedBy ? { nombre: openedBy, raw: c.opened_by_usuario } : null,
-            restaurant: restaurantName,
-            name: fallbackName,
-            initials,
-            timestamp,
-            amount: total,
-            propina: propinaFinal,
-            total_pagar: totalPagarFinal,
-            items,
-            raw: c,
-            fecha_apertura: fechaA,
-            fecha_cierre: fechaC,
-          });
+        consumptions.push({
+          id: `${c.sale_id ?? 'c'}-${idxOffset + idx}`,
+          sale_id: c.sale_id ?? null,
+          estado: c.estado ?? c.status ?? null,
+          approved_by: aprovedBy ? { nombre: aprovedBy, raw: c.approved_by_usuario } : null,
+          opened_by: openedBy ? { nombre: openedBy, raw: c.opened_by_usuario } : null,
+          restaurant: restaurantName,
+          name: fallbackName,
+          initials,
+          timestamp,
+          amount: total,
+          propina: propinaFinal,
+          total_pagar: totalPagarFinal,
+          items,
+          raw: c,
+          fecha_apertura: fechaA,
+          fecha_cierre: fechaC,
         });
-      }
+      });
 
       setLoadingDetail(false);
-      return consumptions;
+      return { consumptions, pageInfo: pageInfoResult };
     } catch (err) {
       console.warn('fetchMonthDetail error', err);
       Alert.alert('Error', 'No fue posible obtener detalle del mes.');
@@ -446,7 +481,12 @@ export default function ExperiencesScreen() {
     Animated.timing(animY, { toValue: 1, duration: 300, useNativeDriver: true }).start();
 
     const periodo = monthObj.periodo;
-    const consumptions = await fetchMonthDetail(periodo);
+    const result = await fetchMonthDetail(
+      periodo,
+      opts.highlightSaleId ? { all: true } : { page: 1 }
+    );
+    const consumptions = result?.consumptions || [];
+    setPageInfo(result?.pageInfo || null);
     setSelectedMonth((prev) => ({
       ...(prev || {}),
       periodo: monthObj.periodo,
@@ -487,10 +527,26 @@ export default function ExperiencesScreen() {
     }, 250);
   };
 
+    const loadMore = async () => {
+    if (loadingMore || !selectedMonth || !pageInfo) return;
+    if (pageInfo.page >= pageInfo.totalPages) return;
+
+    setLoadingMore(true);
+    const result = await fetchMonthDetail(selectedMonth.periodo, { page: pageInfo.page + 1 });
+    if (result) {
+      setSelectedMonth((prev) =>
+        prev ? { ...prev, consumptions: [...(prev.consumptions || []), ...result.consumptions] } : prev
+      );
+      setPageInfo(result.pageInfo);
+    }
+    setLoadingMore(false);
+  };
+
   const closeSheet = () => {
     Animated.timing(animY, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
       setSheetVisible(false);
       setSelectedMonth(null);
+      setPageInfo(null);
       setExpandedTxIds([]);
       txPositionsRef.current = {};
       txRefsMap.current = {};
@@ -515,7 +571,9 @@ export default function ExperiencesScreen() {
     setExporting(true);
 
     try {
-      const consumptions = await fetchMonthDetail(payment.periodo) || [];
+      const result = await fetchMonthDetail(payment.periodo, { all: true });
+      if (!result) return; 
+      const consumptions = result.consumptions;
 
       const fmtCurrency = (v) => (Number(v) || 0).toFixed(2);
       const fmtDate = (dStr) => {
@@ -1073,7 +1131,7 @@ export default function ExperiencesScreen() {
             sheetStyles.sheetContainer,
             {
               transform: [{ translateY: sheetTranslateY }],
-              height: Math.round(Math.min(height * 0.88, 760)),
+              height: sheetHeight,
               zIndex: 9999,
             },
           ]}
@@ -1146,6 +1204,31 @@ export default function ExperiencesScreen() {
                 (selectedMonth?.consumptions || []).map((tx) => renderTransaction(tx))
               )}
             </View>
+
+              {!selectedMonth?.loading && pageInfo && pageInfo.page < pageInfo.totalPages && (
+              <TouchableOpacity
+                onPress={loadMore}
+                disabled={loadingMore}
+                activeOpacity={0.85}
+                style={{
+                  marginTop: 6,
+                  paddingVertical: 12,
+                  borderRadius: 10,
+                  borderWidth: 1.4,
+                  borderColor: '#EBDFFF',
+                  alignItems: 'center',
+                  backgroundColor: '#fff',
+                }}
+              >
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color="#6B21A8" />
+                ) : (
+                  <Text style={{ color: '#6B21A8', fontWeight: '700' }}>
+                    Ver más ({(selectedMonth?.consumptions || []).length} de {pageInfo.total})
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
 
             <View style={sheetStyles.footerSummary} />
 

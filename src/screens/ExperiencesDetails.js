@@ -25,11 +25,13 @@ const VISITS_STORAGE_KEY = 'user_visits';
 
 const API_BASE_URL = 'https://api.tab-track.com';
 
-const WHATSAPP_URL_DIRECT = 'https://api.whatsapp.com/send?phone=5214611011391&text=%C2%A1Hola!%20Quiero%20m%C3%A1s%20informaci%C3%B3n%20de%20';
-
 function safeNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+function isPendingItem(it) {
+  const st = String(it?.estado ?? it?.status ?? it?.estado_pago ?? '').trim().toLowerCase();
+  return st === 'pending' || st === 'pendiente';
 }
 
 const normalize = (v) => {
@@ -230,10 +232,10 @@ export default function DetailScreen({ navigation, route }) {
   }
 
   function formatMoney(n) {
-  return Number.isFinite(Number(n))
-    ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '0.00';
-}
+    return Number.isFinite(Number(n))
+      ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '0.00';
+  }
 
   function buildNotificationText({ branch, amount, date, saleId }) {
     try {
@@ -746,6 +748,7 @@ export default function DetailScreen({ navigation, route }) {
           for (const saleEntry of arr) {
             const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
             for (const it of items) {
+              if (isPendingItem(it)) continue;
               const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
               const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
               const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
@@ -773,6 +776,7 @@ export default function DetailScreen({ navigation, route }) {
           for (const saleEntry of candidateArrays) {
             const items = Array.isArray(saleEntry.items_consumidos) ? saleEntry.items_consumidos : (Array.isArray(saleEntry.items) ? saleEntry.items : []);
             for (const it of items) {
+              if (isPendingItem(it)) continue;
               const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
               const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
               const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
@@ -793,6 +797,7 @@ export default function DetailScreen({ navigation, route }) {
           }
           if (Array.isArray(node.items_consumidos)) {
             for (const it of node.items_consumidos) {
+              if (isPendingItem(it)) continue;
               const qty = safeNum(it.cantidad ?? it.quantity ?? 1) || 1;
               const name = it.nombre_item ?? it.nombre ?? it.name ?? it.item_name ?? 'Item';
               const unit = safeNum(it.precio_unitario ?? it.precio ?? it.price ?? it.unit_price ?? 0) || 0;
@@ -826,7 +831,7 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
- 
+
   const handleOpenWhatsApp = async () => {
     try {
       const paramUrl = route?.params?.whatsapp_url ?? route?.params?.whatsappUrl ?? null;
@@ -865,7 +870,7 @@ export default function DetailScreen({ navigation, route }) {
     }
   };
 
-   const showInvoiceAlert = (type, title, message) => {
+  const showInvoiceAlert = (type, title, message) => {
     if (!isMountedRef.current) return;
     setInvoiceAlert({ visible: true, type, title, message });
   };
@@ -873,8 +878,8 @@ export default function DetailScreen({ navigation, route }) {
     setInvoiceAlert(prev => ({ ...prev, visible: false }));
   };
 
- 
-    const handleRequestInvoice = async () => {
+
+  const handleRequestInvoice = async () => {
     if (invoiceLoading) {
       console.log('[FACTURA] Ignorado: ya hay una solicitud en proceso');
       return;
@@ -1114,7 +1119,7 @@ export default function DetailScreen({ navigation, route }) {
     })();
 
     const focusUnsub = navigation?.addListener ? navigation.addListener('focus', () => {
-      fetchTodayNotificationsOnce().catch(() => {});
+      fetchTodayNotificationsOnce().catch(() => { });
     }) : null;
 
     return () => {
@@ -1420,7 +1425,9 @@ export default function DetailScreen({ navigation, route }) {
           <>
             {filteredItems.map((it, i) => (
               <View key={it.key ?? i} style={styles.itemRow}>
-                <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
+                <Text style={[styles.itemName, { fontSize: itemFont }]}>
+                  {it.name}{safeNum(it.qty) > 1 ? ` x${it.qty}` : ''}
+                </Text>
                 <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
                   {formatMoney(Number(it.lineTotal ?? 0))} {visit.moneda ?? 'MXN'}
                 </Text>
@@ -1468,7 +1475,9 @@ export default function DetailScreen({ navigation, route }) {
                     {Array.isArray(fullItems) && fullItems.length > 0 ? (
                       fullItems.map((it, idx) => (
                         <View key={it.key ?? `full_${idx}`} style={styles.itemRow}>
-                          <Text style={[styles.itemName, { fontSize: itemFont }]}>{it.name}</Text>
+                          <Text style={[styles.itemName, { fontSize: itemFont }]}>
+                            {it.name}{safeNum(it.qty) > 1 ? ` x${it.qty}` : ''}
+                          </Text>
                           <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>
                             {formatMoney(Number(it.lineTotal ?? 0))} {visit.moneda ?? 'MXN'}
                           </Text>
@@ -1558,7 +1567,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '600', color: BLUE },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   logo: { resizeMode: 'contain' },
-  scrollContent: { },
+  scrollContent: {},
   sectionHeading: { fontWeight: '600', color: BLUE, marginBottom: 16 },
   totalRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   totalLogoWrapper: { borderWidth: 1, borderColor: BLUE, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
@@ -1649,4 +1658,3 @@ const styles = StyleSheet.create({
   invAlertBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 
 });
- 
