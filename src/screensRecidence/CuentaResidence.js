@@ -419,6 +419,7 @@ export default function CuentaResidence() {
       console.log('[CuentaResidence] Respuesta restaurante (tips):', json);
 
       const tipsFlag = json?.tips_enabled ?? json?.restaurante?.tips_enabled ?? false;
+      console.log('[TIPS-DEBUG] tipsFlag crudo:', tipsFlag, typeof tipsFlag);
 
       if (isMountedRef.current) {
         setTipsEnabled(!!tipsFlag);
@@ -537,10 +538,11 @@ export default function CuentaResidence() {
       return {
         restauranteId: resolvedRestauranteId,
         aperturaStatusRaw,
+        targetEdificioId: json?.target_edificio_id ?? null,
       };
     } catch (err) {
       console.warn('applyResolveJsonToState error', err);
-      return { restauranteId: null, aperturaStatusRaw: null };
+      return { restauranteId: null, aperturaStatusRaw: null, targetEdificioId: null };
     }
   }, []);
 
@@ -612,7 +614,10 @@ export default function CuentaResidence() {
         return;
       }
 
-      const { restauranteId: resolvedRestaurantIdFromJson } = applyResolveJsonToState(json, { deferOpenAccountState: !!opts.deferOpenAccountState });
+      const {
+        restauranteId: resolvedRestaurantIdFromJson,
+        targetEdificioId: resolvedTargetEdificioId,
+      } = applyResolveJsonToState(json, { deferOpenAccountState: !!opts.deferOpenAccountState });
 
       let edificioId = null;
       try {
@@ -628,7 +633,8 @@ export default function CuentaResidence() {
       });
 
       await fetchRestaurantImage(edificioId, resolvedRestaurantIdFromJson);
-      await fetchTipsEnabled(edificioId, resolvedRestaurantIdFromJson);
+            // Propinas: usa target_edificio_id del QR; si no viene, usa el de AsyncStorage
+      await fetchTipsEnabled(resolvedTargetEdificioId || edificioId, resolvedRestaurantIdFromJson);
 
     } catch (err) {
       console.warn('fetchConsumo error', err);
@@ -709,7 +715,7 @@ export default function CuentaResidence() {
       });
 
       await fetchRestaurantImage(edificioId, resolvedData?.restauranteId ?? null);
-      await fetchTipsEnabled(edificioId, resolvedData?.restauranteId ?? null);
+      await fetchTipsEnabled(resolvedData?.targetEdificioId || edificioId, resolvedData?.restauranteId ?? null);
 
       const aperturaStatus = json.apertura?.status ? String(json.apertura.status).toUpperCase() : null;
       if (aperturaStatus && aperturaStatus.includes('OPEN')) {
@@ -940,6 +946,9 @@ export default function CuentaResidence() {
   const itemNameFont = clamp(rf(3.6), 12, 16);
   const itemPriceWidth = Math.min(Math.max(wp(28), 90), 140);
   const subtotalValueFont = clamp(rf(3.8), 16, 22);
+
+  console.log('[TIPS-DEBUG] estado:', { canOpenAccount, accountOpened, tipsEnabled, restauranteId });
+
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: topSafe }]}>
