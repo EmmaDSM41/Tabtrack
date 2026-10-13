@@ -87,6 +87,46 @@ function extractInvoiceErrorMessage(json) {
   }
 }
 
+// NUEVO (descuentos): busca el objeto "descuentos_venta" en cualquier parte de la respuesta del API.
+function findDescuentosVenta(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 8) return null;
+  if (Array.isArray(node)) {
+    for (const e of node) {
+      const f = findDescuentosVenta(e, depth + 1);
+      if (f) return f;
+    }
+    return null;
+  }
+  if (node.descuentos_venta && typeof node.descuentos_venta === 'object') return node.descuentos_venta;
+  for (const k of Object.keys(node)) {
+    const f = findDescuentosVenta(node[k], depth + 1);
+    if (f) return f;
+  }
+  return null;
+}
+
+// NUEVO (descuentos): devuelve { total, percents } ignorando los descuentos cancelados.
+function buildDiscountInfo(json) {
+  const empty = { total: 0, percents: [] };
+  try {
+    const d = findDescuentosVenta(json);
+    if (!d) return empty;
+
+    const detalle = Array.isArray(d.detalle) ? d.detalle : [];
+    const active = detalle.filter(x => x && x.canceled !== true && String(x.canceled).toLowerCase() !== 'true');
+
+    if (detalle.length > 0 && active.length === 0) return empty;
+
+    let total = safeNum(d.monto_total);
+    if (total <= 0) total = active.reduce((s, x) => s + safeNum(x.monto), 0);
+
+    const percents = active.map(x => safeNum(x.porcentaje)).filter(p => p > 0);
+    return { total: +total.toFixed(2), percents };
+  } catch (e) {
+    return empty;
+  }
+}
+
 function matchUserIds(a, b) {
   if (!a || !b) return false;
   const A = normalize(a).toLowerCase();
@@ -176,6 +216,9 @@ export default function DetailScreen({ navigation, route }) {
   const [isFullLoading, setIsFullLoading] = useState(false);
 
   const [userPropinaTotal, setUserPropinaTotal] = useState(0);
+    // NUEVO (descuentos)
+  const [splitsDiscount, setSplitsDiscount] = useState(null);
+  const [fullDiscount, setFullDiscount] = useState(null);
 
   // NUEVO (facturación): estado del botón "Pedir Factura" y de su alerta.
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -531,6 +574,7 @@ export default function DetailScreen({ navigation, route }) {
       }
 
       const json = await res.json();
+      setSplitsDiscount(buildDiscountInfo(json)); // NUEVO (descuentos)
 
       const splitsArr = Array.isArray(json.splits) ? json.splits : (Array.isArray(json.data?.splits) ? json.data.splits : []);
       const propinasArr = Array.isArray(json.propinas_por_tx)
@@ -739,6 +783,8 @@ export default function DetailScreen({ navigation, route }) {
         setIsFullLoading(false);
         return;
       }
+      setFullDiscount(buildDiscountInfo(json)); // NUEVO (descuentos)
+      console.log('FULL JSON', JSON.stringify(json));
 
       const gathered = [];
       const emailsObj = json.emails;
@@ -1269,6 +1315,13 @@ export default function DetailScreen({ navigation, route }) {
   };
 
   const filteredTotals = shouldShowFiltered ? computeFilteredTotals() : null;
+    // NUEVO (descuentos): "$10.50 MXN (10%)" si es porcentaje, "$10.50 MXN" si es monto, "$0.00 MXN" si no hay.
+  const discountLabel = (info) => {
+    const amount = info ? safeNum(info.total) : 0;
+    const base = `$${formatMoney(amount)} ${visit.moneda ?? 'MXN'}`;
+    if (!info || amount <= 0 || !Array.isArray(info.percents) || info.percents.length === 0) return base;
+    return `${base} (${info.percents.map(p => `${p}%`).join(' + ')})`;
+  };
 
   const contentPadding = Math.max(12, wp(4));
   const totalLogoWrapperSize = clamp(Math.round(wp(20)), 48, 90);
@@ -1450,6 +1503,11 @@ export default function DetailScreen({ navigation, route }) {
               <Text style={[styles.itemName, { fontSize: itemFont }]}>Propina</Text>
               <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${filteredTotals ? formatMoney(filteredTotals.propina) : '0.00'} {visit.moneda ?? 'MXN'}</Text>
             </View>
+                        {/* NUEVO (descuentos) */}
+            <View style={styles.itemRow}>
+              <Text style={[styles.itemName, { fontSize: itemFont }]}>Descuento</Text>
+              <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>{discountLabel(splitsDiscount)}</Text>
+            </View>
 
             <View style={[styles.itemRow, { marginTop: 6 }]}>
               <Text style={[styles.itemName, { fontWeight: '800', fontSize: itemFont }]}>Total tu parte</Text>
@@ -1497,6 +1555,11 @@ export default function DetailScreen({ navigation, route }) {
                     <View style={styles.itemRow}>
                       <Text style={[styles.itemName, { fontSize: itemFont }]}>IVA</Text>
                       <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>${formatMoney(fullTotals.iva)} {visit.moneda ?? 'MXN'}</Text>
+                    </View>
+                                        {/* NUEVO (descuentos) */}
+                    <View style={styles.itemRow}>
+                      <Text style={[styles.itemName, { fontSize: itemFont }]}>Descuento</Text>
+                      <Text style={[styles.itemPrice, { fontSize: itemPriceFont }]}>{discountLabel(fullDiscount)}</Text>
                     </View>
                   </>
                 )}

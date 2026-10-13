@@ -622,7 +622,7 @@ export default function VisitsScreen(props) {
     return 0;
   }
 
-  async function fetchVisitsRange(desdeDateArg, hastaDateArg) {
+  async function fetchVisitsRange(desdeDateArg, hastaDateArg, forceFresh = false) {
     const email = await AsyncStorage.getItem('user_email');
     if (!email) {
       Toast.show('No se encontró email del usuario', { duration: Toast.durations.SHORT });
@@ -751,9 +751,9 @@ if (!fechaCierreRaw) {
     const restDataById = new Map();
     await Promise.all(uniqueRestIds.map(async (restId) => {
       const [restInfo, branches] = await Promise.all([
-        ensureRestaurantInfo(restId, false),
-        ensureBranchesForRestaurant(restId, false),
-      ]);
+  ensureRestaurantInfo(restId, forceFresh),
+  ensureBranchesForRestaurant(restId, forceFresh),
+]);
       restDataById.set(String(restId), { restInfo, branches });
     }));
 
@@ -786,7 +786,8 @@ if (!fechaCierreRaw) {
         if (logoUrl) restaurantImage = getCacheBustedUrl(logoUrl);
         if (bannerUrl) bannerImage = getCacheBustedUrl(bannerUrl);
         if (!branchName) branchName = branchGetName(matchedBranch);
-        mostrarRating = matchedBranch?.mostrar_rating ?? null;
+        mostrarRating = matchedBranch?.mostrar_rating === true;
+        console.log('mostrar_rating', candidate.sucursal_id, '→', matchedBranch?.mostrar_rating);
       }
 
       if (!restaurantImage && restInfo) {
@@ -826,7 +827,7 @@ if (!fechaCierreRaw) {
         desdeCandidate.setTime(cappedDate.getTime());
       }
 
-      const result = await fetchVisitsRange(desdeCandidate, new Date());
+      const result = await fetchVisitsRange(desdeCandidate, new Date(), true);
       if (result === null) return; 
 
       setAllVisits(result);
@@ -1218,7 +1219,7 @@ const loadMore = useCallback(async () => {
     <SafeAreaView style={[styles.container, { paddingTop: topSafe }]}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <View style={[styles.topBar, { paddingHorizontal: contentPaddingHorizontal, paddingTop: 6 }]}>
-        <Text style={[styles.title, { fontSize: clamp(rf(4.6), 19, 20) }]}>Experiencias</Text>
+        <Text pointerEvents="none" style={[styles.title, { fontSize: clamp(rf(4.6), 19, 20) }]}>Experiencias</Text>
 
         <View style={styles.iconsRight}>
           <TouchableOpacity
@@ -1388,10 +1389,7 @@ function VisitCard({ item, navigation, slideWidth = 260, cardLeftWidth = 100, lo
   const safeRating = (rating === null || Number.isNaN(rating)) ? null : Math.max(0, Math.min(5, rating));
 
 
-  const shouldShowRating = !!(
-    item?.mostrar_rating === true ||
-    (item?.mostrar_rating && String(item.mostrar_rating).toLowerCase() === 'true')
-  );
+  const shouldShowRating = item?.mostrar_rating === true;
 
   const starSize = 16;
   const containerWidth = Math.round(starSize * 1.25);
@@ -1528,8 +1526,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', paddingVertical: 12 },
   headerButton: { padding: 8 },
-  title: { fontWeight: '600', color: '#0046ff', marginLeft: 120, },
-  iconsRight: { flexDirection: 'row', alignItems: 'center' },
+  title: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontWeight: '600', color: '#0046ff' },
+iconsRight: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
   tabLogo: { resizeMode: 'contain' },
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ff3b30', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, minWidth: 22, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 7 },
