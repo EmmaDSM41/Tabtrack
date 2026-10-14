@@ -33,9 +33,14 @@ import { TOKEN, ensureToken } from '../auth/tokenManager';
 
 const API_HOST_CONST = 'https://api.tab-track.com';
 
-const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_live_51RJbpJHY4nBZ3Z66AgxDQFMOal1S61ONJQiBSvGhusEoILNxOCtfxteyClWuT3mkvmnx0RQZPdNmUPc6UuhveWzI002sVsd4if';
+const STRIPE_PUBLISHABLE_KEY_LIVE = 'pk_live_51RJbpJHY4nBZ3Z66AgxDQFMOal1S61ONJQiBSvGhusEoILNxOCtfxteyClWuT3mkvmnx0RQZPdNmUPc6UuhveWzI002sVsd4if';
+const STRIPE_PUBLISHABLE_KEY_SANDBOX = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';  
 
-const PAYMENT_ENVIRONMENT = 'live';
+const USER_ENVIRONMENT_KEY = 'user_environment';
+const normalizeEnvironment = (v) => {
+  const e = String(v ?? '').toLowerCase().trim();
+  return e === 'sandbox' || e === 'test' ? 'sandbox' : 'live';
+};
 
 const APPLE_PAY_MIN_IOS_VERSION = 10;
 
@@ -108,6 +113,10 @@ export default function PaymentMethods({ navigation, route }) {
 
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? TOKEN ?? '';
+  const [paymentEnvironment, setPaymentEnvironment] = useState(null);
+  const PAYMENT_ENVIRONMENT = paymentEnvironment ?? 'live';
+  const FIXED_STRIPE_PUBLISHABLE_KEY =
+  PAYMENT_ENVIRONMENT === 'sandbox' ? STRIPE_PUBLISHABLE_KEY_SANDBOX : STRIPE_PUBLISHABLE_KEY_LIVE;
 
   const [screen, setScreen] = useState('wallet');
   const [username, setUsername] = useState('Usuario');
@@ -134,11 +143,13 @@ export default function PaymentMethods({ navigation, route }) {
 
   const [applePaySupported, setApplePaySupported] = useState(false);
 
+  // Estados del WebView modal de PayPal
   const [paypalConnecting, setPaypalConnecting] = useState(false);
   const [paypalModalVisible, setPaypalModalVisible] = useState(false);
   const [paypalWebViewUrl, setPaypalWebViewUrl] = useState(null);
   const [paypalWebViewLoading, setPaypalWebViewLoading] = useState(true);
   const paypalSetupTokenIdRef = useRef(null);
+  // FIX: evita que el return_url se procese más de una vez (onNavigationStateChange dispara varias veces).
   const paypalHandledRef = useRef(false);
 
   const [toastMsg, setToastMsg] = useState('');
@@ -206,6 +217,11 @@ export default function PaymentMethods({ navigation, route }) {
     if (!FIXED_STRIPE_PUBLISHABLE_KEY || FIXED_STRIPE_PUBLISHABLE_KEY === 'pk_test_REPLACE_ME') {
       throw new Error('Falta configurar FIXED_STRIPE_PUBLISHABLE_KEY');
     }
+    console.log('[PM][init-stripe] inicializando Stripe', {
+      publishableKeyPrefix: String(FIXED_STRIPE_PUBLISHABLE_KEY).slice(0, 8),
+      esLive: String(FIXED_STRIPE_PUBLISHABLE_KEY).startsWith('pk_live'),
+      accountId: accountId || '(ninguna, cuenta propia del platform)',
+    });
     await initStripe({
       publishableKey: FIXED_STRIPE_PUBLISHABLE_KEY,
       stripeAccountId: accountId || undefined,
@@ -250,6 +266,8 @@ export default function PaymentMethods({ navigation, route }) {
       return;
     }
 
+    console.log('[PM][load-cards] solicitando tarjetas', { userId, url: buildListPaymentMethodsUrl(userId) });
+
     setLoadingCards(true);
     try {
       await ensureToken();
@@ -258,6 +276,8 @@ export default function PaymentMethods({ navigation, route }) {
         headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-setup') }),
       });
       const json = await res.json().catch(() => null);
+
+      console.log('[PM][load-cards] respuesta cruda del backend', { status: res.status, json });
 
       if (!res.ok) {
         console.warn('loadCards error', res.status, json);
@@ -276,9 +296,28 @@ export default function PaymentMethods({ navigation, route }) {
               ? json
               : [];
 
+      console.log('[PM][load-cards] arreglo crudo antes de normalizar', {
+        cantidad: arr.length,
+        origenDetectado: envBucket?.payment_methods
+          ? `environments.${PAYMENT_ENVIRONMENT}.payment_methods`
+          : json?.payment_methods
+            ? 'payment_methods'
+            : json?.data
+              ? 'data'
+              : Array.isArray(json)
+                ? 'raiz'
+                : 'ninguno (vacío)',
+      });
+
       const normalized = arr.map(normalizePaymentMethod);
       const savedCards = normalized.filter(pm => pm.type === 'saved_card');
+      console.log('[PM][load-cards] tarjetas normalizadas (saved_card)', {
+        totalNormalizado: normalized.length,
+        totalSavedCards: savedCards.length,
+        savedCards,
+      });
       setCards(savedCards);
+// justo después de: const savedCards = normalized.filter(...)
 const paypalEntry = normalized.find(pm => pm.type === 'paypal');
 if (paypalEntry) {
   setPaypalMethodId(paypalEntry.id ?? paypalEntry.external_payment_method_id ?? null);
@@ -299,12 +338,12 @@ if (paypalEntry) {
         setPreferredSelection({ type: null, id: null });
       }
     } catch (err) {
-      console.warn('loadCards exception', err);
+      console.warn('[PM][load-cards] excepción atrapada', err);
       showToast('No se pudo conectar al servidor', false);
     } finally {
       setLoadingCards(false);
     }
-  }, [buildListPaymentMethodsUrl, getAuthHeaders, resolveUsuarioAppId, showToast]);
+  }, [buildListPaymentMethodsUrl, getAuthHeaders, resolveUsuarioAppId, showToast, PAYMENT_ENVIRONMENT]);
 
   useEffect(() => {
     let mounted = true;
@@ -316,8 +355,10 @@ if (paypalEntry) {
         const email = await AsyncStorage.getItem(AS_KEYS.USER_EMAIL) || await AsyncStorage.getItem(AS_KEYS.USER_MAIL);
         const userId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
         const profileImg = await AsyncStorage.getItem(AS_KEYS.USER_PROFILE_URL);
+        const envStored = await AsyncStorage.getItem(USER_ENVIRONMENT_KEY);
         const displayName = full || `${nombre ?? ''} ${apellido ?? ''}`.trim() || 'Usuario';
         if (!mounted) return;
+        setPaymentEnvironment(normalizeEnvironment(envStored));
         setUsername(displayName);
         if (!userFullname) setUserFullname(displayName);
         if (!userEmail && email) setUserEmail(email);
@@ -325,6 +366,7 @@ if (paypalEntry) {
         if (profileImg) setProfileUrl(profileImg);
       } catch (e) {
         console.warn('Error leyendo AsyncStorage', e);
+        if (mounted) setPaymentEnvironment('live');
       }
     })();
     return () => { mounted = false; };
@@ -357,17 +399,17 @@ if (paypalEntry) {
   }, []);
 
   useEffect(() => {
-    if (usuarioAppId) loadCards();
-  }, [usuarioAppId, loadCards]);
+    if (usuarioAppId && paymentEnvironment) loadCards();
+  }, [usuarioAppId, paymentEnvironment, loadCards]);
 
   useEffect(() => {
     const unsub = navigation.addListener?.('focus', () => {
-      if (usuarioAppId) loadCards();
+      if (usuarioAppId && paymentEnvironment) loadCards();
     });
     return () => {
       try { if (typeof unsub === 'function') unsub(); } catch (e) {}
     };
-  }, [navigation, usuarioAppId, loadCards]);
+  }, [navigation, usuarioAppId, paymentEnvironment, loadCards]);
 
   useEffect(() => {
     return () => {
@@ -375,7 +417,8 @@ if (paypalEntry) {
     };
   }, []);
 
-
+  // FIX: seguro anti-bloqueo. Si el loader del WebView de PayPal se queda activo
+  // (onLoadEnd que nunca llega en las redirecciones de PayPal live), se apaga solo a los 8s.
   useEffect(() => {
     if (!paypalModalVisible || !paypalWebViewLoading) return undefined;
     const t = setTimeout(() => setPaypalWebViewLoading(false), 8000);
@@ -399,6 +442,12 @@ if (paypalEntry) {
     const userId = await resolveUsuarioAppId();
     if (!userId) throw new Error('Falta usuario_app_id');
 
+    console.log('[PM][setup-intent] solicitando setup intent', {
+      userId,
+      environment: PAYMENT_ENVIRONMENT,
+      url: buildSetupIntentUrl(),
+    });
+
     await ensureToken();
     const res = await fetch(buildSetupIntentUrl(), {
       method: 'POST',
@@ -411,7 +460,10 @@ if (paypalEntry) {
     });
     const json = await res.json().catch(() => null);
 
+    console.log('[PM][setup-intent] respuesta cruda del backend', { status: res.status, json });
+
     if (!res.ok) {
+      console.warn('[PM][setup-intent] el backend respondió con error', res.status, json);
       throw new Error(json?.message || json?.error || `Error del servidor (${res.status})`);
     }
 
@@ -422,8 +474,14 @@ if (paypalEntry) {
       json?.setupIntentClientSecret ||
       null;
 
+    const accountIdFromResponse = extractStripeAccountId(json);
+    console.log('[PM][setup-intent] datos extraídos', {
+      tieneClientSecret: Boolean(clientSecret),
+      accountIdFromResponse,
+    });
+
     if (!clientSecret) throw new Error('El servidor no devolvió client_secret');
-    return { clientSecret, stripeAccountId: extractStripeAccountId(json), raw: json };
+    return { clientSecret, stripeAccountId: accountIdFromResponse, raw: json };
   };
 
   const saveStripeCard = async () => {
@@ -436,30 +494,61 @@ if (paypalEntry) {
       return;
     }
 
+    console.log('[PM][save-card] iniciando guardado', {
+      cardHolderName,
+      stripeCardDetailsComplete: stripeCardDetails?.complete,
+      brand: stripeCardDetails?.brand,
+      last4: stripeCardDetails?.last4,
+      savePreferred,
+    });
+
     setSavingCard(true);
     try {
       const setupResp = await createStripeSetupIntent();
+      console.log('[PM][save-card] setupResp recibido', {
+        tieneClientSecret: Boolean(setupResp?.clientSecret),
+        stripeAccountId: setupResp?.stripeAccountId,
+      });
+
       const accountIdToUse = setupResp.stripeAccountId || stripeAccountId || null;
+      console.log('[PM][save-card] accountIdToUse resuelto', {
+        deSetupResp: setupResp.stripeAccountId,
+        deEstadoLocal: stripeAccountId,
+        final: accountIdToUse,
+      });
+
       await configureStripeForAccount(accountIdToUse);
       if (accountIdToUse) setStripeAccountId(accountIdToUse);
 
       const billingDetails = { email: userEmail || '', name: cardHolderName || '' };
+      console.log('[PM][save-card] llamando confirmSetupIntent', { billingDetails });
+
       const result = await confirmSetupIntent(setupResp.clientSecret, {
         paymentMethodType: 'Card',
         paymentMethodData: { billingDetails },
       });
 
+      console.log('[PM][save-card] resultado de confirmSetupIntent', JSON.stringify(result, null, 2));
+
       if (result.error) {
+        console.warn('[PM][save-card] confirmSetupIntent regresó error', result.error);
         showToast(result.error.message || 'No se pudo guardar la tarjeta', false);
         return;
       }
 
+      console.log('[PM][save-card] confirmSetupIntent OK, setupIntent:', {
+        id: result?.setupIntent?.id,
+        status: result?.setupIntent?.status,
+        paymentMethodId: result?.setupIntent?.paymentMethodId,
+      });
+
       showToast('Tarjeta agregada a tu wallet', true);
       setScreen('wallet');
       setStripeCardDetails(null);
+      console.log('[PM][save-card] llamando loadCards para refrescar la lista');
       await loadCards();
     } catch (err) {
-      console.warn('saveStripeCard error', err);
+      console.warn('[PM][save-card] excepción atrapada', err);
       showToast(err?.message || 'No se pudo guardar la tarjeta', false);
     } finally {
       setSavingCard(false);
@@ -554,6 +643,7 @@ if (paypalEntry) {
     }
   };
 
+  // Paso 2: Confirma el token con el backend una vez que PayPal aprobó.
   const confirmPaypalSetup = useCallback(async (setupTokenId) => {
     const userId = await resolveUsuarioAppId();
     if (!userId || !setupTokenId) {
@@ -590,8 +680,9 @@ if (paypalEntry) {
     } finally {
       setPaypalConnecting(false);
     }
-  }, [buildPaypalConfirmUrl, getAuthHeaders, loadCards, resolveUsuarioAppId, showToast]);
+  }, [buildPaypalConfirmUrl, getAuthHeaders, loadCards, resolveUsuarioAppId, showToast, PAYMENT_ENVIRONMENT]);
 
+  // Paso 1: Pide el setup_token y abre el WebView con el approval_url de PayPal.
   const startPaypalSetup = useCallback(async () => {
     const userId = await resolveUsuarioAppId();
     if (!userId) {
@@ -629,18 +720,21 @@ if (paypalEntry) {
         return;
       }
 
+      // Guarda el token y abre el WebView modal con la URL de aprobación.
       paypalSetupTokenIdRef.current = setupTokenId;
-      paypalHandledRef.current = false; 
+      paypalHandledRef.current = false; // FIX: nuevo intento, se permite procesar el return_url otra vez.
       setPaypalWebViewUrl(approvalUrl);
       setPaypalWebViewLoading(true);
       setPaypalModalVisible(true);
+      // paypalConnecting permanece true hasta que el flujo termina o se cancela.
     } catch (err) {
       console.warn('startPaypalSetup exception', err);
       showToast('Error al conectar con PayPal', false);
       setPaypalConnecting(false);
     }
-  }, [buildPaypalSetupTokenUrl, getAuthHeaders, resolveUsuarioAppId, showToast]);
+  }, [buildPaypalSetupTokenUrl, getAuthHeaders, resolveUsuarioAppId, showToast, PAYMENT_ENVIRONMENT]);
 
+  // Cierra el WebView modal y limpia el estado de PayPal.
   const closePaypalModal = () => {
     setPaypalModalVisible(false);
     setPaypalWebViewUrl(null);
@@ -648,7 +742,8 @@ if (paypalEntry) {
     setPaypalConnecting(false);
   };
 
-
+  // FIX: lógica del return_url centralizada y protegida contra ejecuciones repetidas.
+  // Devuelve true si la URL era el return_url de PayPal.
   const handlePaypalReturn = (url) => {
     if (!url || !url.includes('paypal/vault/approved')) return false;
     if (paypalHandledRef.current) return true;
@@ -661,7 +756,8 @@ if (paypalEntry) {
     return true;
   };
 
-
+  // Se dispara en cada cambio de URL dentro del WebView.
+  // Cuando detecta el return_url de PayPal, cierra el modal y confirma el token.
   const handlePaypalWebViewNavigation = (navState) => {
     handlePaypalReturn(navState?.url);
   };
@@ -737,19 +833,22 @@ if (paypalEntry) {
     return { text: 'CARD', style: 'generic' };
   };
 
-
+  // Modal con WebView que carga la página de login de PayPal.
+  // Se cierra automáticamente al detectar el return_url.
   const renderPaypalWebViewModal = () => (
     <Modal
       visible={paypalModalVisible}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={closePaypalModal}
-
+      // FIX (iOS): si el usuario cierra el sheet deslizando hacia abajo, se limpia el estado
+      // para que el botón de PayPal no se quede en "Conectando..." bloqueado.
       onDismiss={() => {
         if (!paypalHandledRef.current) closePaypalModal();
       }}
     >
       <SafeAreaView style={styles.paypalModal}>
+        {/* Header del modal */}
         <View style={styles.paypalModalHeader}>
           <TouchableOpacity onPress={closePaypalModal} style={styles.headerIconButton}>
             <Ionicons name="close" size={24} color={COLORS.text} />
@@ -758,7 +857,8 @@ if (paypalEntry) {
           <View style={styles.headerIconButton} />
         </View>
 
-
+        {/* Indicador de carga encima del WebView.
+            FIX: pointerEvents="none" para que nunca bloquee los toques (ni el WebView ni el botón de cerrar). */}
         {paypalWebViewLoading ? (
           <View style={styles.paypalWebViewLoader} pointerEvents="none">
             <ActivityIndicator size="large" color={COLORS.blue} />
@@ -766,12 +866,16 @@ if (paypalEntry) {
           </View>
         ) : null}
 
+        {/* WebView con la página de autorización de PayPal */}
         {paypalWebViewUrl ? (
           <WebView
             source={{ uri: paypalWebViewUrl }}
             style={styles.paypalWebView}
             onNavigationStateChange={handlePaypalWebViewNavigation}
+            // FIX: intercepta el return_url ANTES de que el WebView intente cargarlo.
             onShouldStartLoadWithRequest={(request) => !handlePaypalReturn(request?.url)}
+            // FIX: el loader solo cubre la carga inicial. Ya no se vuelve a activar en cada
+            // redirección de PayPal (SMS, correo, etc.) y se apaga con cualquiera de estos eventos.
             onLoad={() => setPaypalWebViewLoading(false)}
             onLoadEnd={() => setPaypalWebViewLoading(false)}
             onError={() => setPaypalWebViewLoading(false)}
@@ -782,6 +886,7 @@ if (paypalEntry) {
             javaScriptEnabled
             domStorageEnabled
             startInLoadingState={false}
+            // FIX: PayPal live necesita conservar cookies entre dominios durante el login con verificación.
             sharedCookiesEnabled
             thirdPartyCookiesEnabled
           />
@@ -1619,6 +1724,7 @@ const styles = StyleSheet.create({
   paypalWebView: {
     flex: 1,
   },
+  // FIX: el loader ahora empieza debajo del header (56px) para no tapar el botón de cerrar.
   paypalWebViewLoader: {
     position: 'absolute',
     top: 56,
