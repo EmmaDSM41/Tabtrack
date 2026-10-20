@@ -56,13 +56,11 @@ function useResponsive() {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   return { width, height, wp, hp, rf, clamp };
 }
-/* ----------------------------------------- */
 
 export default function Facturacion({ navigation }) {
   const [methods] = useState(initialMethods);
   const [username, setUsername] = useState('Usuario');
 
-  // NUEVO: estado fiscal
   const [cp, setCp] = useState('');
   const [razonSocial, setRazonSocial] = useState('');
   const [regimenFiscal, setRegimenFiscal] = useState('');
@@ -78,16 +76,12 @@ export default function Facturacion({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // bandera si existe registro fiscal (si true -> usar PATCH; si false -> usar POST)
   const [fiscalExists, setFiscalExists] = useState(false);
 
-  // NUEVO: estado para la URL de la foto de perfil guardada en AsyncStorage con clave 'user_profile_url'
   const [profileUrl, setProfileUrl] = useState(null);
 
-  // ===== NUEVO: errores por campo (validación) =====
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // ===== NUEVO: catálogos de régimen fiscal y uso de CFDI =====
   const [regimenes, setRegimenes] = useState([]);
   const [usoCfdiOptions, setUsoCfdiOptions] = useState([]);
   const [loadingRegimenes, setLoadingRegimenes] = useState(false);
@@ -100,15 +94,16 @@ export default function Facturacion({ navigation }) {
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
   const bottomSafe = Math.round(insets.bottom || 0);
 
-  // --- Toast state ---
   const [toastMsg, setToastMsg] = useState('');
-  const [toastType, setToastType] = useState('info'); // success | error | info
+  const [toastType, setToastType] = useState('info'); 
   const toastAnim = useRef(new Animated.Value(0)).current;
 
-  // --- PDF viewer modal state ---
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(true);
+
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -129,7 +124,6 @@ export default function Facturacion({ navigation }) {
 
         setUsername(displayName);
 
-        // leer foto de perfil cacheada
         try {
           const cachedUrl = await AsyncStorage.getItem('user_profile_url');
           if (cachedUrl) setProfileUrl(cachedUrl);
@@ -137,11 +131,9 @@ export default function Facturacion({ navigation }) {
           console.warn('Error leyendo user_profile_url desde AsyncStorage', e);
         }
 
-        // cargar datos fiscales al iniciar
         await loadFiscal();
 
-        // NUEVO: precargar catálogos (regímenes y usos de CFDI) en segundo plano,
-        // así se pueden mostrar los nombres en vez de solo el código.
+
         fetchRegimenes();
         fetchUsoCfdiOptions();
       } catch (err) {
@@ -150,7 +142,6 @@ export default function Facturacion({ navigation }) {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getInitials = (name) => {
@@ -167,7 +158,6 @@ export default function Facturacion({ navigation }) {
     return base;
   };
 
-  // Toast helper
   const showToast = (message = '', type = 'info', duration = 2500, cb) => {
     setToastMsg(message);
     setToastType(type);
@@ -188,7 +178,6 @@ export default function Facturacion({ navigation }) {
     });
   };
 
-  // Carga de info fiscal (GET)
   const loadFiscal = async () => {
     setLoading(true);
     try {
@@ -221,7 +210,6 @@ export default function Facturacion({ navigation }) {
       }
 
       if (!res || !res.ok) {
-        // 404 u otros -> campos vacíos
         setFiscalExists(false);
         setCp('');
         setRazonSocial('');
@@ -273,9 +261,7 @@ export default function Facturacion({ navigation }) {
     }
   };
 
-  // ===================== NUEVO: VALIDACIÓN DE CAMPOS =====================
 
-  // Validación básica en el cliente antes de enviar al backend.
   const validateFiscalFields = () => {
     const errors = {};
 
@@ -295,8 +281,7 @@ export default function Facturacion({ navigation }) {
     }
 
     const rfcTrim = String(rfc ?? '').trim();
-    // Formato general de RFC (persona física: 4 letras + 6 dígitos + 3 alfanuméricos,
-    // persona moral: 3 letras + 6 dígitos + 3 alfanuméricos)
+
     const rfcPattern = /^([A-ZÑ&]{3,4})\d{6}[A-Z0-9]{3}$/i;
     if (!rfcTrim) {
       errors.rfc = 'El RFC es requerido.';
@@ -311,8 +296,7 @@ export default function Facturacion({ navigation }) {
     return errors;
   };
 
-  // Normaliza los nombres de campo que pueda regresar el backend (snake_case) a
-  // las claves que usamos en el estado de errores (camelCase).
+
   const normalizeFieldKey = (key) => {
     const map = {
       cp: 'cp',
@@ -328,14 +312,11 @@ export default function Facturacion({ navigation }) {
     return map[key] || key;
   };
 
-  // Intenta extraer errores por campo desde la respuesta del backend.
-  // Soporta varios formatos comunes; si no encuentra nada estructurado,
-  // intenta detectar palabras clave en el mensaje genérico.
+
   const parseBackendFieldErrors = (json, fallbackText) => {
     const errors = {};
 
     if (json && typeof json === 'object') {
-      // Formato: { errors: { cp: 'mensaje', rfc: ['mensaje1', 'mensaje2'] } }
       if (json.errors && typeof json.errors === 'object' && !Array.isArray(json.errors)) {
         Object.keys(json.errors).forEach((key) => {
           const val = json.errors[key];
@@ -344,13 +325,11 @@ export default function Facturacion({ navigation }) {
         });
       }
 
-      // Formato: { field: 'cp', message: 'mensaje' }
       if (json.field && json.message) {
         errors[normalizeFieldKey(json.field)] = String(json.message);
       }
     }
 
-    // Si no se encontró nada estructurado, intentar deducir por palabras clave
     if (Object.keys(errors).length === 0) {
       const msg = String(json?.message || json?.error || fallbackText || '').toLowerCase();
       if (msg) {
@@ -384,7 +363,6 @@ export default function Facturacion({ navigation }) {
     });
   };
 
-  // ===================== NUEVO: CATÁLOGOS (régimen / uso CFDI) =====================
 
   const fetchRegimenes = async (force = false) => {
     if (!force && regimenes.length > 0) return regimenes;
@@ -486,9 +464,7 @@ export default function Facturacion({ navigation }) {
     return found ? `${found.codigo} - ${found.descripcion}` : String(usoCfdi);
   };
 
-  // Guardar/crear datos fiscales (POST si no existe, PATCH si existe)
   const saveFiscal = async () => {
-    // NUEVO: validar antes de enviar
     const clientErrors = validateFiscalFields();
     if (Object.keys(clientErrors).length > 0) {
       setFieldErrors(clientErrors);
@@ -537,7 +513,6 @@ export default function Facturacion({ navigation }) {
         const txt = await safeText(res);
         console.warn('saveFiscal failed', method, res?.status, txt);
 
-        // NUEVO: intentar identificar el error específico devuelto por el backend
         let json = null;
         try {
           json = txt ? JSON.parse(txt) : null;
@@ -568,7 +543,6 @@ export default function Facturacion({ navigation }) {
     }
   };
 
-  // helper para leer texto de response de forma segura
   const safeText = async (res) => {
     if (!res) return null;
     try {
@@ -578,7 +552,6 @@ export default function Facturacion({ navigation }) {
     }
   };
 
-  // Helper: obtener blob del fileUri usando XHR GET (fallback). Maneja arraybuffer -> Blob.
   const getFileBlobViaXhr = (fileUri) => {
     return new Promise((resolve, reject) => {
       try {
@@ -604,7 +577,7 @@ export default function Facturacion({ navigation }) {
                 reject(errB);
               }
             } else {
-              resolve(resp); // Blob
+              resolve(resp); 
             }
           } else {
             reject(new Error(`XHR GET failed status ${xhr.status}`));
@@ -620,7 +593,6 @@ export default function Facturacion({ navigation }) {
     });
   };
 
-  // Helper: subir blob con XHR PUT (fallback robusto)
   const uploadBlobViaXhr = (uploadUrl, method, headers = {}, blob) => {
     return new Promise((resolve, reject) => {
       try {
@@ -631,7 +603,6 @@ export default function Facturacion({ navigation }) {
             xhr.setRequestHeader(k, headers[k]);
           });
         } catch (e) {
-          // ignore
         }
         xhr.onload = function () {
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -650,7 +621,6 @@ export default function Facturacion({ navigation }) {
     });
   };
 
-  // flujo presign -> upload -> commit (estricto: presign-csf / presign-ine -> PUT -> commit)
   const presignAndUpload = async (type = 'csf') => {
     try {
       const uid = await AsyncStorage.getItem('user_usuario_app_id');
@@ -661,7 +631,6 @@ export default function Facturacion({ navigation }) {
 
       await ensureToken();
 
-      // Selección del PDF
       let doc;
       try {
         const results = await DocumentPicker.pick({ type: [DocumentPicker.types.pdf] });
@@ -684,7 +653,6 @@ export default function Facturacion({ navigation }) {
         return;
       }
 
-      // fileUri (varía por plataforma)
       const fileUri = doc.uri || doc.fileUri || doc.fileCopyUri || null;
       const fileName = doc.name || (fileUri && fileUri.split('/').pop()) || `file-${Date.now()}.pdf`;
       if (!fileUri) {
@@ -695,7 +663,6 @@ export default function Facturacion({ navigation }) {
 
       setUploading(true);
 
-      // presign endpoint estricto según type
       let presignEndpoint;
       if (type === 'ine') {
         presignEndpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal/presign-ine`;
@@ -703,7 +670,6 @@ export default function Facturacion({ navigation }) {
         presignEndpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal/presign-csf`;
       }
 
-      // 1) pedir presign
       let presignRes;
       try {
         presignRes = await fetch(presignEndpoint, {
@@ -718,7 +684,6 @@ export default function Facturacion({ navigation }) {
         return;
       }
 
-      // manejo 409
       if (presignRes.status === 409) {
         const txt409 = await safeText(presignRes);
         console.warn('presign returned 409:', txt409);
@@ -764,14 +729,11 @@ export default function Facturacion({ navigation }) {
         return;
       }
 
-      // SUBIDA:
       let uploadOk = false;
       try {
         if (presignJson.fields && typeof presignJson.fields === 'object') {
-          // presigned POST (Form):
           const form = new FormData();
           Object.keys(presignJson.fields).forEach((k) => form.append(k, presignJson.fields[k]));
-          // en RN se debe pasar el objeto { uri, type, name }
           form.append('file', { uri: fileUri, type: 'application/pdf', name: fileName });
 
           let postRes;
@@ -793,7 +755,6 @@ export default function Facturacion({ navigation }) {
 
           uploadOk = true;
         } else {
-          // presigned PUT: obtener blob usando XHR GET y subir con XHR PUT (evitar fetch(fileUri))
           let fileBlob = null;
           try {
             fileBlob = await getFileBlobViaXhr(fileUri);
@@ -804,7 +765,6 @@ export default function Facturacion({ navigation }) {
 
           if (!fileBlob) throw new Error('No se pudo leer el archivo local en formato blob.');
 
-          // subir por XHR PUT (más robusto en RN)
           const headersForXhr = presignJson.headers && typeof presignJson.headers === 'object' ? presignJson.headers : { 'Content-Type': 'application/pdf' };
 
           try {
@@ -829,7 +789,7 @@ export default function Facturacion({ navigation }) {
         return;
       }
 
-      // commit
+      
       let commitEndpoint;
       if (type === 'ine') {
         commitEndpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal/commit-ine`;
@@ -873,7 +833,6 @@ export default function Facturacion({ navigation }) {
     }
   };
 
-  // abrir presigned url (visualizar). Intento abrir con Linking; si no posible, abro modal con WebView
   const openUrl = async (url) => {
     if (!url) return;
     try {
@@ -891,6 +850,55 @@ export default function Facturacion({ navigation }) {
     setPdfModalVisible(true);
   };
 
+  const handleDeleteCsfPress = () => {
+    if (!csfKeyPresent) return;
+    setDeleteModalVisible(true);
+  };
+
+  const deleteCsf = async () => {
+    setDeleting(true);
+    try {
+      const uid = await AsyncStorage.getItem('user_usuario_app_id');
+      if (!uid) {
+        showToast('Usuario no encontrado: no se encontró id.', 'error');
+        return;
+      }
+
+      await ensureToken();
+
+      const endpoint = `${API_BASE_URL}/api/mobileapp/usuarios/${encodeURIComponent(uid)}/fiscal/csf`;
+
+      let res;
+      try {
+        res = await fetch(endpoint, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+      } catch (err) {
+        console.warn('deleteCsf fetch error', err);
+        showToast('No se pudo conectar al servidor. Revisa tu conexión.', 'error');
+        return;
+      }
+
+      if (!res || !res.ok) {
+        const txt = await safeText(res);
+        console.warn('deleteCsf failed', res?.status, txt);
+        showToast('No se pudo eliminar el documento.', 'error');
+        return;
+      }
+
+      setDeleteModalVisible(false);
+      showToast('CSF eliminada correctamente.', 'success');
+      await loadFiscal();
+    } catch (err) {
+      console.warn('deleteCsf error', err);
+      showToast('Ocurrió un error al eliminar.', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteModalVisible(false);
+    }
+  };
+
   // responsive computed values
   const headerPaddingH = Math.max(12, wp(4));
   const headerPaddingV = clamp(hp(4.5), 12, 36);
@@ -905,7 +913,6 @@ export default function Facturacion({ navigation }) {
   const saveBtnPaddingV = clamp(hp(1.7), 8, 14);
   const saveBtnPaddingH = clamp(wp(4.5), 12, 24);
 
-  // styles mapping for toast types
   const toastBgFor = {
     success: '#0046ff',
     error: '#ff4d4f',
@@ -975,7 +982,6 @@ export default function Facturacion({ navigation }) {
           </View>
         ) : (
           <>
-            {/* Inline editable fields */}
             <View style={{ marginTop: 8 }}>
               <Text style={styles.fieldLabel}>Código postal (cp)</Text>
               <TextInput
@@ -1002,7 +1008,6 @@ export default function Facturacion({ navigation }) {
               {fieldErrors.razonSocial ? <Text style={styles.errorText}>{fieldErrors.razonSocial}</Text> : null}
             </View>
 
-            {/* NUEVO: Régimen fiscal ahora es un selector con lista desplegable */}
             <View style={{ marginTop: 12 }}>
               <Text style={styles.fieldLabel}>Régimen fiscal</Text>
               <TouchableOpacity
@@ -1073,12 +1078,21 @@ export default function Facturacion({ navigation }) {
                   <TouchableOpacity onPress={() => presignAndUpload('csf')} style={[styles.smallBtn, { marginLeft: 8 }]} disabled={uploading} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     {uploading ? <ActivityIndicator /> : <Text style={styles.smallBtnText}>Subir CSF (PDF)</Text>}
                   </TouchableOpacity>
+                  {csfKeyPresent ? (
+                    <TouchableOpacity
+                      onPress={handleDeleteCsfPress}
+                      style={[styles.smallBtn, styles.deleteIconBtn]}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#ff4d4f" />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
             </View>
 
             {/* INE upload */}
-            <View style={{ marginBottom: 12 }}>
+       {/*      <View style={{ marginBottom: 12 }}>
               <Text style={styles.fieldLabel}>Identificación (INE)</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
                 <Text style={{ color: ineKeyPresent ? '#0b8f56' : '#666' }}>{ineKeyPresent ? 'INE cargada' : 'INE no cargada'}</Text>
@@ -1093,14 +1107,13 @@ export default function Facturacion({ navigation }) {
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
+            </View> */}
           </>
         )}
 
         <View style={{ height: Math.max(20, hp(6)) }} />
       </ScrollView>
 
-      {/* PDF modal (WebView) */}
       <Modal visible={pdfModalVisible} animationType="slide" onRequestClose={() => setPdfModalVisible(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
@@ -1130,7 +1143,6 @@ export default function Facturacion({ navigation }) {
         </SafeAreaView>
       </Modal>
 
-      {/* NUEVO: Modal selector de Régimen fiscal */}
       <Modal
         visible={regimenModalVisible}
         animationType="slide"
@@ -1173,7 +1185,6 @@ export default function Facturacion({ navigation }) {
         </View>
       </Modal>
 
-      {/* NUEVO: Modal selector de Uso de CFDI */}
       <Modal
         visible={usoCfdiModalVisible}
         animationType="slide"
@@ -1216,7 +1227,50 @@ export default function Facturacion({ navigation }) {
         </View>
       </Modal>
 
-      {/* Toast animado */}
+      <Modal
+        visible={deleteModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => !deleting && setDeleteModalVisible(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconCircle}>
+              <Ionicons name="trash-outline" size={28} color="#ff4d4f" />
+            </View>
+
+            <Text style={styles.confirmTitle}>Eliminar documento</Text>
+            <Text style={styles.confirmMessage}>
+              ¿Estás seguro de que deseas eliminar tu Constancia de Situación Fiscal (CSF)?
+            </Text>
+
+            <View style={styles.confirmButtonsRow}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.confirmCancelBtn]}
+                onPress={() => setDeleteModalVisible(false)}
+                disabled={deleting}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.confirmCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.confirmDeleteBtn]}
+                onPress={deleteCsf}
+                disabled={deleting}
+                activeOpacity={0.8}
+              >
+                {deleting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.confirmDeleteText}>Eliminar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Animated.View
         pointerEvents="none"
         style={{
@@ -1322,7 +1376,6 @@ const styles = StyleSheet.create({
 
   avatarInitials: { color: '#0046ff', fontWeight: '700' },
 
-  // ===================== NUEVO: estilos añadidos =====================
   inputError: {
     borderColor: '#ff4d4f',
   },
@@ -1378,5 +1431,85 @@ const styles = StyleSheet.create({
   pickerItemText: {
     fontSize: 14,
     color: '#111',
+  },
+  deleteIconBtn: {
+    borderColor: '#ffd6d7',
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  confirmIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: '#555',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 22,
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    width: '100%',
+  },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCancelBtn: {
+    backgroundColor: '#f3f4f6',
+    marginRight: 6,
+  },
+  confirmDeleteBtn: {
+    backgroundColor: '#ff4d4f',
+    marginLeft: 6,
+  },
+  confirmCancelText: {
+    color: '#333',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  confirmDeleteText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
 });
