@@ -22,12 +22,15 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { useBackHandler } from '../hooks/useBackHandler';
+
 
 const staticWidth = Dimensions.get('window').width;
 
 const API_URL = 'https://api.tab-track.com';
 
 export default function ProfileScreen({ navigation }) {
+  useBackHandler();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -1250,7 +1253,8 @@ export default function ProfileScreen({ navigation }) {
           {/*           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
             <Ionicons name="chevron-back" size={iconSize} color="#0046ff" />
           </TouchableOpacity> */}
-          <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
+          <View style={{ width: 34 }} />
+            <Text style={[styles.headerTitle, { fontSize: titleFont }]}>Perfil</Text>
           <View style={styles.headerRight}>
             <TouchableOpacity
               onPress={async () => {
@@ -1265,10 +1269,10 @@ export default function ProfileScreen({ navigation }) {
               style={styles.headerButton}
               hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
             >
-              <Ionicons name="notifications-outline" size={iconSize} color="#0046ff" />
+              <Ionicons name="notifications-outline" size={18} color="#0046ff" />
               {unreadCount > 0 && (
                 <View style={[styles.badge, { right: 2, top: 2 }]}>
-                  <Text style={[styles.badgeText, { fontSize: clamp(rf(2.6), 10, 12) }]}>{unreadCount}</Text>
+                  <Text style={[styles.badgeText, { fontSize: 7 }]}>{unreadCount}</Text>
                 </View>
               )}
             </TouchableOpacity>

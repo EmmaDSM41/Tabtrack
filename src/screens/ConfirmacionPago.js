@@ -36,8 +36,10 @@ export default function ConfirmacionPago() {
 
   const styles = makeStyles({ width, height, clamp, wp, hp, rf });
 
-  const formattedAmount =
-    amount != null ? `$ ${Number(amount).toFixed(2)}` : '$ 0.00';
+const formattedAmount =
+  amount != null
+    ? `$ ${Number(amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '$ 0.00';
   const formattedDate = date || new Date().toLocaleString();
   const paymentMethod = method || 'Tarjeta';
 

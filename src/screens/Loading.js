@@ -21,27 +21,24 @@ export default function Loading() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // Safe top for content (combine iOS safe area and Android status bar)
   const topSafe = Math.round(Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0)));
   const bottomSafe = Math.round(insets.bottom || 0);
 
-  // Responsive helpers
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // Dynamic sizes
-  const containerPaddingTop = Math.round(topSafe + Math.max(8, width * 0.03)); // avoids huge fixed marginTop
+  const containerPaddingTop = Math.round(topSafe + Math.max(8, width * 0.03));
   const containerPaddingBottom = Math.round(Math.max(16, Math.min(80, height * 0.04)) + bottomSafe);
 
   const logoWidth = Math.round(Math.min(320, width * 0.82));
   const logoHeight = Math.round(Math.min(110, height * 0.16));
 
-  const titleFontSize = Math.round(clamp(Math.round(width * 0.09), 22, 40)); // scales with width
+  const titleFontSize = Math.round(clamp(Math.round(width * 0.09), 22, 40));
   const subtitleFontSize = Math.round(clamp(Math.round(width * 0.042), 12, 18));
 
-  const gifSize = Math.round(Math.min(260, width * 0.6)); // square size for gif
+  const gifSize = Math.round(Math.min(260, width * 0.6));
   const gifMarginBottom = Math.round(Math.max(28, Math.min(80, height * 0.06)));
 
-  // Navigation reset after 6s (logic preserved)
+  // Navegación reset después de 6s
   useEffect(() => {
     const timer = setTimeout(() => {
       navigation.dispatch(
@@ -55,8 +52,8 @@ export default function Loading() {
     return () => clearTimeout(timer);
   }, [navigation]);
 
-  // GIF loop key (same behavior)
-  const GIF_LOOP_MS = 5010;
+  // GIF loop ajustado a duración real del archivo (2.15s)
+  const GIF_LOOP_MS = 2150;
   const [gifKey, setGifKey] = useState(0);
 
   useEffect(() => {
@@ -95,7 +92,13 @@ export default function Loading() {
         <View style={styles.container}>
           {/* Logo superior */}
           <View style={styles.logoWrap}>
-            <Image source={LOGO_SRC} style={styles.logo} resizeMode="contain" accessible accessibilityLabel="Logo" />
+            <Image
+              source={LOGO_SRC}
+              style={styles.logo}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel="Logo"
+            />
           </View>
 
           {/* Texto central */}
@@ -106,7 +109,7 @@ export default function Loading() {
             </Text>
           </View>
 
-          {/* Icono / tag inferior (GIF) */}
+          {/* GIF con loop sincronizado a su duración real */}
           <FastImage
             key={gifKey}
             source={require('../../assets/images/Carga1.gif')}
@@ -145,11 +148,9 @@ function makeStyles({
       paddingHorizontal: 20,
     },
 
-    // Logo arriba
     logoWrap: {
       width: '100%',
       alignItems: 'center',
-      // use padding instead of big marginTop so it's responsive
       paddingTop: Math.round(8),
     },
     logo: {
@@ -181,7 +182,6 @@ function makeStyles({
       fontFamily: 'Montserrat-SemiBold',
     },
 
-    // GIF inferior
     gif: {
       width: gifSize,
       height: gifSize,

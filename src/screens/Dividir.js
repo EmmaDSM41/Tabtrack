@@ -38,6 +38,7 @@ const round2 = (v) => {
   const n = Number(v || 0);
   return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
 };
+const uidOf = (x) => String(x?.uid ?? x?.id);
 
 
 function getOriginalRaw(it) {
@@ -122,11 +123,6 @@ function groupConsumptionItems(flatItems = []) {
   });
 }
 
-// --- NUEVO: firma que identifica si dos "líneas" (item + sus subitems) son
-// EXACTAMENTE iguales: mismo nombre, mismo precio total de línea (incluyendo
-// modificadores) y mismos subitems (nombre+precio). Solo líneas con firma
-// idéntica se agrupan bajo un mismo selector con +/-. Un "café con leche" y
-// un "café solo" nunca comparten firma porque sus subitems difieren.
 function getLineSignature(line) {
   const subs = Array.isArray(line.subitems) ? line.subitems : [];
   const subsSig = subs
@@ -281,7 +277,7 @@ export default function Dividir() {
       console.warn('normalizeItem paid detection error', err);
     }
 
-    return { id: String(id), name, price: +price.toFixed(2), qty, checked: false, locked: !!locked, paidInfo, raw };
+    return { id: String(id), uid: `${id}#${fallbackId ?? String(Math.random()).slice(2, 9)}`, name, price: +price.toFixed(2), qty, checked: false, locked: !!locked, paidInfo, raw };
   };
 
   useEffect(() => {
@@ -375,6 +371,11 @@ export default function Dividir() {
 
         const rawItems = Array.isArray(json.items) ? json.items : (json.data?.items ?? json.result?.items ?? []);
         const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+        console.log('RAW ITEMS API:', JSON.stringify(rawItems));
+console.log('ITEMS NORMALIZADOS:', JSON.stringify(mapped.map(i => ({
+  id: i.id, uid: i.uid, name: i.name, price: i.price, qty: i.qty,
+  locked: i.locked, motivo: i.paidInfo?.reason ?? null,
+}))));
         if (mounted) {
           setItems(mapped);
           if (allowPaymentsCheck) {
@@ -614,16 +615,7 @@ export default function Dividir() {
 
   const groupedItems = useMemo(() => groupConsumptionItems(items), [items]);
 
-  // --- NUEVO: arma la lista de renderizado agrupando líneas idénticas por
-  // producto (firma), SIN separar en dos filas lo ya pagado de lo pendiente
-  // del mismo producto. Si un producto tiene unidades disponibles (sin
-  // pagar), se muestra UNA sola fila con selector +/- cuyo máximo es esa
-  // cantidad disponible — las unidades ya pagadas de ese mismo producto no
-  // aparecen aparte. Solo cuando ya no queda ninguna unidad disponible
-  // (todas pagadas) esa fila cambia a mostrarse bloqueada con candado.
-  // Líneas con bloqueo parcial dentro de sí mismas (por ejemplo el item
-  // pagado pero un subitem no) se muestran individuales, exactamente como
-  // antes, para no arriesgar la conciliación de pagos.
+ 
   const renderList = useMemo(() => {
     const map = new Map();
     const list = [];
@@ -669,29 +661,26 @@ export default function Dividir() {
     });
   }, [groupedItems]);
 
-  // --- NUEVO: aplica la cantidad seleccionada (0..disponibles) para un
-  // grupo de items idénticos, marcando `checked` en las primeras N líneas
-  // libres del grupo y desmarcando el resto. No toca items fuera del grupo
-  // ni las líneas ya bloqueadas (pagadas) de ese mismo producto.
-  const setGroupSelectionCount = (group, newCount) => {
-    if (!group) return;
-    const max = group.unlockedLines.length;
-    const clamped = Math.max(0, Math.min(newCount, max));
 
-    const idsToCheck = new Set();
-    group.unlockedLines.slice(0, clamped).forEach((line) => {
-      (line.members || []).forEach((m) => { if (!m.locked) idsToCheck.add(String(m.id)); });
-    });
+ const setGroupSelectionCount = (group, newCount) => {
+  if (!group) return;
+  const max = group.unlockedLines.length;
+  const clamped = Math.max(0, Math.min(newCount, max));
 
-    const allGroupIds = new Set();
-    group.unlockedLines.forEach((line) => (line.members || []).forEach((m) => allGroupIds.add(String(m.id))));
+  const idsToCheck = new Set();
+  group.unlockedLines.slice(0, clamped).forEach((line) => {
+    (line.members || []).forEach((m) => { if (!m.locked) idsToCheck.add(uidOf(m)); });
+  });
 
-    setItems((prev) => prev.map((it) => {
-      if (!allGroupIds.has(String(it.id))) return it;
-      if (it.locked) return it;
-      return { ...it, checked: idsToCheck.has(String(it.id)) };
-    }));
-  };
+  const allGroupIds = new Set();
+  group.unlockedLines.forEach((line) => (line.members || []).forEach((m) => allGroupIds.add(uidOf(m))));
+
+  setItems((prev) => prev.map((it) => {
+    if (!allGroupIds.has(uidOf(it))) return it;
+    if (it.locked) return it;
+    return { ...it, checked: idsToCheck.has(uidOf(it)) };
+  }));
+};
 
   const toggleGroup = (index) => {
     setItems((prev) => {
@@ -703,11 +692,11 @@ export default function Dividir() {
       const memberIds = new Set(
         (target.members || [])
           .filter((m) => !m.locked)
-          .map((m) => String(m.id))
+          .map((m) => uidOf(m))
       );
 
       return prev.map((it) => {
-        if (!memberIds.has(String(it.id))) return it;
+        if (!memberIds.has(uidOf(it))) return it;
         if (it.locked) return it;
         return { ...it, checked: nextChecked };
       });
@@ -1372,7 +1361,6 @@ function makeStyles({ wp, hp, rf, clamp, width, height, rightColWidth, whiteCont
       backgroundColor: 'transparent',
     },
 
-    // --- NUEVO: estilos del selector +/- para items agrupados por cantidad
     stepperContainer: {
       flexDirection: 'row',
       alignItems: 'center',

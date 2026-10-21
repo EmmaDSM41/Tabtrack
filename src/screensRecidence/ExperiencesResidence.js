@@ -1230,8 +1230,7 @@ export default function ExperiencesScreen() {
               </TouchableOpacity>
             )}
 
-            <View style={sheetStyles.footerSummary} />
-
+ 
             <View style={{ height: 40 }} />
           </ScrollView>
         </Animated.View>

@@ -530,28 +530,24 @@ const styles = StyleSheet.create({
     borderColor: '#000',
   },
   icon: { width: 20, height: 20, marginRight: 10, color: '#000' },
-  toast: {
+toast: {
     position: 'absolute',
-    left: 12,
-    right: 12,
     alignSelf: 'center',
+    width: '85%',
     backgroundColor: 'rgba(0,0,0,0.8)',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 25,
-    maxWidth: '85%',
   },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center', fontFamily: 'Montserrat-Regular' },
-  successToast: {
+successToast: {
     position: 'absolute',
-    left: 12,
-    right: 12,
     alignSelf: 'center',
+    width: '90%',
     backgroundColor: 'rgb(0, 50, 186)',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 30,
-    maxWidth: '90%',
   },
   successToastText: { fontSize: 16, fontFamily: 'Montserrat-Bold' },
   termsFloatingContainer: {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, BackHandler } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { initOneSignal } from './src/services/oneSignalService';
@@ -100,6 +100,7 @@ const handleDeepLink = async (url: string | null) => {
         handleDeepLink(url);
       }
     });
+    
 
     // Deep link cuando la app está en BACKGROUND
     const linkingSub = Linking.addEventListener('url', ({ url }) => {
@@ -118,6 +119,19 @@ const handleDeepLink = async (url: string | null) => {
       appStateSub.remove();
     };
   }, []);
+/*   useEffect(() => {
+  const onBackPress = () => {
+    if (navigationRef.current?.canGoBack()) {
+      navigationRef.current.goBack();
+      return true; // evento manejado, no cierres la app
+    }
+    return false; // ya estamos en la raíz, deja que Android haga su default (salir)
+  };
+
+  const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+  return () => backSub.remove();
+}, []); */
 
   return (
     <NavigationContainer linking={linking} ref={navigationRef}>

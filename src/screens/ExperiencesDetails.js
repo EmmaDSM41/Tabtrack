@@ -1068,7 +1068,7 @@ export default function DetailScreen({ navigation, route }) {
         showInvoiceAlert(
           'warning',
           'No se puede facturar',
-          `${apiMessage}\n\nRevisa que tus datos de facturación estén completos en tu perfil e inténtalo de nuevo.`
+          `${apiMessage}`
         );
       } else {
         console.log('[FACTURA] Motivo: el API rechazó la solicitud (4xx) sin mensaje útil');

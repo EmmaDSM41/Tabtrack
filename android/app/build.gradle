@@ -10,7 +10,7 @@ react {
     autolinkLibrariesWithApp()
 }
 
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 def keystorePropertiesFile = rootProject.file("key.properties")
 def keystoreProperties = new Properties()
@@ -28,8 +28,8 @@ android {
         applicationId "com.tabtrack"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 22
-        versionName "3.1"
+        versionCode 26
+        versionName "3.5"
         missingDimensionStrategy 'react-native-camera', 'general'
         multiDexEnabled true
     }
@@ -70,7 +70,8 @@ buildTypes {
     release {
         signingConfig signingConfigs.release
         minifyEnabled enableProguardInReleaseBuilds
-        proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        shrinkResources true
+        proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
     }
 }
 

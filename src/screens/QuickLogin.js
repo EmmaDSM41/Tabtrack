@@ -153,6 +153,12 @@ export default function QuickLoginScreen() {
           await setOneSignalEmail(email);
         }
       }
+            // 👇 NUEVO
+      const envVal = usuario?.environment ?? result.data?.environment ?? null;
+      if (envVal !== null && envVal !== undefined) {
+        await AsyncStorage.setItem('user_environment', String(envVal));
+      }
+      // 👆 NUEVO
     } catch (e) {
       console.warn('QuickLogin save auth error', e);
     }
@@ -305,9 +311,9 @@ const styles = StyleSheet.create({
   forgotWrap: { marginTop: 14 },
   forgotText: { color: '#0b58ff', fontWeight: '600' },
 
-  toast: { position: 'absolute', left: 18, right: 18, bottom: 28, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, maxWidth: '92%' },
+  toast: { position: 'absolute', alignSelf: 'center', width: '92%', bottom: 28, backgroundColor: 'rgba(0,0,0,0.8)', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20 },
   toastText: { color: '#fff', fontSize: 14, textAlign: 'center' },
 
-  successToast: { position: 'absolute', left: 18, right: 18, bottom: 28, alignSelf: 'center', backgroundColor: '#0b3be6', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 26, maxWidth: '92%' },
+  successToast: { position: 'absolute', alignSelf: 'center', width: '92%', bottom: 28, backgroundColor: '#0b3be6', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 26 },
   successToastText: { color: '#fff', fontSize: 16, textAlign: 'center', fontWeight: '700' },
 });

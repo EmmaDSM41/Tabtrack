@@ -13,8 +13,8 @@ class MagnesModule(reactContext: ReactApplicationContext) :
 
     // TODO: reemplaza con tu Client ID real de PayPal (sandbox por ahora)
     private val coreConfig = CoreConfig(
-        clientId = "AR--_evQ9cYcAtDImSYHotV2WDuSszmBjn5p2DNxEAq38pVsgfPa-RR-LSgYqNVSbb-zFqIq-r0x_DET",
-        environment = Environment.SANDBOX
+        clientId = "AeT5nxVmVd4UjhqI9KXzX-6a34pIYr7lSkAGT9czOMYjtdoOfGGSsu41jcBMI06Cnumr10So1cBhedde",
+        environment = Environment.LIVE
     )
 
     private val dataCollector = PayPalDataCollector(coreConfig)

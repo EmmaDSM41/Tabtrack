@@ -507,6 +507,7 @@ if (!res.ok) {
       const precioItemRepresentaTotalDeLinea = (reportedTotalBeforeDiscount > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalBeforeDiscount) <= EPS);
 
       const expandedItems = [];
+      const unitCounters = {};
       rawItems.forEach((it, idx) => {
         const rawQty = Math.max(1, safeNum(it.cantidad ?? it.qty ?? 1));
         const rawPrecioField = safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
@@ -520,7 +521,9 @@ if (!res.ok) {
 
         const originalId = it.codigo_item ?? it.codigo ?? it.id ?? it.item_id ?? `item-${idx}`;
         for (let k = 0; k < rawQty; k++) {
-const unitId = `${String(originalId)}#${k + 1}`;
+const counterKey = String(originalId);
+unitCounters[counterKey] = (unitCounters[counterKey] || 0) + 1;
+const unitId = `${counterKey}#${unitCounters[counterKey]}`;
             expandedItems.push({
             id: String(unitId),
             name: it.nombre_item ?? it.nombre ?? it.name ?? `Item ${idx + 1}`,
@@ -1207,12 +1210,12 @@ const unitId = `${String(originalId)}#${k + 1}`;
             ]}
             activeOpacity={0.85}
             onPress={async () => {
-if (consumoPaid) {
-  setConsumoPaidBlockAlertVisible(true);
-  return;
-}
 if (equalsSplitPaid) {
   setEqualSplitBlockAlertVisible(true);
+  return;
+}
+if (consumoPaid) {
+  setConsumoPaidBlockAlertVisible(true);
   return;
 }
 
@@ -1497,10 +1500,10 @@ if (consumoPaid) {
         <Ionicons name="people-outline" size={30} color="#0046ff" />
       </View>
 
-      <Text style={styles.noAccountTitle}>Pago por partes iguales en curso</Text>
-      <Text style={styles.noAccountMessage}>
-        Se está procesando un pago por partes iguales — no puedes proceder con el pago por consumo.
-      </Text>
+<Text style={styles.noAccountTitle}>Pago por partes iguales en curso</Text>
+<Text style={styles.noAccountMessage}>
+  Se está procesando un pago por partes iguales — no puedes proceder con otro método de pago.
+</Text>
 
       <TouchableOpacity
         onPress={() => setEqualSplitBlockAlertVisible(false)}

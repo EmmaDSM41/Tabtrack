@@ -28,6 +28,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { TOKEN, ensureToken } from '../auth/tokenManager';
+import { useBackHandler } from '../hooks/useBackHandler';
+
 
 const API_BASE_FALLBACK = 'https://api.tab-track.com';
 
@@ -282,6 +284,8 @@ function AnimatedStatusModal({ visible, loading, result, onClose, onScan, header
 }
 
 export default function QRScreen({ navigation }) {
+  useBackHandler(); 
+
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -443,12 +447,32 @@ useEffect(() => {
         return;
       }
 
-      const summaryParts = [];
-      if (json && typeof json === 'object') {
-        if (json.venta_id || json.id) summaryParts.push(`Venta: ${json.venta_id ?? json.id}`);
-        if (json.total) summaryParts.push(`Total: ${json.total}`);
-        if (json.items && Array.isArray(json.items)) summaryParts.push(`Items: ${json.items.length}`);
+      // El API responde 200 aunque no haya venta abierta (regresa items: []
+      // y sin sale_id/venta_id/id). Por eso hay que validar el CONTENIDO,
+      // no solo que la respuesta HTTP haya sido exitosa.
+      const rawItems = Array.isArray(json?.items)
+        ? json.items
+        : (json?.data?.items ?? json?.result?.items ?? []);
+      const saleIdFromJson = json?.sale_id ?? json?.venta_id ?? json?.id ?? null;
+
+      const hasOpenSale = (Array.isArray(rawItems) && rawItems.length > 0) || !!saleIdFromJson;
+
+      if (!hasOpenSale) {
+        showStatusModal(
+          {
+            ok: false,
+            message: 'No hay ninguna venta abierta para esta mesa.',
+          },
+          token,
+          false
+        );
+        return;
       }
+
+      const summaryParts = [];
+      if (saleIdFromJson) summaryParts.push(`Venta: ${saleIdFromJson}`);
+      if (json.total_consumo || json.total) summaryParts.push(`Total: $ ${json.total_consumo ?? json.total}`);
+      if (rawItems.length) summaryParts.push(`Items: ${rawItems.length}`);
 
       const summary = summaryParts.length ? summaryParts.join(' • ') : 'Hay una venta activa para esta mesa.';
 

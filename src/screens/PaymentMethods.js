@@ -158,6 +158,9 @@ export default function PaymentMethods({ navigation, route }) {
   const toastTimeoutRef = useRef(null);
 
   const [paypalMethodId, setPaypalMethodId] = useState(null);
+  const [paypalEmail, setPaypalEmail] = useState(null);
+  const [deletingPaypal, setDeletingPaypal] = useState(false);
+  const [paypalDeleteConfirmVisible, setPaypalDeleteConfirmVisible] = useState(false);
 
   const getInitials = (name) => {
     if (!name) return null;
@@ -181,7 +184,7 @@ export default function PaymentMethods({ navigation, route }) {
   const hostBase = useCallback(() => String(apiHost || API_HOST_CONST).replace(/\/$/, ''), [apiHost]);
   const buildSetupIntentUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/stripe/setup-intent`, [hostBase]);
   const buildListPaymentMethodsUrl = useCallback((userId) => `${hostBase()}/api/mobileapp/payment-methods?usuario_app_id=${encodeURIComponent(userId)}`, [hostBase]);
-  const buildDeletePaymentMethodUrl = useCallback((cardId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(cardId)}?gateway=stripe`, [hostBase]);
+  const buildDeletePaymentMethodUrl = useCallback((methodId) => `${hostBase()}/api/mobileapp/payment-methods/${encodeURIComponent(methodId)}`, [hostBase]);  
   const buildPreferredPaymentMethodUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/preferred`, [hostBase]);
   const buildPaypalSetupTokenUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/paypal/setup-token`, [hostBase]);
   const buildPaypalConfirmUrl = useCallback(() => `${hostBase()}/api/mobileapp/payment-methods/paypal/confirm`, [hostBase]);
@@ -241,6 +244,7 @@ export default function PaymentMethods({ navigation, route }) {
     type: pm.type ?? 'saved_card',
     category: pm.category ?? (pm.type && pm.type !== 'saved_card' ? 'wallet' : 'card'),
     gateway: 'stripe',
+    email_masked: pm.email_masked ?? pm.email ?? null,
     raw: pm,
   });
 
@@ -317,11 +321,14 @@ export default function PaymentMethods({ navigation, route }) {
         savedCards,
       });
       setCards(savedCards);
-// justo después de: const savedCards = normalized.filter(...)
-const paypalEntry = normalized.find(pm => pm.type === 'paypal');
-if (paypalEntry) {
-  setPaypalMethodId(paypalEntry.id ?? paypalEntry.external_payment_method_id ?? null);
-}
+const paypalEntry = normalized.find(
+  pm =>
+    pm.type === 'paypal' &&
+    (!pm.status || String(pm.status).toLowerCase() === 'active') &&
+    !pm.raw?.deactivated_at
+);
+setPaypalMethodId(paypalEntry ? (paypalEntry.id ?? paypalEntry.external_payment_method_id ?? null) : null);
+setPaypalEmail(paypalEntry ? (paypalEntry.email_masked ?? null) : null);
 
       const preferredEntry = normalized.find(pm => pm.is_preferred);
       if (preferredEntry) {
@@ -582,11 +589,15 @@ if (paypalEntry) {
       });
       const json = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        console.warn('setPreferredMethod error', res.status, json);
-        showToast(`No se pudo actualizar el método predeterminado (${res.status})`, false);
-        return false;
-      }
+if (!res.ok) {
+  console.warn('setPreferredMethod error', res.status, json);
+  if (res.status === 400) {
+    showToast('No se puede poner como favorito porque no hay ninguna cuenta vinculada', false);
+  } else {
+    showToast(`No se pudo actualizar el método predeterminado (${res.status})`, false);
+  }
+  return false;
+}
       return true;
     } catch (err) {
       console.warn('setPreferredMethod exception', err);
@@ -630,6 +641,10 @@ if (paypalEntry) {
   };
 
   const setPaypalPreferred = async () => {
+    if (!paypalMethodId) {
+      showToast('Primero vincula una cuenta de PayPal', false);
+      return;
+    }
     setSettingQuickPreferred('paypal');
     try {
       const ok = await setPreferredMethod({ type: 'paypal', paymentMethodId: paypalMethodId });
@@ -734,7 +749,6 @@ if (paypalEntry) {
     }
   }, [buildPaypalSetupTokenUrl, getAuthHeaders, resolveUsuarioAppId, showToast, PAYMENT_ENVIRONMENT]);
 
-  // Cierra el WebView modal y limpia el estado de PayPal.
   const closePaypalModal = () => {
     setPaypalModalVisible(false);
     setPaypalWebViewUrl(null);
@@ -742,8 +756,61 @@ if (paypalEntry) {
     setPaypalConnecting(false);
   };
 
-  // FIX: lógica del return_url centralizada y protegida contra ejecuciones repetidas.
-  // Devuelve true si la URL era el return_url de PayPal.
+  const openPaypalDetailScreen = () => setScreen('paypal-detail');
+
+const closePaypalDetailScreen = () => {
+  if (deletingPaypal || paypalConnecting) return;
+  setScreen('wallet');
+};
+
+const closePaypalDeleteConfirm = () => {
+  if (deletingPaypal) return;
+  setPaypalDeleteConfirmVisible(false);
+};
+
+const deletePaypalAccount = async () => {
+  if (!paypalMethodId) {
+    showToast('No hay cuenta de PayPal vinculada', false);
+    setPaypalDeleteConfirmVisible(false);
+    return;
+  }
+  const userId = await resolveUsuarioAppId();
+  if (!userId) {
+    showToast('No se encontró usuario_app_id', false);
+    return;
+  }
+
+  setDeletingPaypal(true);
+  try {
+    await ensureToken();
+    const res = await fetch(buildDeletePaymentMethodUrl(paypalMethodId), {
+      method: 'DELETE',
+      headers: getAuthHeaders({ 'Idempotency-Key': genIdempotencyKey('pm-delete') }),
+      body: JSON.stringify({ usuario_app_id: userId }),
+    });
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      console.warn('deletePaypalAccount error', res.status, json);
+      showToast(json?.message || `No se pudo desvincular PayPal (${res.status})`, false);
+      return;
+    }
+
+    setPaypalMethodId(null);
+    setPaypalEmail(null);
+    setPreferredSelection(prev => (prev.type === 'paypal' ? { type: null, id: null } : prev));
+    showToast('Cuenta de PayPal desvinculada correctamente', true);
+    await loadCards();
+  } catch (err) {
+    console.warn('deletePaypalAccount exception', err);
+    showToast('Error al desvincular la cuenta de PayPal', false);
+  } finally {
+    setDeletingPaypal(false);
+    setPaypalDeleteConfirmVisible(false);
+  }
+};
+
+  
   const handlePaypalReturn = (url) => {
     if (!url || !url.includes('paypal/vault/approved')) return false;
     if (paypalHandledRef.current) return true;
@@ -939,46 +1006,57 @@ if (paypalEntry) {
       ) : null}
 
       <View style={styles.walletOption}>
-        <TouchableOpacity
-          style={styles.walletOptionMain}
-          activeOpacity={0.88}
-          onPress={startPaypalSetup}
-          disabled={paypalConnecting}
-        >
-          <View style={styles.walletLogo}>
-            <Ionicons name="logo-paypal" size={23} color="#003087" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.walletOptionTitle}>PayPal</Text>
-            {paypalConnecting && !paypalModalVisible ? (
-              <View style={styles.preferredChip}>
-                <ActivityIndicator size="small" color={COLORS.blue} style={{ marginRight: 4 }} />
-                <Text style={styles.preferredChipText}>Conectando...</Text>
-              </View>
-            ) : preferredSelection.type === 'paypal' ? (
-              <View style={styles.preferredChip}>
-                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
-                <Text style={styles.preferredChipText}>Predeterminado</Text>
-              </View>
-            ) : null}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.cardIconButton}
-          onPress={setPaypalPreferred}
-          disabled={settingQuickPreferred === 'paypal'}
-        >
-          {settingQuickPreferred === 'paypal' ? (
-            <ActivityIndicator size="small" />
-          ) : (
-            <Ionicons
-              name={preferredSelection.type === 'paypal' ? 'star' : 'star-outline'}
-              size={19}
-              color={preferredSelection.type === 'paypal' ? COLORS.gold : COLORS.muted}
-            />
-          )}
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity
+    style={styles.walletOptionMain}
+    activeOpacity={0.88}
+    onPress={openPaypalDetailScreen}
+  >
+    <View style={styles.walletLogo}>
+      <Ionicons name="logo-paypal" size={23} color="#003087" />
+    </View>
+    <View style={{ flex: 1 }}>
+      <Text style={styles.walletOptionTitle}>PayPal</Text>
+      {paypalMethodId && paypalEmail ? (
+      <Text style={styles.paypalEmailText} numberOfLines={1}>{paypalEmail}</Text>
+      ) : null}
+      {paypalConnecting && !paypalModalVisible ? (
+        <View style={styles.preferredChip}>
+          <ActivityIndicator size="small" color={COLORS.blue} style={{ marginRight: 4 }} />
+          <Text style={styles.preferredChipText}>Conectando...</Text>
+        </View>
+      ) : preferredSelection.type === 'paypal' ? (
+        <View style={styles.preferredChip}>
+          <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+          <Text style={styles.preferredChipText}>Predeterminado</Text>
+        </View>
+      ) : null}
+    </View>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={styles.cardIconButton}
+    onPress={setPaypalPreferred}
+    disabled={settingQuickPreferred === 'paypal'}
+  >
+    {settingQuickPreferred === 'paypal' ? (
+      <ActivityIndicator size="small" />
+    ) : (
+      <Ionicons
+        name={preferredSelection.type === 'paypal' ? 'star' : 'star-outline'}
+        size={19}
+        color={preferredSelection.type === 'paypal' ? COLORS.gold : COLORS.muted}
+      />
+    )}
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[styles.cardIconButton, styles.walletChevron]}
+    onPress={openPaypalDetailScreen}
+    accessibilityLabel="Administrar cuenta de PayPal"
+  >
+    <Ionicons name="chevron-forward" size={19} color={COLORS.text} />
+  </TouchableOpacity>
+</View>
     </View>
   );
 
@@ -1215,17 +1293,117 @@ if (paypalEntry) {
       </View>
     </SafeAreaView>
   );
+  const renderPaypalDetailScreen = () => {
+  const isLinked = Boolean(paypalMethodId);
+  const envLabel = PAYMENT_ENVIRONMENT === 'sandbox' ? 'Sandbox' : 'Producción';
 
   return (
-    <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
-      {screen === 'add-card' ? renderAddCardScreen() : renderWalletScreen()}
-    </StripeProvider>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
+      <View style={[styles.header, { paddingHorizontal: pagePadding }]}>
+        <TouchableOpacity onPress={closePaypalDetailScreen} style={styles.headerIconButton} accessibilityLabel="Volver">
+          <Ionicons name="chevron-back" size={Math.round(clamp(iconSize, 20, 28))} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>PayPal</Text>
+        <View style={styles.headerIconButton} />
+      </View>
+
+      <ScrollView contentContainerStyle={[styles.addContent, { paddingHorizontal: pagePadding }]}>
+        <View style={styles.paypalDetailCard}>
+          <View style={styles.paypalDetailTop}>
+            <View style={styles.walletLogo}>
+              <Ionicons name="logo-paypal" size={23} color="#003087" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletOptionTitle}>PayPal</Text>
+{/*               <Text style={styles.cardSub}>Entorno: {envLabel}</Text>*/}
+            </View>
+            {isLinked && preferredSelection.type === 'paypal' ? (
+              <View style={styles.preferredChip}>
+                <Ionicons name="star" size={11} color={COLORS.blue} style={{ marginRight: 3 }} />
+                <Text style={styles.preferredChipText}>Predeterminado</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.paypalStatusRow}>
+            <View
+              style={[
+                styles.paypalStatusDot,
+                { backgroundColor: isLinked ? COLORS.success : COLORS.muted },
+              ]}
+            />
+            <Text style={[styles.paypalStatusText, isLinked && { color: COLORS.muted }]}>
+                {isLinked ? (paypalEmail || 'Tiene una cuenta vinculada') : 'Aún no hay cuenta vinculada'}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.paypalHint}>
+          {isLinked
+            ? 'Si desvinculas tu cuenta de PayPal, podrás vincular otra distinta cuando quieras.'
+            : 'Vincula una cuenta de PayPal para pagar más rápido en tus próximas visitas.'}
+        </Text>
+
+        {isLinked ? (
+          <TouchableOpacity
+            style={styles.paypalDangerButton}
+            activeOpacity={0.9}
+            onPress={() => setPaypalDeleteConfirmVisible(true)}
+            disabled={deletingPaypal}
+          >
+            <Ionicons name="trash-outline" size={18} color={COLORS.danger} style={{ marginRight: 8 }} />
+            <Text style={styles.paypalDangerButtonText}>Desvincular cuenta de PayPal</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.paypalLinkButton}
+            activeOpacity={0.9}
+            onPress={startPaypalSetup}
+            disabled={paypalConnecting}
+          >
+            {paypalConnecting && !paypalModalVisible ? (
+              <ActivityIndicator color={COLORS.blue} />
+            ) : (
+              <Text style={styles.paypalLinkButtonText}>Vincular cuenta de PayPal</Text>
+            )}
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      {renderPaypalWebViewModal()}
+
+      <PaypalDeleteConfirmModal
+        visible={paypalDeleteConfirmVisible}
+        email={paypalEmail}
+        deleting={deletingPaypal}
+        onClose={closePaypalDeleteConfirm}
+        onConfirm={deletePaypalAccount}
+      />
+
+      <View style={toastStyles.container} pointerEvents="box-none">
+        <SmallToast message={toastMsg} visible={toastVisible} success={toastSuccess} />
+      </View>
+    </SafeAreaView>
   );
+};
+
+return (
+  <StripeProvider publishableKey={FIXED_STRIPE_PUBLISHABLE_KEY} stripeAccountId={stripeAccountId || undefined}>
+    {screen === 'add-card'
+      ? renderAddCardScreen()
+      : screen === 'paypal-detail'
+        ? renderPaypalDetailScreen()
+        : renderWalletScreen()}
+  </StripeProvider>
+);
 }
 
 function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
   const brand = String(card?.brand || 'Tarjeta').toUpperCase();
   const last4 = card?.last4 || '----';
+  
+ 
 
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose} presentationStyle="overFullScreen">
@@ -1250,6 +1428,40 @@ function DeleteConfirmModal({ visible, card, deleting, onClose, onConfirm }) {
             </TouchableOpacity>
             <TouchableOpacity style={styles.deleteConfirmButton} onPress={onConfirm} disabled={deleting}>
               {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteConfirmText}>Eliminar</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PaypalDeleteConfirmModal({ visible, email, deleting, onClose, onConfirm }) {
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose} presentationStyle="overFullScreen">
+      <View style={styles.deleteOverlay}>
+        <Pressable style={styles.deleteBackdrop} onPress={onClose} />
+        <View style={styles.deleteModalBox}>
+          <View style={styles.deleteIconCircle}>
+            <Ionicons name="trash-outline" size={24} color={COLORS.danger} />
+          </View>
+          <Text style={styles.deleteTitle}>Desvincular cuenta de PayPal</Text>
+          <Text style={styles.deleteMessage}>
+            ¿Seguro que deseas desvincular tu cuenta de PayPal? Se quitará de tus métodos de pago guardados.
+          </Text>
+          <View style={styles.deleteCardPreview}>
+            <Ionicons name="logo-paypal" size={19} color="#003087" style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deleteCardTitle}>PayPal</Text>
+                  {email ? <Text style={styles.deleteCardSub}>{email}</Text> : null}
+            </View>
+          </View>
+          <View style={styles.deleteButtons}>
+            <TouchableOpacity style={styles.deleteCancelButton} onPress={onClose} disabled={deleting}>
+              <Text style={styles.deleteCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.deleteConfirmButton} onPress={onConfirm} disabled={deleting}>
+              {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteConfirmText}>Desvincular</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -1836,6 +2048,83 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '900',
   },
+  walletChevron: {
+  backgroundColor: 'transparent',
+  marginLeft: 2,
+},
+paypalDetailCard: {
+  backgroundColor: COLORS.surface,
+  borderRadius: 18,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  padding: 16,
+  marginTop: 12,
+},
+paypalDetailTop: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+paypalStatusRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginTop: 14,
+  paddingTop: 14,
+  borderTopWidth: 1,
+  borderTopColor: COLORS.faint,
+},
+paypalStatusDot: {
+  width: 9,
+  height: 9,
+  borderRadius: 5,
+  marginRight: 8,
+},
+paypalStatusText: {
+  color: COLORS.muted,
+  fontSize: 13,
+  fontWeight: '800',
+},
+paypalHint: {
+  color: COLORS.muted,
+  fontSize: 12,
+  lineHeight: 18,
+  marginTop: 12,
+  marginBottom: 18,
+},
+paypalDangerButton: {
+  height: 48,
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: COLORS.danger,
+  backgroundColor: COLORS.surface,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+paypalDangerButtonText: {
+  color: COLORS.danger,
+  fontSize: 14,
+  fontWeight: '900',
+},
+paypalLinkButton: {
+  height: 48,
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: COLORS.blue,
+  backgroundColor: COLORS.surface,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+paypalLinkButtonText: {
+  color: COLORS.blue,
+  fontSize: 14,
+  fontWeight: '900',
+},
+paypalEmailText: {
+  color: COLORS.muted,
+  fontSize: 12,
+  marginTop: 2,
+  marginBottom: 3,
+},
 });
 
 const toastStyles = StyleSheet.create({

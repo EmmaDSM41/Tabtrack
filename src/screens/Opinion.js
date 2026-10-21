@@ -63,6 +63,17 @@ export default function OpinionScreen({ navigation, route }) {
   const bannerFromVisit = visit?.bannerImage ?? visit?.banner ?? null;
   const restaurantLogoFromVisit = visit?.restaurantImage ?? visit?.restaurantImageUri ?? visit?.logo ?? null;
 
+    useEffect(() => {
+    console.log('[ENCUESTA] Opinion abierta con:', {
+      restauranteId,
+      sucursalId,
+      saleId,
+      visit_id: visit?.id,
+      visit_sale_id: visit?.sale_id,
+      visit_venta_id: visit?.venta_id,
+    });
+  }, [restauranteId, sucursalId, saleId]);
+
   useEffect(() => {
     setNotifications(sampleNotifications);
   }, []);
@@ -93,9 +104,7 @@ export default function OpinionScreen({ navigation, route }) {
     };
   }, []);
 
-  // ----------------------------------------------------------------
-
-  // Cargar encuestas activas para la sucursal/restaurante
+  
   useEffect(() => {
     (async () => {
       if (!restauranteId || !sucursalId) {
@@ -163,6 +172,7 @@ export default function OpinionScreen({ navigation, route }) {
               const repUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/encuestas/${encodeURIComponent(encuestaId)}/reportes?usuario_app_id=${encodeURIComponent(userId)}&sale_id=${encodeURIComponent(saleId)}&sucursal_id=${encodeURIComponent(sucursalId)}`;
 
               try {
+                console.log('[ENCUESTA] GET reporte:', repUrl);
                 const repRes = await fetch(repUrl, {
                   method: 'GET',
                   headers: {
@@ -171,6 +181,7 @@ export default function OpinionScreen({ navigation, route }) {
                     ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
                   },
                 });
+                console.log('[ENCUESTA] GET reporte status:', repRes.status);
 
                 if (!repRes.ok) {
                   console.warn('OpinionScreen: fetch reportes failed', repRes.status, encuestaId);
@@ -178,6 +189,7 @@ export default function OpinionScreen({ navigation, route }) {
                 }
 
                 const repJson = await repRes.json();
+                console.log('[ENCUESTA] GET reporte respuesta:', JSON.stringify(repJson));
 
                 // Normalizar posibles estructuras (igual que antes):
                 let reps = null;
@@ -366,6 +378,8 @@ export default function OpinionScreen({ navigation, route }) {
 
         await ensureToken();
         const url = `${API_BASE_URL.replace(/\/$/, '')}/api/encuestas/${encodeURIComponent(encuestaId)}/respuestas`;
+        console.log('[ENCUESTA] POST url:', url);
+        console.log('[ENCUESTA] POST payload:', JSON.stringify(payload));
         try {
           const res = await fetch(url, {
             method: 'POST',
@@ -376,6 +390,12 @@ export default function OpinionScreen({ navigation, route }) {
             },
             body: JSON.stringify(payload),
           });
+          try {
+            const bodyText = await res.clone().text();
+            console.log('[ENCUESTA] POST status:', res.status, '| respuesta:', bodyText);
+          } catch (e) {
+            console.log('[ENCUESTA] No pude leer el cuerpo del POST:', e?.message ?? e);
+          }
 
           if (!res.ok) {
             const text = await res.text().catch(() => null);

@@ -41,12 +41,17 @@ const API_HOST_CONST = 'https://api.tab-track.com';
 const DEFAULT_RESTAURANT = require('../../assets/images/restaurante.jpeg');
 const TABTRACK_LOGO = require('../../assets/images/logo2.png');
 
-const FIXED_STRIPE_PUBLISHABLE_KEY = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
+const STRIPE_PUBLISHABLE_KEY_LIVE = 'pk_live_51RJbpJHY4nBZ3Z66AgxDQFMOal1S61ONJQiBSvGhusEoILNxOCtfxteyClWuT3mkvmnx0RQZPdNmUPc6UuhveWzI002sVsd4if';
+const STRIPE_PUBLISHABLE_KEY_SANDBOX = 'pk_test_51RJbpaQaBqb9H2oSU1iY1gSZnZDsZmda42KJkP4d4Ta3RVyte3lcmyzC4WsoHfYJewiuOsef4tdeaIaqBUJbqtDL00K6T8g3bt';
 
+const USER_ENVIRONMENT_KEY = 'user_environment';
+const normalizeEnvironment = (v) => {
+  const e = String(v ?? '').toLowerCase().trim();
+  return e === 'sandbox' || e === 'test' ? 'sandbox' : 'live';
+};
 const MIN_IOS_VERSION_FOR_APPLE_PAY = 10;
 
-const PAYMENT_METHODS_ENVIRONMENT = 'sandbox';
-
+ 
 const COLORS = {
   bg: '#ffffff',
   surface: '#ffffff',
@@ -143,6 +148,10 @@ export default function PaymentMarketplace() {
   const apiHost = params.api_host ?? API_HOST_CONST;
   const apiToken = params.api_token ?? TOKEN ?? '';
   const environment = params.environment ?? 'sandbox';
+  const [paymentEnvironment, setPaymentEnvironment] = useState(null);
+  const PAYMENT_METHODS_ENVIRONMENT = paymentEnvironment ?? 'live';
+  const FIXED_STRIPE_PUBLISHABLE_KEY =
+  PAYMENT_METHODS_ENVIRONMENT === 'sandbox' ? STRIPE_PUBLISHABLE_KEY_SANDBOX : STRIPE_PUBLISHABLE_KEY_LIVE;
 
   const sucursal_id = params.sucursal_id ?? params.sucursalId ?? params.sucursal ?? null;
   const restaurante_id = params.restaurante_id ?? params.restauranteId ?? params.restaurante ?? null;
@@ -458,12 +467,16 @@ export default function PaymentMarketplace() {
         const nombre = await AsyncStorage.getItem(AS_KEYS.USER_NOMBRE);
         const apellido = await AsyncStorage.getItem(AS_KEYS.USER_APELLIDO);
         const userId = await AsyncStorage.getItem(AS_KEYS.USER_USUARIO_APP_ID);
+        const envStored = await AsyncStorage.getItem(USER_ENVIRONMENT_KEY);
         const name = full || `${nombre ?? ''} ${apellido ?? ''}`.trim();
         if (!mounted) return;
+        setPaymentEnvironment(normalizeEnvironment(envStored));
         if (!userEmail && email) setUserEmail(email);
         if (!userFullname && name) setUserFullname(name);
         if (!usuarioAppId && userId) setUsuarioAppId(userId);
-      } catch (err) { console.warn('PaymentMarketplace AsyncStorage error', err); }
+      } catch (err) { console.warn('PaymentMarketplace AsyncStorage error', err);
+        if (mounted) setPaymentEnvironment('live');
+       }
     })();
     return () => { mounted = false; };
   }, []);
@@ -550,20 +563,20 @@ export default function PaymentMarketplace() {
     } finally {
       setLoadingMethods(false);
     }
-  }, [buildPaymentMethodsUrl, getAuthHeaders, loadRestaurantPayments, restaurante_id, resolveUsuarioAppId, showToast, applePayDeviceSupported]);
+  }, [buildPaymentMethodsUrl, getAuthHeaders, loadRestaurantPayments, restaurante_id, resolveUsuarioAppId, showToast, applePayDeviceSupported, PAYMENT_METHODS_ENVIRONMENT]);
 
   useEffect(() => {
-    if (usuarioAppId) loadMarketplaceMethods();
-  }, [usuarioAppId, loadMarketplaceMethods]);
+    if (usuarioAppId && paymentEnvironment) loadMarketplaceMethods();
+  }, [usuarioAppId, paymentEnvironment, loadMarketplaceMethods]);
 
   useEffect(() => {
     const unsub = navigation.addListener?.('focus', () => {
-      if (usuarioAppId) loadMarketplaceMethods();
+      if (usuarioAppId && paymentEnvironment) loadMarketplaceMethods();
     });
     return () => {
       try { if (typeof unsub === 'function') unsub(); } catch (e) { }
     };
-  }, [navigation, usuarioAppId, loadMarketplaceMethods]);
+  }, [navigation, usuarioAppId, paymentEnvironment, loadMarketplaceMethods]);
 
   useEffect(() => {
     return () => {

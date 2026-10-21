@@ -113,8 +113,7 @@ export default function Propina() {
   const effectiveTipAmount = (comingFromEqualSplit && peopleCount > 1) ? perPersonTipAmount : groupTipAmount;
   const effectiveTotalWithTip = (comingFromEqualSplit && peopleCount > 1) ? perPersonTotalWithTip : groupTotalWithTip;
 
-  const todayString = new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
-
+const todayString = new Date().toLocaleDateString('es-MX') + ' ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });  
   const extraMeta = {
     mesa_id, mesa_numero, sucursal_id, restaurante_id, sale_id, total_comensales, fecha_apertura, moneda, mesero,
   };
