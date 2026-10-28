@@ -1,3 +1,6 @@
+// ESTE ES EL CODIGO QUE VAS A COPIAR PARA EL NUEVO ARCHIVO QUE TE DIJE QUE CREARAS EN LA SIGUIENTE RUTA: src/components/AppGradientHeader.js
+//AppGradientHeader.js es el nombre que le vas a poner al archivo
+
 import React from 'react';
 import { View, Text, Image, useWindowDimensions } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -116,4 +119,223 @@ export function HeaderTotal({ label = 'Total', amountStr, currency = 'MXN', line
 }
 
 
+// HASTA AQUI TERMINA EL CODIGO
+// LUEGO VAS A HACER LO SIGUIENTE
+
+// EN TODOS LOS ARCHIVOS VAS A IMPORTAR LO SIGUIENTE, HASTA ARRIBA JUNTO A LOS DEMAS INPORTS, EN LAS PANTALLAS DE CONSUMO, ESCANEAR, DIVIDIR, EQUALSPLIT, PROPINA Y PAYMENT
+
+import { AppGradientHeader, HeaderTotal } from '../components/AppGradientHeader';
+
+//1) PANTALLA DE CONSUMO
+
+//Busca el bloque que empieza con:
+
+<LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.headerGradient}>
+{/* // y termina con el  */}
+</LinearGradient> 
+ // justo antes de View style={styles.content}>
+
+//Bórralo completo y pon:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImage}>
+  <HeaderTotal
+    amountStr={totalStr}
+    line1="Items seleccionados"
+    line2={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+  />
+</AppGradientHeader>
+
+//Un cambio extra: en makeStyles, dentro de container, quita paddingTop: Math.round(hp(1)):
+
+js
+// ANTES
+container: { alignItems: 'center', paddingBottom: Math.round(hp(3) + (insets?.bottom ?? 0)), paddingTop: Math.round(hp(1)) },
+// DESPUÉS
+container: { alignItems: 'center', paddingBottom: Math.round(hp(3) + (insets?.bottom ?? 0)) },
+
+//Escanear no tiene ese espacio, y si lo dejas el degradado queda más abajo que en Escanear.
+
+//2) PANTALLA DE DIVIDIR
+
+//Busca el bloque que empieza con:
+
+jsx
+<LinearGradient
+  colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+  start={{ x: 0, y: 0.5 }}
+  end={{ x: 1, y: 0.0 }}
+  locations={[0, 0.45, 1]}
+  style={[styles.headerGradient, { paddingHorizontal: Math.max(sidePad, wp(4)), ...
+
+//y termina con el 
+</LinearGradient> 
+//justo antes de <View style={[styles.whiteContent, { width: whiteContentWidth }]}>.
+//
+//Bórralo completo y pon:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImage}>
+  <Text style={styles.divideTitle}>{'Selecciona\ntus productos'}</Text>
+  {!hideEqualButtonFlag && (
+    <TouchableOpacity
+      style={styles.ghostButton}
+      onPress={handlePartesIguales}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Text style={styles.ghostButtonText}>Partes iguales</Text>
+    </TouchableOpacity>
+  )}
+</AppGradientHeader>
+
+//En makeStyles cambia solo estos dos estilos (para que se alineen a la derecha dentro de la columna):
+
+divideTitle:
+
+js
+divideTitle: { color: '#fff', fontSize: Math.round(clamp(rf(6.6), 16, 28)), fontWeight: '900', lineHeight: Math.round(clamp(rf(7.8), 20, 34)), marginBottom: Math.round(hp(1)), textAlign: 'right' },
+
+ghostButton:
+
+js
+ghostButton: { alignSelf: 'flex-end', borderWidth: 1.6, borderColor: 'rgba(255,255,255,0.6)', paddingVertical: Math.round(hp(1.2)), paddingHorizontal: Math.round(wp(4)), borderRadius: Math.round(wp(2)) },
+
+//Un cambio extra: en container quita paddingTop: Math.round(hp(1)):
+
+js
+// ANTES
+container: { alignItems: 'center', paddingTop: Math.round(hp(1)), paddingBottom: Math.round(hp(3) + bottomSafe) },
+// DESPUÉS
+container: { alignItems: 'center', paddingBottom: Math.round(hp(3) + bottomSafe) },
+
+
+//3) PANTALLA DE EQUALSPLIT
+
+//Busca el bloque que empieza con:
+
+jsx
+<LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: headerGradientPaddingH }]}>
+
+//y termina con el 
+</LinearGradient> 
+//justo antes de <View style={[styles.content, { width: contentWidth }]}>.
+
+//Bórralo completo y pon:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImage}>
+  <HeaderTotal
+    amountStr={totalStr}
+    line1="Se divide entre"
+    line2={`${people} ${people === 1 ? 'persona' : 'personas'}`}
+    line2Right={
+      <TouchableOpacity
+        onPress={handleEditPeoplePress}
+        activeOpacity={0.9}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={[styles.editPeopleButton, equalsSplitPaid && styles.editPeopleButtonDisabled]}
+      >
+        <Text style={[styles.editPeopleButtonText, equalsSplitPaid && styles.editPeopleButtonTextDisabled]}>
+          Editar
+        </Text>
+      </TouchableOpacity>
+    }
+  />
+</AppGradientHeader>
+
+
+//4) PANTALLA DE ESCANEAR
+
+//Busca el bloque dentro del ScrollView que empieza con:
+
+jsx
+<LinearGradient colors={['#9F4CFF', '#6A43FF', '#2C7DFF']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} locations={[0, 0.45, 1]} style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), ...
+
+
+//y termina con el 
 // 
+</LinearGradient> 
+//justo antes de <View style={[styles.contentPlain, ....
+
+//Bórralo completo y pon:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImageUri}>
+  <HeaderTotal
+    amountStr={formatMoney(totalConsumo, moneda)}
+    currency={moneda ?? 'MXN'}
+    line1="¡Gracias por tu visita!"
+  />
+</AppGradientHeader>
+
+
+//5) PANTALLA DE PROPINA
+
+//Busca el bloque que empieza con:
+
+jsx
+<LinearGradient
+  colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+  start={{ x: 0, y: 1 }}
+  end={{ x: 1, y: 0 }}
+  style={[styles.headerGradient, { paddingHorizontal: Math.max(14, basePadding), ...
+
+//y termina con el 
+// 
+</LinearGradient> 
+//justo antes de <View style={[styles.content, { width: contentMaxWidth, .... Dentro de ese bloque hay una línea comentada con totalLabel, que se va con el bloque.
+
+//Bórralo completo y pon:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImage}>
+  <HeaderTotal
+    amountStr={formatMoney(effectiveTotalWithTip)}
+    currency={moneda ?? 'MXN'}
+    line1="¡Gracias por tu propina!"
+    line2={`${normalizedItems.length} ${normalizedItems.length === 1 ? 'item' : 'items'}`}
+  />
+</AppGradientHeader>
+
+
+
+//PANTALLA DE PAYMENTSCREEN
+
+//2) Busca este bloque dentro de renderCheckoutScreen
+
+//Empieza con:
+
+jsx
+<LinearGradient
+  colors={['#9F4CFF', '#6A43FF', '#2C7DFF']}
+  start={{ x: 0, y: 1 }}
+  end={{ x: 1, y: 0 }}
+  locations={[0, 0.45, 1]}
+  style={[styles.headerGradient, { paddingHorizontal: Math.max(14, wp(5)), ...
+
+//Termina con el 
+// 
+</LinearGradient>
+//que está justo antes de:
+
+jsx
+<View style={{ paddingHorizontal: pagePadding }}>
+  <View style={styles.securityLine}>
+
+//</View>Bórralo completo (de <LinearGradient a </LinearGradient>) y pon en su lugar:
+
+jsx
+<AppGradientHeader restaurantImage={restaurantImage}>
+  <HeaderTotal
+    amountStr={formatMoney(displayAmount)}
+    currency={moneda ?? 'MXN'}
+    line1="¡Gracias por tu visita!"
+    line2={`${items.length} ${items.length === 1 ? 'item' : 'items'} · Propina ${formatMoney(displayCharge.tipAmount)} ${moneda}`}
+  />
+</AppGradientHeader>
+
+No toques el otro <LinearGradient> que está más abajo (el del botón, con styles.primaryButtonGradient).
+
+
+
+
