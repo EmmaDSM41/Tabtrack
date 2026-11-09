@@ -1,118 +1,159 @@
-// EN LA PANTALLA DE RESTAURANTDETAILSCREEN VAS A BUSCAR LA FUNCION:
+// CAMBIOS EN PANTALLA DIVIDIR :
 
-toggleFavorite
+// VAS A BUSCAR ESTA FUNCION  : 
+function getOriginalRaw(it) {
+  const raw = it?.raw ?? {};
+  return raw?.raw ?? raw ?? {};
+}
 
-// Y DENTRO DE ESA FUNCION ESTA EL ELSE  QUE ES ESTE Y TIENE ESTE CONTENIDO
+// DEBAJO DE ESA FUNCION VAS A AGREGAR ESTO :
+function isCanceledItem(raw) {
+  const inner = raw?.raw ?? {};
+  const flags = [
+    raw?.canceled, raw?.cancelado, raw?.is_canceled,
+    inner?.canceled, inner?.cancelado, inner?.is_canceled,
+  ];
+  const truthy = (f) => f === true || f === 1 || String(f).toLowerCase() === 'true' || f === '1';
+  if (flags.some(truthy)) return true;
 
-const preview = {
-  id: String(sid),
-  name: data?.nombre ?? data?.name ?? `Sucursal ${sid}`,
-  image_url: data?.imagen_logo_url ?? data?.imagen_banner_url ?? data?.image_url ?? null,
-  avg_rating: data?.avg_rating ?? null,
-  address: data?.direccion ?? data?.address ?? '',
-  type: 'branch',
-  raw: data ?? {},
+  const estados = [raw?.estado, raw?.status, inner?.estado, inner?.status]
+    .map((v) => String(v ?? '').toLowerCase());
+  return estados.some((s) => s.includes('cancel'));
+}
+
+// LUGO VAS A BUSCAR ESTA FUNCION  :
+const normalizeItem =
+
+// Y EN EL RETURN DE ESA FUNCION  VAS A AGREGAR ESTO :
+
+canceled: isCanceledItem(raw), 
+
+// TE DEBE DE QUEDAR ASI COMPLETO: 
+
+return {
+  id: String(id),
+  uid: `${id}#${fallbackId ?? String(Math.random()).slice(2, 9)}`,
+  name,
+  price: +price.toFixed(2),
+  qty,
+  checked: false,
+  locked: !!locked,
+  canceled: isCanceledItem(raw),   // <-- NUEVO
+  paidInfo,
+  raw,
 };
 
-// VAS A CAMBIAR ESE POR ESTE CONTENIDO DENTRO DEL ELSE
+// LUEGO VAS A BUSCAR ESTA FUNCION LLAMADA LOAD:
+
+const load = async () => {
+
+// VAS A BUSCAR ESTA PARTE 
+
+const mapped = incomingItems
+  .map((it, i) => normalizeItem(it, i))
+
+  // AHI VAS A GREGAR  ESTO  DEBAJO: 
+
+    .filter((it) => !it.canceled);
 
 
-const restName = restaurantNameParam ?? displayRestaurantName ?? '';
-const branchName = branchNameParam ?? data?.nombre ?? data?.name ?? '';
-const combinedName = restName
-  ? (branchName ? `${restName} - ${branchName}` : restName)
-  : (branchName || `Sucursal ${sid}`);
+//DEBERIA DE QUEDARTE ASI COMPLETA: 
 
-const banner = data?.imagen_banner_url ?? data?.raw?.imagen_banner_url ?? data?.imagen_banner ?? null;
-const logo = data?.imagen_logo_url ?? data?.raw?.imagen_logo_url ?? data?.imagen_logo ?? data?.logo ?? null;
+const mapped = incomingItems
+  .map((it, i) => normalizeItem(it, i))
+  .filter((it) => !it.canceled);
 
-const preview = {
-  ...(data ?? {}),
-  id: String(sid),
-  restaurante_id: data?.restaurante_id ?? data?.raw?.restaurante_id ?? restauranteIdParam ?? null,
-  name: combinedName,
-  image: banner ?? logo ?? data?.image ?? null,
-  imagen_banner_url: banner,
-  imagen_logo_url: logo,
-  avg_rating: data?.avg_rating ?? null,
-  address: data?.direccion ?? data?.address ?? '',
-  short_description: data?.short_description ?? data?.descripcion ?? null,
-  full_description: data?.full_description ?? data?.descripcion ?? null,
-  raw: data?.raw ?? data ?? {},
-  _saved_at: Date.now(),
+// VAS A AGREGAR LO MISMO EN ESTA OTRA 
+
+const mapped = (Array.isArray(rawItems) ? rawItems : [])
+  .map((it, i) => normalizeItem(it, i))
+
+// TE QUEDARIA ASI COMPLETA:
+
+const mapped = (Array.isArray(rawItems) ? rawItems : [])
+  .map((it, i) => normalizeItem(it, i))
+  .filter((it) => !it.canceled);
+
+
+
+
+// CAMBIOS EN PANTALLA EXPERIENCESRESIDENCE:
+
+//DESPUES DE ESTA LINEA :
+
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+// VAS A AGREGAR ESTO :
+
+const isCanceledItem = (it) => {
+  if (!it) return false;
+  const truthy = (f) => f === true || f === 1 || String(f).toLowerCase() === 'true' || f === '1';
+  if (truthy(it.canceled) || truthy(it.cancelado) || truthy(it.is_canceled)) return true;
+  const estado = String(it.estado ?? it.status ?? '').toLowerCase();
+  return estado.includes('cancel');
 };
 
 
-//LA FUNCION COMPLETA SE VERIA ASI:
+//LUEGO VAS A BUSCAR ESTO : 
 
-  const toggleFavorite = async () => {
-    try {
-      const sid = String(idParam ?? data?.id ?? data?.restaurante_id ?? '');
-      if (!sid) { showToast('No se pudo actualizar favoritos'); return; }
+const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
+  (Array.isArray(c.items) ? c.items : []);
 
-      const favKey = await userFavoritesKey();
-      const favObjsKey = await userFavoritesObjsKey();
+// Y LO VAS A CAMBIAR POR ESTE:
 
-      const rawIds = await AsyncStorage.getItem(favKey);
-      let ids = rawIds ? JSON.parse(rawIds) : null;
-      if (!Array.isArray(ids)) {
-        const globalRaw = await AsyncStorage.getItem(GLOBAL_FAVORITES_KEY);
-        ids = globalRaw ? JSON.parse(globalRaw) : [];
-      }
+const itemsRaw = ((detail && Array.isArray(detail.items)) ? detail.items :
+  (Array.isArray(c.items) ? c.items : [])
+).filter((it) => !isCanceledItem(it));
 
-      const rawObjs = await AsyncStorage.getItem(favObjsKey);
-      let objs = rawObjs ? JSON.parse(rawObjs) : null;
-      if (!Array.isArray(objs)) {
-        const globalObjsRaw = await AsyncStorage.getItem(GLOBAL_FAVORITES_OBJS_KEY);
-        objs = globalObjsRaw ? JSON.parse(globalObjsRaw) : [];
-      }
 
-      let newIds = Array.isArray(ids) ? [...ids] : [];
-      let newObjs = Array.isArray(objs) ? [...objs] : [];
 
-      if (newIds.includes(sid)) {
-        newIds = newIds.filter(x => String(x) !== sid);
-        newObjs = newObjs.filter(o => String(o.id) !== sid);
-        await AsyncStorage.setItem(favKey, JSON.stringify(newIds));
-        await AsyncStorage.setItem(favObjsKey, JSON.stringify(newObjs));
-        setIsFavorite(false);
-        showToastWithAction('Eliminado de favoritos');
-      } else {
-        const restName = restaurantNameParam ?? displayRestaurantName ?? '';
-        const branchName = branchNameParam ?? data?.nombre ?? data?.name ?? '';
-        const combinedName = restName
-          ? (branchName ? `${restName} - ${branchName}` : restName)
-          : (branchName || `Sucursal ${sid}`);
+// CAMBIOS EN PANTALLA EQUALSPLIT:
 
-        const banner = data?.imagen_banner_url ?? data?.raw?.imagen_banner_url ?? data?.imagen_banner ?? null;
-        const logo = data?.imagen_logo_url ?? data?.raw?.imagen_logo_url ?? data?.imagen_logo ?? data?.logo ?? null;
+// VAS A BUSCAR ESTA FUNCION  :
 
-        const preview = {
-          ...(data ?? {}),
-          id: String(sid),
-          restaurante_id: data?.restaurante_id ?? data?.raw?.restaurante_id ?? restauranteIdParam ?? null,
-          name: combinedName,
-          image: banner ?? logo ?? data?.image ?? null,
-          imagen_banner_url: banner,
-          imagen_logo_url: logo,
-          avg_rating: data?.avg_rating ?? null,
-          address: data?.direccion ?? data?.address ?? '',
-          short_description: data?.short_description ?? data?.descripcion ?? null,
-          full_description: data?.full_description ?? data?.descripcion ?? null,
-          raw: data?.raw ?? data ?? {},
-          _saved_at: Date.now(),
-        };
-      
-      newObjs = [...newObjs.filter(o => String(o.id) !== sid), preview];
-      newIds = [...newIds.filter(x => String(x) !== sid), sid];
+const splitAmountByIndex =
 
-      await AsyncStorage.setItem(favKey, JSON.stringify(newIds));
-      await AsyncStorage.setItem(favObjsKey, JSON.stringify(newObjs));
-      setIsFavorite(true);
-      showToastWithAction('Agregado a favoritos');
-    }
-    } catch (e) {
-    console.warn("toggleFavorite error", e);
-    _showToast('Error al actualizar favoritos', 'simple');
-  }
+// DESPUES DE DONDE TERMINA ESA FUNCION VAS A PEGAR ESTO : 
+
+const isCanceledItem = (it) => {
+  if (!it) return false;
+  const truthy = (f) => f === true || f === 1 || f === '1' || String(f).toLowerCase() === 'true';
+  const inner = it.raw ?? {};
+  if (
+    truthy(it.canceled) || truthy(it.cancelado) || truthy(it.is_canceled) ||
+    truthy(inner.canceled) || truthy(inner.cancelado) || truthy(inner.is_canceled)
+  ) return true;
+  const estados = [it.estado, it.status, inner.estado, inner.status]
+    .map((v) => String(v ?? '').toLowerCase());
+  return estados.some((s) => s.includes('cancel'));
 };
+
+// LUEGO BUSCA :
+
+const [items, setItems] = useState(passedItems ?? null);
+
+// Y CAMBIALO POR ESTO:
+
+const [items, setItems] = useState(
+  Array.isArray(passedItems) ? passedItems.filter((it) => !isCanceledItem(it)) : (passedItems ?? null)
+);
+
+// LUEGO BUSCA ESTO:
+
+const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
+
+
+// REMPLAZALO POR ESTO:
+
+const mapped = (Array.isArray(rawItems) ? rawItems : [])
+  .map((it, i) => normalizeItem(it, i))
+  .filter((it) => !isCanceledItem(it));
+
+
+//POR ULTIMO BUSCA ESTO: 
+
+return { id: String(id), name, price, qty, raw };
+
+//Y CAMBIALO POR ESTO :
+
+return { id: String(id), name, price, qty, canceled: isCanceledItem(raw), raw };
