@@ -1,159 +1,71 @@
-// CAMBIOS EN PANTALLA DIVIDIR :
+// CAMBIOS ITEMS
 
-// VAS A BUSCAR ESTA FUNCION  : 
-function getOriginalRaw(it) {
-  const raw = it?.raw ?? {};
-  return raw?.raw ?? raw ?? {};
+// EN LA PANTALLA DE ESCANEAR BUSCA ESTE BLOQUE
+
+const reportedTotalFromJson = safeNum(json.total_consumo ?? json.total ?? json.totales_venta?.total_neto ?? json.totales_venta?.total_neto ?? 0);
+const sumPrecioFieldNoQty = rawItems.reduce((s, it) => {
+  return s + safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
+}, 0);
+
+const discountAmountForHeuristic = safeNum(
+  json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0
+);
+const reportedTotalBeforeDiscount = reportedTotalFromJson + discountAmountForHeuristic;
+
+const EPS = 0.5;
+const precioItemRepresentaTotalDeLinea = (reportedTotalBeforeDiscount > 0) && (Math.abs(sumPrecioFieldNoQty - reportedTotalBeforeDiscount) <= EPS);
+
+
+// LO VAS A CAMBIAR POR ESTE 
+
+const reportedTotalFromJson = safeNum(json.total_consumo ?? json.total ?? json.totales_venta?.total_neto ?? 0);
+
+const discountAmountForHeuristic = safeNum(
+  json?.descuentos_venta?.monto_total ?? json?.totales_venta?.total_descuentos ?? 0
+);
+const reportedTotalBeforeDiscount = reportedTotalFromJson + discountAmountForHeuristic;
+
+const isCanceledRaw = (it) => !!it.canceled || !!it.cancelado;
+const priceOfRaw = (it) => safeNum(it.precio_item ?? it.precio ?? it.price ?? it.precio_unitario ?? 0);
+const qtyOfRaw = (it) => Math.max(1, safeNum(it.cantidad ?? it.qty ?? 1));
+
+// Solo items NO cancelados, porque el total del API no incluye los cancelados
+const activeRaw = rawItems.filter((it) => !isCanceledRaw(it));
+const sumAsLineTotal = activeRaw.reduce((s, it) => s + priceOfRaw(it), 0);
+const sumAsUnitPrice = activeRaw.reduce((s, it) => s + priceOfRaw(it) * qtyOfRaw(it), 0);
+
+// Por defecto: el API manda el total de la línea (60 = 3 x 20).
+// Si hay total de referencia, elegimos la interpretación que más se le acerque.
+let precioItemRepresentaTotalDeLinea = true;
+if (reportedTotalBeforeDiscount > 0) {
+  precioItemRepresentaTotalDeLinea =
+    Math.abs(sumAsLineTotal - reportedTotalBeforeDiscount) <=
+    Math.abs(sumAsUnitPrice - reportedTotalBeforeDiscount);
 }
 
-// DEBAJO DE ESA FUNCION VAS A AGREGAR ESTO :
-function isCanceledItem(raw) {
-  const inner = raw?.raw ?? {};
-  const flags = [
-    raw?.canceled, raw?.cancelado, raw?.is_canceled,
-    inner?.canceled, inner?.cancelado, inner?.is_canceled,
-  ];
-  const truthy = (f) => f === true || f === 1 || String(f).toLowerCase() === 'true' || f === '1';
-  if (flags.some(truthy)) return true;
 
-  const estados = [raw?.estado, raw?.status, inner?.estado, inner?.status]
-    .map((v) => String(v ?? '').toLowerCase());
-  return estados.some((s) => s.includes('cancel'));
-}
+// EN ESA MISMA PANTALLA VAS A BUSCAR ESTE
 
-// LUGO VAS A BUSCAR ESTA FUNCION  :
-const normalizeItem =
+const paramsToSend = {
 
-// Y EN EL RETURN DE ESA FUNCION  VAS A AGREGAR ESTO :
+//JUSTO ARRIBA DE ESO PONES LO SIGUIENTE:
 
-canceled: isCanceledItem(raw), 
-
-// TE DEBE DE QUEDAR ASI COMPLETO: 
-
-return {
-  id: String(id),
-  uid: `${id}#${fallbackId ?? String(Math.random()).slice(2, 9)}`,
-  name,
-  price: +price.toFixed(2),
-  qty,
-  checked: false,
-  locked: !!locked,
-  canceled: isCanceledItem(raw),   // <-- NUEVO
-  paidInfo,
-  raw,
-};
-
-// LUEGO VAS A BUSCAR ESTA FUNCION LLAMADA LOAD:
-
-const load = async () => {
-
-// VAS A BUSCAR ESTA PARTE 
-
-const mapped = incomingItems
-  .map((it, i) => normalizeItem(it, i))
-
-  // AHI VAS A GREGAR  ESTO  DEBAJO: 
-
-    .filter((it) => !it.canceled);
+const activeItems = (items || []).filter((it) => !it.canceled);
 
 
-//DEBERIA DE QUEDARTE ASI COMPLETA: 
+// Y dentro de paramsToSend, cambia:
 
-const mapped = incomingItems
-  .map((it, i) => normalizeItem(it, i))
-  .filter((it) => !it.canceled);
+items,
 
-// VAS A AGREGAR LO MISMO EN ESTA OTRA 
+// POR
 
-const mapped = (Array.isArray(rawItems) ? rawItems : [])
-  .map((it, i) => normalizeItem(it, i))
+items: activeItems,
 
-// TE QUEDARIA ASI COMPLETA:
+//LUEGO BUSCA :
 
-const mapped = (Array.isArray(rawItems) ? rawItems : [])
-  .map((it, i) => normalizeItem(it, i))
-  .filter((it) => !it.canceled);
-
-
-
-
-// CAMBIOS EN PANTALLA EXPERIENCESRESIDENCE:
-
-//DESPUES DE ESTA LINEA :
-
-const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-// VAS A AGREGAR ESTO :
-
-const isCanceledItem = (it) => {
-  if (!it) return false;
-  const truthy = (f) => f === true || f === 1 || String(f).toLowerCase() === 'true' || f === '1';
-  if (truthy(it.canceled) || truthy(it.cancelado) || truthy(it.is_canceled)) return true;
-  const estado = String(it.estado ?? it.status ?? '').toLowerCase();
-  return estado.includes('cancel');
-};
-
-
-//LUEGO VAS A BUSCAR ESTO : 
-
-const itemsRaw = (detail && Array.isArray(detail.items)) ? detail.items :
-  (Array.isArray(c.items) ? c.items : []);
-
-// Y LO VAS A CAMBIAR POR ESTE:
-
-const itemsRaw = ((detail && Array.isArray(detail.items)) ? detail.items :
-  (Array.isArray(c.items) ? c.items : [])
-).filter((it) => !isCanceledItem(it));
-
-
-
-// CAMBIOS EN PANTALLA EQUALSPLIT:
-
-// VAS A BUSCAR ESTA FUNCION  :
-
-const splitAmountByIndex =
-
-// DESPUES DE DONDE TERMINA ESA FUNCION VAS A PEGAR ESTO : 
-
-const isCanceledItem = (it) => {
-  if (!it) return false;
-  const truthy = (f) => f === true || f === 1 || f === '1' || String(f).toLowerCase() === 'true';
-  const inner = it.raw ?? {};
-  if (
-    truthy(it.canceled) || truthy(it.cancelado) || truthy(it.is_canceled) ||
-    truthy(inner.canceled) || truthy(inner.cancelado) || truthy(inner.is_canceled)
-  ) return true;
-  const estados = [it.estado, it.status, inner.estado, inner.status]
-    .map((v) => String(v ?? '').toLowerCase());
-  return estados.some((s) => s.includes('cancel'));
-};
-
-// LUEGO BUSCA :
-
-const [items, setItems] = useState(passedItems ?? null);
+const normalizedItemsForEqual = (items || []).map(it => {
 
 // Y CAMBIALO POR ESTO:
 
-const [items, setItems] = useState(
-  Array.isArray(passedItems) ? passedItems.filter((it) => !isCanceledItem(it)) : (passedItems ?? null)
-);
+const normalizedItemsForEqual = (items || []).filter((it) => !it.canceled).map(it => {
 
-// LUEGO BUSCA ESTO:
-
-const mapped = (Array.isArray(rawItems ? rawItems : []) ? rawItems : []).map((it, i) => normalizeItem(it, i));
-
-
-// REMPLAZALO POR ESTO:
-
-const mapped = (Array.isArray(rawItems) ? rawItems : [])
-  .map((it, i) => normalizeItem(it, i))
-  .filter((it) => !isCanceledItem(it));
-
-
-//POR ULTIMO BUSCA ESTO: 
-
-return { id: String(id), name, price, qty, raw };
-
-//Y CAMBIALO POR ESTO :
-
-return { id: String(id), name, price, qty, canceled: isCanceledItem(raw), raw };
